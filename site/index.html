@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f7f4" />
+    <title>Calendar</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <header class="topbar">
+        <div class="brand-row">
+          <button class="brand" data-view="tasks" aria-label="Open tasks">Calendar</button>
+          <nav class="primary-nav" aria-label="Primary">
+            <button class="nav-button active" data-view="tasks">Tasks</button>
+            <button class="nav-button" data-view="calendar">Calendar</button>
+          </nav>
+        </div>
+        <div class="top-actions">
+          <label class="search-box">
+            <span aria-hidden="true">⌕</span>
+            <input id="search" type="search" placeholder="Search tasks" autocomplete="off" />
+          </label>
+          <button id="new-item" class="primary-button">New</button>
+          <button id="menu-button" class="icon-button" popovertarget="data-menu" aria-label="Data menu">⋮</button>
+          <div id="data-menu" popover class="data-menu">
+            <button id="export-data">Export backup</button>
+            <button id="import-data">Import backup</button>
+          </div>
+          <input id="import-input" type="file" accept="application/json,.json" hidden />
+        </div>
+      </header>
+
+      <main>
+        <section id="tasks-panel" class="panel tasks-panel">
+          <div class="panel-heading">
+            <div>
+              <h1>Tasks</h1>
+              <p id="task-count" class="muted">0 tasks</p>
+            </div>
+          </div>
+
+          <div id="filter-bar" class="filter-bar" aria-label="Task filters">
+            <button class="active" data-filter="now">Can do now</button>
+            <button data-filter="waiting">Waiting</button>
+            <button data-filter="due">Due soon</button>
+            <button data-filter="ongoing">Ongoing</button>
+            <button data-filter="all">All open</button>
+            <button data-filter="completed">Completed</button>
+          </div>
+
+          <div id="task-list" class="task-list"></div>
+        </section>
+
+        <section id="calendar-panel" class="panel calendar-panel" hidden>
+          <div class="calendar-toolbar">
+            <div class="month-controls">
+              <button id="prev-month" class="icon-button" aria-label="Previous month">‹</button>
+              <button id="today" class="text-button">Today</button>
+              <button id="next-month" class="icon-button" aria-label="Next month">›</button>
+            </div>
+            <h1 id="month-label"></h1>
+          </div>
+          <div id="calendar-grid" class="calendar-grid"></div>
+          <div class="calendar-legend">
+            <span><i class="legend-dot event"></i>Event</span>
+            <span><i class="legend-dot start"></i>Task start</span>
+            <span><i class="legend-dot wake"></i>Wake</span>
+            <span><i class="legend-dot latest"></i>Latest start</span>
+            <span><i class="legend-dot due"></i>Due</span>
+          </div>
+        </section>
+      </main>
+
+      <dialog id="editor-dialog" class="editor-dialog">
+        <form id="editor-form" method="dialog">
+          <div class="dialog-header">
+            <h2 id="dialog-title">New item</h2>
+            <button id="cancel-editor" type="button" class="icon-button" aria-label="Close">×</button>
+          </div>
+
+          <div class="segmented kind-switch">
+            <label><input id="kind-task" type="radio" name="kind" value="task" checked /><span>Task</span></label>
+            <label><input id="kind-event" type="radio" name="kind" value="event" /><span>Event</span></label>
+          </div>
+
+          <label class="field full">
+            <span>Title</span>
+            <input name="title" required maxlength="240" />
+          </label>
+
+          <label class="field full">
+            <span>Notes</span>
+            <textarea name="notes" rows="4"></textarea>
+          </label>
+
+          <div id="task-fields">
+            <div class="form-grid">
+              <label class="field">
+                <span>State</span>
+                <select name="taskState">
+                  <option value="open">Open</option>
+                  <option value="waiting">Waiting</option>
+                  <option value="completed">Completed</option>
+                  <option value="canceled">Canceled</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Tags</span>
+                <input name="tags" placeholder="project, errands" />
+              </label>
+              <label class="field">
+                <span>Can start</span>
+                <input name="availableFrom" type="datetime-local" />
+              </label>
+              <label class="field">
+                <span>Due</span>
+                <input name="deadline" type="datetime-local" />
+              </label>
+              <label class="field">
+                <span>Latest start</span>
+                <input name="latestStart" type="datetime-local" />
+              </label>
+              <label class="field">
+                <span>Wake / review</span>
+                <input name="wakeAt" type="datetime-local" />
+              </label>
+              <label class="field full-span">
+                <span>Attachments</span>
+                <input name="attachments" type="file" multiple />
+                <small id="existing-attachments" class="field-hint"></small>
+              </label>
+            </div>
+
+            <div class="schedule-box">
+              <label class="toggle-row">
+                <input name="scheduleEnabled" type="checkbox" />
+                <span>
+                  <strong>Recurring action window</strong>
+                  <small>The same task becomes actionable during these times until you close it.</small>
+                </span>
+              </label>
+              <div id="schedule-options" class="schedule-options disabled">
+                <div class="weekday-picks" aria-label="Action days">
+                  <label><input type="checkbox" name="scheduleDay" value="0" /><span>S</span></label>
+                  <label><input type="checkbox" name="scheduleDay" value="1" /><span>M</span></label>
+                  <label><input type="checkbox" name="scheduleDay" value="2" /><span>T</span></label>
+                  <label><input type="checkbox" name="scheduleDay" value="3" /><span>W</span></label>
+                  <label><input type="checkbox" name="scheduleDay" value="4" /><span>T</span></label>
+                  <label><input type="checkbox" name="scheduleDay" value="5" /><span>F</span></label>
+                  <label><input type="checkbox" name="scheduleDay" value="6" /><span>S</span></label>
+                </div>
+                <div class="time-pair">
+                  <label class="field"><span>From</span><input name="scheduleStart" type="time" value="08:00" /></label>
+                  <label class="field"><span>Until</span><input name="scheduleEnd" type="time" value="17:00" /></label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="event-fields" hidden>
+            <div class="form-grid">
+              <label class="field">
+                <span>Starts</span>
+                <input name="eventStart" type="datetime-local" required />
+              </label>
+              <label class="field">
+                <span>Ends</span>
+                <input name="eventEnd" type="datetime-local" />
+              </label>
+            </div>
+          </div>
+
+          <div class="dialog-actions">
+            <button id="delete-item" type="button" class="danger-button" hidden>Delete</button>
+            <div class="spacer"></div>
+            <button id="cancel-editor-bottom" type="button" class="secondary-button" onclick="document.querySelector('#editor-dialog').close()">Cancel</button>
+            <button type="submit" class="primary-button">Save</button>
+          </div>
+        </form>
+      </dialog>
+
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
