@@ -20,7 +20,6 @@ syncEventControls();
 // Re-render the active view periodically so an expired window rolls forward
 // without requiring a manual reload.
 setInterval(() => {
-  const dialog = document.querySelector("#editor-dialog");
-  if (dialog?.open) return;
+  if (document.querySelector("dialog[open]")) return;
   document.querySelector(".primary-nav .nav-button.active")?.click();
 }, 30_000);
