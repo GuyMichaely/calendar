@@ -187,6 +187,28 @@
         </form>
       </dialog>
 
+      <dialog id="sleep-dialog" class="editor-dialog sleep-dialog">
+        <form id="sleep-form" method="dialog">
+          <div class="dialog-header">
+            <div>
+              <h2>Sleep task</h2>
+              <p id="sleep-task-title" class="muted"></p>
+            </div>
+            <button id="cancel-sleep" type="button" class="icon-button" aria-label="Close">×</button>
+          </div>
+          <label class="field full">
+            <span>Sleep until</span>
+            <input id="quick-sleep-until" type="datetime-local" required />
+          </label>
+          <div class="dialog-actions">
+            <button id="sleep-indefinite" type="button" class="secondary-button">Sleep indefinitely</button>
+            <div class="spacer"></div>
+            <button type="button" class="secondary-button" onclick="document.querySelector('#sleep-dialog').close()">Cancel</button>
+            <button type="submit" class="primary-button">Sleep until</button>
+          </div>
+        </form>
+      </dialog>
+
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </div>
     <script type="module" src="./app.js"></script>
