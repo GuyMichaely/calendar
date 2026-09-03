@@ -4,6 +4,7 @@ import {
   actionability,
   availabilityStartForDate,
   isPendingOnDate,
+  nextActionableStart,
   nextAvailabilityStart,
   taskMatchesFilter,
   withinAvailabilitySchedule,
@@ -47,6 +48,11 @@ test("open task outside today's action window appears in waiting", () => {
   assert.equal(taskMatchesFilter(eveningTask, "waiting", new Date("2026-09-03T19:00:00-04:00")), false);
 });
 
+test("a woken task outside its current action window remains in waiting", () => {
+  const task = { ...eveningTask, state: "waiting", wakeAt: "2026-09-03T08:00:00-04:00" };
+  assert.equal(taskMatchesFilter(task, "waiting", new Date("2026-09-03T13:00:00-04:00")), true);
+});
+
 test("calendar shows only the current or next recurring opportunity", () => {
   const beforeWindow = new Date("2026-09-03T13:00:00-04:00");
   const today = new Date("2026-09-03T12:00:00-04:00");
@@ -65,6 +71,30 @@ test("calendar shows only the current or next recurring opportunity", () => {
   const afterWindow = new Date("2026-09-04T00:01:00-04:00");
   assert.equal(availabilityStartForDate(eveningTask, today, afterWindow), null);
   assert.equal(availabilityStartForDate(eveningTask, tomorrow, afterWindow)?.getHours(), 18);
+});
+
+test("next actionable time works for one-off future availability", () => {
+  const now = new Date("2026-09-03T14:00:00-04:00");
+  const task = { ...baseTask, availableFrom: "2026-09-05T09:30:00-04:00" };
+  assert.equal(nextActionableStart(task, now)?.toISOString(), new Date("2026-09-05T09:30:00-04:00").toISOString());
+});
+
+test("next actionable time uses a wake date", () => {
+  const now = new Date("2026-09-03T14:00:00-04:00");
+  const task = { ...baseTask, state: "waiting", wakeAt: "2026-09-04T00:00:00-04:00" };
+  assert.equal(nextActionableStart(task, now)?.toISOString(), new Date("2026-09-04T00:00:00-04:00").toISOString());
+});
+
+test("indefinite waiting has no known upcoming actionable time", () => {
+  const task = { ...baseTask, state: "waiting", wakeAt: null };
+  assert.equal(nextActionableStart(task, new Date("2026-09-03T14:00:00-04:00")), null);
+});
+
+test("next actionable time follows the recurring action window", () => {
+  const now = new Date("2026-09-03T14:00:00-04:00");
+  const next = nextActionableStart(eveningTask, now);
+  assert.equal(next?.getDate(), 3);
+  assert.equal(next?.getHours(), 18);
 });
 
 test("pending-today includes open tasks with an opportunity today", () => {
