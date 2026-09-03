@@ -29,14 +29,18 @@ if (!["#tasks", "#calendar"].includes(location.hash)) {
   history.replaceState(null, "", "#tasks");
 }
 
+const storedHorizon = localStorage.getItem("calendar.upcomingHorizon");
+const parsedHorizon = Number(storedHorizon);
+
 const state = {
   items: [],
   view: viewFromHash(),
   query: "",
   calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   editingId: null,
+  sleepEditingId: null,
   compact: localStorage.getItem("calendar.compactTasks") === "1",
-  horizonDays: Number(localStorage.getItem("calendar.upcomingHorizon")) || 7,
+  horizonDays: storedHorizon === "off" ? null : [1, 7, 30].includes(parsedHorizon) ? parsedHorizon : 7,
   horizonMode: localStorage.getItem("calendar.upcomingHorizonMode") === "boundary" ? "boundary" : "rolling",
   calendarSleepMode: localStorage.getItem("calendar.calendarSleepMode") === "ignore" ? "ignore" : "respect",
 };
@@ -66,6 +70,12 @@ const els = {
   taskFields: document.querySelector("#task-fields"),
   eventFields: document.querySelector("#event-fields"),
   cancelEditor: document.querySelector("#cancel-editor"),
+  sleepDialog: document.querySelector("#sleep-dialog"),
+  sleepForm: document.querySelector("#sleep-form"),
+  sleepTaskTitle: document.querySelector("#sleep-task-title"),
+  sleepUntilInput: document.querySelector("#quick-sleep-until"),
+  sleepIndefiniteButton: document.querySelector("#sleep-indefinite"),
+  cancelSleep: document.querySelector("#cancel-sleep"),
   menu: document.querySelector("#data-menu"),
   exportButton: document.querySelector("#export-data"),
   importButton: document.querySelector("#import-data"),
@@ -76,8 +86,6 @@ const els = {
 const taskSectionDefinitions = [
   { id: "now", label: "Can do now", defaultOpen: true },
   { id: "upcoming", label: "Upcoming", defaultOpen: true },
-  { id: "waiting", label: "Waiting", defaultOpen: true },
-  { id: "sleeping", label: "Sleeping", defaultOpen: true },
   { id: "all", label: "All open", defaultOpen: false },
   { id: "completed", label: "Completed", defaultOpen: false },
 ];
@@ -142,35 +150,36 @@ function renderTasks() {
     matching.filter((task) => taskMatchesFilter(task, "now", now) && !isSleeping(task, now)),
     now,
   );
+  const sleepingRows = sortTasks(
+    matching.filter((task) => !["completed", "canceled"].includes(task.state) && isSleeping(task, now)),
+    now,
+  ).map((task) => ({ task, upcomingAt: nextActionableStart(task, now, { respectSleep: true }) }));
 
   const rowsBySection = {
     now: actionable.map((task) => ({ task })),
     upcoming: upcomingRows(matching, now),
-    waiting: sortTasks(
-      matching.filter((task) => taskMatchesFilter(task, "waiting", now) && !isSleeping(task, now)),
-      now,
-    ).map((task) => ({ task })),
-    sleeping: sortTasks(
-      matching.filter((task) => !["completed", "canceled"].includes(task.state) && isSleeping(task, now)),
-      now,
-    ).map((task) => ({ task })),
     all: sortTasks(matching.filter((task) => taskMatchesFilter(task, "all", now)), now).map((task) => ({ task })),
     completed: sortTasks(matching.filter((task) => taskMatchesFilter(task, "completed", now)), now).map((task) => ({ task })),
   };
 
   els.taskSections.replaceChildren();
   for (const definition of taskSectionDefinitions) {
-    els.taskSections.append(taskSection(definition, rowsBySection[definition.id], now));
+    els.taskSections.append(
+      taskSection(definition, rowsBySection[definition.id], now, definition.id === "upcoming" ? sleepingRows : []),
+    );
   }
 }
 
 function upcomingRows(tasks, now) {
-  const horizonEnd = upcomingHorizonEnd(now, state.horizonDays, state.horizonMode);
+  const horizonEnd = state.horizonDays === null
+    ? null
+    : upcomingHorizonEnd(now, state.horizonDays, state.horizonMode);
 
   return tasks
     .filter((task) => !["completed", "canceled"].includes(task.state))
-    .map((task) => ({ task, upcomingAt: nextActionableStart(task, now, { respectSleep: true }) }))
-    .filter(({ upcomingAt }) => upcomingAt && upcomingAt > now && upcomingAt <= horizonEnd)
+    .filter((task) => !isSleeping(task, now))
+    .map((task) => ({ task, upcomingAt: nextActionableStart(task, now) }))
+    .filter(({ upcomingAt }) => upcomingAt && upcomingAt > now && (!horizonEnd || upcomingAt <= horizonEnd))
     .sort((a, b) => {
       const byTime = a.upcomingAt.getTime() - b.upcomingAt.getTime();
       if (byTime) return byTime;
@@ -178,7 +187,12 @@ function upcomingRows(tasks, now) {
     });
 }
 
-function taskSection(definition, rows, now) {
+function sectionLabel(definition) {
+  if (definition.id !== "upcoming") return definition.label;
+  return state.horizonDays === null ? "Waiting" : "Upcoming";
+}
+
+function taskSection(definition, rows, now, sleepingRows = []) {
   const details = document.createElement("details");
   details.className = "task-section";
   details.dataset.section = definition.id;
@@ -188,9 +202,9 @@ function taskSection(definition, rows, now) {
   summary.innerHTML = `
     <span class="section-heading">
       <span class="section-chevron" aria-hidden="true">›</span>
-      <strong>${escapeHtml(definition.label)}</strong>
+      <strong>${escapeHtml(sectionLabel(definition))}</strong>
     </span>
-    <span class="section-count">${rows.length}</span>
+    <span class="section-count">${rows.length + sleepingRows.length}</span>
   `;
   details.append(summary);
 
@@ -212,6 +226,23 @@ function taskSection(definition, rows, now) {
   }
 
   body.append(list);
+
+  if (definition.id === "upcoming" && sleepingRows.length) {
+    const block = document.createElement("div");
+    block.className = "sleeping-block";
+
+    const heading = document.createElement("div");
+    heading.className = "sleeping-heading";
+    heading.innerHTML = `<span>Sleeping</span><span>${sleepingRows.length}</span>`;
+    block.append(heading);
+
+    const sleepingList = document.createElement("div");
+    sleepingList.className = "task-list section-task-list sleeping-task-list";
+    for (const row of sleepingRows) sleepingList.append(taskCard(row.task, now, row.upcomingAt));
+    block.append(sleepingList);
+    body.append(block);
+  }
+
   details.append(body);
   details.addEventListener("toggle", () => setSectionOpen(definition.id, details.open));
   return details;
@@ -219,14 +250,20 @@ function taskSection(definition, rows, now) {
 
 function emptySectionText(sectionId, now) {
   if (sectionId === "now") return "Nothing is actionable right now.";
-  if (sectionId === "waiting") return "Nothing is waiting for a known future opportunity.";
-  if (sectionId === "sleeping") return "No tasks are sleeping.";
   if (sectionId === "upcoming") {
+    if (state.horizonDays === null) return "Nothing is waiting for a known future opportunity.";
     const horizonEnd = upcomingHorizonEnd(now, state.horizonDays, state.horizonMode);
     return `Nothing becomes actionable by ${formatDateTime(horizonEnd)}.`;
   }
   if (sectionId === "completed") return "No completed tasks.";
   return "No open tasks.";
+}
+
+function horizonLabel(days) {
+  if (state.horizonMode !== "boundary") return `${days}d`;
+  if (days === 1) return "Today";
+  if (days === 7) return "This week";
+  return "This month";
 }
 
 function upcomingHorizonControl() {
@@ -235,7 +272,7 @@ function upcomingHorizonControl() {
 
   const label = document.createElement("span");
   label.className = "horizon-label";
-  label.textContent = "Becomes available within";
+  label.textContent = state.horizonDays === null ? "Showing all future opportunities" : "Limit to";
   wrap.append(label);
 
   const controls = document.createElement("div");
@@ -247,14 +284,15 @@ function upcomingHorizonControl() {
 
   for (const days of [1, 7, 30]) {
     const button = document.createElement("button");
+    const active = days === state.horizonDays;
     button.type = "button";
     button.dataset.horizon = String(days);
-    button.className = days === state.horizonDays ? "active" : "";
-    button.textContent = `${days}d`;
-    button.setAttribute("aria-pressed", String(days === state.horizonDays));
+    button.className = active ? "active" : "";
+    button.textContent = horizonLabel(days);
+    button.setAttribute("aria-pressed", String(active));
     button.addEventListener("click", () => {
-      state.horizonDays = days;
-      localStorage.setItem("calendar.upcomingHorizon", String(days));
+      state.horizonDays = active ? null : days;
+      localStorage.setItem("calendar.upcomingHorizon", state.horizonDays === null ? "off" : String(state.horizonDays));
       renderTasks();
     });
     control.append(button);
@@ -336,8 +374,10 @@ function taskCard(task, now, upcomingAt = null) {
     </div>
     <div class="task-actions">
       ${!closed && sleep.sleeping ? '<button class="text-button" data-action="wake">Wake</button>' : ""}
+      ${!closed && sleep.sleeping ? '<button class="text-button" data-action="sleep-custom">Change sleep…</button>' : ""}
       ${!closed && sleep.sleeping && !sleep.indefinite ? '<button class="text-button" data-action="sleep-to-wait">Wait instead</button>' : ""}
-      ${!closed && !sleep.sleeping ? '<button class="text-button" data-action="sleep-tomorrow">Sleep</button>' : ""}
+      ${!closed && !sleep.sleeping ? '<button class="text-button" data-action="sleep-tomorrow">Sleep until tomorrow</button>' : ""}
+      ${!closed && !sleep.sleeping ? '<button class="text-button" data-action="sleep-custom">Sleep until…</button>' : ""}
       ${!closed && canConvertWaitToSleep ? '<button class="text-button" data-action="wait-to-sleep">Sleep instead</button>' : ""}
       <button class="text-button" data-action="edit">Edit</button>
     </div>
@@ -359,6 +399,53 @@ async function saveTaskMutation(item, patch, historyEntry, toast) {
   showToast(toast);
 }
 
+function openSleepDialog(item) {
+  state.sleepEditingId = item.id;
+  const sleep = sleepInfo(item, new Date());
+  els.sleepTaskTitle.textContent = item.title || "Untitled task";
+  els.sleepUntilInput.value = sleep.sleeping && !sleep.indefinite
+    ? isoToLocalInput(sleep.until)
+    : isoToLocalInput(tomorrowMidnight(new Date()));
+  els.sleepDialog.showModal();
+  requestAnimationFrame(() => els.sleepUntilInput.focus());
+}
+
+async function saveCustomSleep(event) {
+  event.preventDefault();
+  const item = state.items.find((x) => x.id === state.sleepEditingId);
+  if (!item) return;
+
+  const until = localInputToIso(els.sleepUntilInput.value);
+  if (!until || toDate(until) <= new Date()) {
+    showToast("Choose a future sleep time");
+    return;
+  }
+
+  const now = new Date().toISOString();
+  await saveTaskMutation(
+    item,
+    { sleep: { until, startedAt: item.sleep?.startedAt || now } },
+    { type: "slept", until },
+    `Sleeping until ${formatDateTime(until)}`,
+  );
+  state.sleepEditingId = null;
+  els.sleepDialog.close();
+}
+
+async function sleepIndefinitely() {
+  const item = state.items.find((x) => x.id === state.sleepEditingId);
+  if (!item) return;
+  const now = new Date().toISOString();
+  await saveTaskMutation(
+    item,
+    { sleep: { until: null, startedAt: item.sleep?.startedAt || now } },
+    { type: "slept", until: null },
+    "Sleeping indefinitely",
+  );
+  state.sleepEditingId = null;
+  els.sleepDialog.close();
+}
+
 async function handleTaskAction(event) {
   const button = event.target.closest("button[data-action]");
   if (!button) return;
@@ -368,6 +455,11 @@ async function handleTaskAction(event) {
 
   if (button.dataset.action === "edit") {
     openEditor(item);
+    return;
+  }
+
+  if (button.dataset.action === "sleep-custom") {
+    openSleepDialog(item);
     return;
   }
 
@@ -489,7 +581,6 @@ function renderCalendar() {
         summary.addEventListener("click", () => {
           setSectionOpen("now", true);
           setSectionOpen("upcoming", true);
-          setSectionOpen("sleeping", true);
           navigateView("tasks");
           requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" }));
         });
@@ -798,6 +889,15 @@ els.form.elements.scheduleEnabled.addEventListener("change", syncScheduleFields)
 els.form.elements.sleepMode.addEventListener("change", syncSleepFields);
 els.form.addEventListener("submit", saveEditor);
 els.cancelEditor.addEventListener("click", () => els.dialog.close());
+els.sleepForm.addEventListener("submit", saveCustomSleep);
+els.sleepIndefiniteButton.addEventListener("click", sleepIndefinitely);
+els.cancelSleep.addEventListener("click", () => {
+  state.sleepEditingId = null;
+  els.sleepDialog.close();
+});
+els.sleepDialog.addEventListener("close", () => {
+  state.sleepEditingId = null;
+});
 els.deleteButton.addEventListener("click", async () => {
   if (!state.editingId) return;
   await deleteItem(state.editingId);
