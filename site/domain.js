@@ -90,7 +90,17 @@ function sameLocalDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-export function availabilityStartForDate(task, date) {
+function availabilityEndForDate(task, date) {
+  const schedule = task.availabilitySchedule;
+  if (!schedule?.enabled) return null;
+  const day = date instanceof Date ? new Date(date) : toDate(date);
+  if (!day || !(schedule.days || []).includes(day.getDay())) return null;
+
+  const [endHour = 23, endMinute = 59] = String(schedule.end || "23:59").split(":").map(Number);
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), endHour, endMinute, 59, 999);
+}
+
+function rawAvailabilityStartForDate(task, date) {
   if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return null;
   const schedule = task.availabilitySchedule;
   if (!schedule?.enabled) return null;
@@ -99,9 +109,8 @@ export function availabilityStartForDate(task, date) {
   if (!day || !(schedule.days || []).includes(day.getDay())) return null;
 
   const [startHour = 0, startMinute = 0] = String(schedule.start || "00:00").split(":").map(Number);
-  const [endHour = 23, endMinute = 59] = String(schedule.end || "23:59").split(":").map(Number);
   let start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), startHour, startMinute, 0, 0);
-  const end = new Date(day.getFullYear(), day.getMonth(), day.getDate(), endHour, endMinute, 59, 999);
+  const end = availabilityEndForDate(task, day);
   const endOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999);
 
   const available = toDate(task.availableFrom);
@@ -115,9 +124,43 @@ export function availabilityStartForDate(task, date) {
 
   const latestStart = toDate(task.latestStart);
   if (latestStart && latestStart < start) return null;
-  if (start > end) return null;
+  if (!end || start > end) return null;
 
   return start;
+}
+
+export function nextAvailabilityStart(task, now = new Date()) {
+  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return null;
+  const schedule = task.availabilitySchedule;
+  if (!schedule?.enabled || !(schedule.days || []).length) return null;
+  if (task.state === "waiting" && !task.wakeAt) return null;
+
+  let earliest = new Date(now);
+  const available = toDate(task.availableFrom);
+  if (available && available > earliest) earliest = available;
+  const wake = task.state === "waiting" ? toDate(task.wakeAt) : null;
+  if (wake && wake > earliest) earliest = wake;
+
+  const cursor = new Date(earliest.getFullYear(), earliest.getMonth(), earliest.getDate(), 0, 0, 0, 0);
+  for (let offset = 0; offset < 14; offset += 1) {
+    const day = new Date(cursor);
+    day.setDate(cursor.getDate() + offset);
+    const start = rawAvailabilityStartForDate(task, day);
+    if (!start) continue;
+
+    const end = availabilityEndForDate(task, day);
+    if (sameLocalDay(day, now) && end && now > end) continue;
+    return start;
+  }
+
+  return null;
+}
+
+export function availabilityStartForDate(task, date, now = new Date()) {
+  const day = date instanceof Date ? new Date(date) : toDate(date);
+  if (!day) return null;
+  const next = nextAvailabilityStart(task, now);
+  return next && sameLocalDay(next, day) ? next : null;
 }
 
 export function isPendingOnDate(task, date) {
@@ -137,7 +180,7 @@ export function isPendingOnDate(task, date) {
   const latestStart = toDate(task.latestStart);
   if (latestStart && latestStart < startOfDay) return false;
 
-  if (task.availabilitySchedule?.enabled) return availabilityStartForDate(task, day) !== null;
+  if (task.availabilitySchedule?.enabled) return rawAvailabilityStartForDate(task, day) !== null;
 
   return true;
 }
