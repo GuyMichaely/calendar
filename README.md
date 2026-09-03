@@ -28,6 +28,12 @@ Waiting is derived from real availability constraints. Sleep does not change a t
 
 There is deliberately no cloud backend yet. Data is local to each browser/device. The storage boundary is isolated so a cloud-backed implementation can replace or supplement IndexedDB later.
 
+## Data migrations
+
+The application code under `site/` assumes the current data schema. It should not contain runtime compatibility or automatic migration paths for older schemas.
+
+When a schema change requires existing local data to be converted, put the conversion in a one-off script under `migrations/` and run it explicitly before using the new application version.
+
 ## Local development
 
 No build step is required.
