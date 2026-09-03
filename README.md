@@ -4,20 +4,27 @@ A personal calendar and task planner built around the distinction between an ope
 
 ## Current implementation
 
-The first slice is a static web app that runs entirely in the browser:
+The app is a static web app that runs entirely in the browser:
 
 - task and event creation/editing;
 - IndexedDB persistence;
-- task states: open, waiting, completed, canceled;
-- available-from, due, latest-start, and wake/review times;
-- recurring action windows for persistent tasks (for example, office hours);
-- task filters including Can do now, Waiting, Due soon, Ongoing, All open, and Completed;
+- task states: open, completed, canceled;
+- available-from, due, and latest-start times;
+- recurring action windows for persistent tasks, such as office hours;
+- sleep as a separate user-imposed suppression layer, either until a chosen time or indefinitely;
+- one-click sleep until the next calendar day;
+- conversion between a finite sleep date and an available-from wait date;
+- task sections for Can do now, Upcoming, Waiting, Sleeping, All open, and Completed;
+- rolling 1/7/30-day upcoming horizons or calendar-boundary day/week/month horizons;
+- month calendar rendering task timing markers, events, and sleep wake times;
+- a calendar-only toggle that either respects sleep when projecting task opportunities or ignores it while marking sleep-bypassed projections;
 - text/tag/attachment-name search;
 - local file attachments stored in IndexedDB;
-- month calendar rendering task timing markers and events;
 - JSON backup/export and import, including attachment contents;
-- responsive layout for desktop and Android-sized screens;
+- a dark interface with responsive desktop and Android-sized layouts;
 - service-worker shell caching for basic offline use.
+
+Waiting is derived from real availability constraints. Sleep does not change a task's underlying actionability. It only controls whether the task is surfaced to the user and, when enabled in the calendar, whether sleep is treated as an additional delay while projecting the next work opportunity.
 
 There is deliberately no cloud backend yet. Data is local to each browser/device. The storage boundary is isolated so a cloud-backed implementation can replace or supplement IndexedDB later.
 

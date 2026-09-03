@@ -38,12 +38,12 @@
   font-weight: 650;
 }
 
-.task-section-body { padding: 10px; background: #fafbf9; }
+.task-section-body { padding: 10px; background: var(--surface-3); }
 .section-task-list { gap: 8px; }
 .section-empty { padding: 14px 12px; color: var(--muted); font-size: 13px; }
 
 .density-toggle.active {
-  border-color: #b8cebf;
+  border-color: #527a5e;
   background: var(--accent-soft);
   color: var(--accent-strong);
 }
@@ -56,6 +56,7 @@
   padding: 0 2px 10px;
 }
 .horizon-label { color: var(--muted); font-size: 12px; }
+.horizon-controls { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
 .horizon-control { display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--surface-2); }
 .horizon-control button {
   min-width: 42px;
@@ -67,7 +68,8 @@
   cursor: pointer;
   font-size: 12px;
 }
-.horizon-control button.active { background: var(--surface); color: var(--text); font-weight: 650; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.horizon-control button.active { background: var(--surface); color: var(--text); font-weight: 650; box-shadow: 0 1px 3px rgba(0,0,0,.28); }
+.boundary-toggle { padding: 6px 9px; font-size: 11px; white-space: nowrap; }
 
 .tasks-panel.compact .task-section-body { padding: 6px; }
 .tasks-panel.compact .section-task-list { gap: 5px; }
@@ -106,5 +108,6 @@
   .panel-heading { align-items: flex-start; }
   .density-toggle { flex-shrink: 0; }
   .horizon-row { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .horizon-controls { width: 100%; justify-content: space-between; }
   .tasks-panel.compact .task-card { align-items: stretch; }
 }

@@ -1,25 +1,12 @@
-.ignored-block {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
+.sleeping-task {
+  background: color-mix(in srgb, var(--surface) 80%, #29243a);
+  border-color: #40394e;
 }
 
-.ignored-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 4px 8px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+.sleeping-task .task-title-row h3 {
+  color: #d8d1e7;
 }
 
-.ignored-task-list .task-card {
-  background: color-mix(in srgb, var(--surface) 72%, var(--surface-2));
-}
-
-.tasks-panel.compact .ignored-block {
-  margin-top: 8px;
-  padding-top: 7px;
+.tasks-panel.compact .sleeping-task {
+  background: color-mix(in srgb, var(--surface) 84%, #29243a);
 }

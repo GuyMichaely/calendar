@@ -6,16 +6,18 @@ import {
   formatDateTime,
   isoToLocalInput,
   isEvent,
-  isIgnored,
   isPendingOnDate,
+  isSleeping,
   isTask,
   localInputToIso,
   nextActionableStart,
+  sleepInfo,
   sortTasks,
   taskMatchesFilter,
   textMatches,
   toDate,
   tomorrowMidnight,
+  upcomingHorizonEnd,
 } from "./domain.js";
 import { deleteItem, exportData, importData, listItems, putItem } from "./storage.js";
 
@@ -35,6 +37,8 @@ const state = {
   editingId: null,
   compact: localStorage.getItem("calendar.compactTasks") === "1",
   horizonDays: Number(localStorage.getItem("calendar.upcomingHorizon")) || 7,
+  horizonMode: localStorage.getItem("calendar.upcomingHorizonMode") === "boundary" ? "boundary" : "rolling",
+  calendarSleepMode: localStorage.getItem("calendar.calendarSleepMode") === "ignore" ? "ignore" : "respect",
 };
 
 const els = {
@@ -49,6 +53,7 @@ const els = {
   compactToggle: document.querySelector("#compact-toggle"),
   calendarGrid: document.querySelector("#calendar-grid"),
   monthLabel: document.querySelector("#month-label"),
+  calendarSleepToggle: document.querySelector("#calendar-sleep-toggle"),
   prevMonth: document.querySelector("#prev-month"),
   nextMonth: document.querySelector("#next-month"),
   todayButton: document.querySelector("#today"),
@@ -70,8 +75,9 @@ const els = {
 
 const taskSectionDefinitions = [
   { id: "now", label: "Can do now", defaultOpen: true },
-  { id: "waiting", label: "Waiting", defaultOpen: true },
   { id: "upcoming", label: "Upcoming", defaultOpen: true },
+  { id: "waiting", label: "Waiting", defaultOpen: true },
+  { id: "sleeping", label: "Sleeping", defaultOpen: true },
   { id: "all", label: "All open", defaultOpen: false },
   { id: "completed", label: "Completed", defaultOpen: false },
 ];
@@ -88,35 +94,66 @@ function showToast(message) {
 }
 
 async function migrateLegacyTasks(items) {
-  const now = new Date().toISOString();
+  const nowDate = new Date();
+  const now = nowDate.toISOString();
   const migrated = [];
 
   for (const item of items) {
-    if (!isTask(item) || item.state !== "waiting") {
+    if (!isTask(item)) {
       migrated.push(item);
       continue;
     }
 
+    let updated = { ...item };
+    let changed = false;
     const history = [...(item.history || [])];
-    const wasOldTomorrow = history.some((entry) => entry?.type === "deferred");
-    const wake = toDate(item.wakeAt);
-    const existingStart = toDate(item.availableFrom);
 
-    const updated = {
-      ...item,
-      state: "open",
-      wakeAt: null,
-      updatedAt: now,
-      history: [...history, { at: now, type: "legacy-waiting-migrated" }],
-    };
+    if (updated.state === "waiting") {
+      const wasOldTomorrow = history.some((entry) => entry?.type === "deferred");
+      const wake = toDate(updated.wakeAt);
+      const existingStart = toDate(updated.availableFrom);
 
-    if (wake && wasOldTomorrow) {
-      updated.ignoredUntil = item.ignoredUntil || wake.toISOString();
-    } else if (wake && (!existingStart || wake > existingStart)) {
-      updated.availableFrom = wake.toISOString();
+      updated.state = "open";
+      delete updated.wakeAt;
+      changed = true;
+
+      if (wake && wasOldTomorrow) {
+        updated.sleep = updated.sleep || { until: wake.toISOString(), startedAt: now };
+      } else if (wake && (!existingStart || wake > existingStart)) {
+        updated.availableFrom = wake.toISOString();
+      }
+      history.push({ at: now, type: "legacy-waiting-migrated" });
     }
 
-    await putItem(updated);
+    const ignoredUntil = toDate(updated.ignoredUntil);
+    if (Object.prototype.hasOwnProperty.call(updated, "ignoredUntil")) {
+      if (!updated.sleep && ignoredUntil && ignoredUntil > nowDate) {
+        updated.sleep = { until: ignoredUntil.toISOString(), startedAt: now };
+        history.push({ at: now, type: "legacy-ignore-migrated-to-sleep", until: ignoredUntil.toISOString() });
+      }
+      delete updated.ignoredUntil;
+      changed = true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updated, "wakeAt")) {
+      delete updated.wakeAt;
+      changed = true;
+    }
+
+    if (updated.sleep?.until) {
+      const until = toDate(updated.sleep.until);
+      if (!until || until <= nowDate) {
+        updated.sleep = null;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      updated.updatedAt = now;
+      updated.history = history;
+      await putItem(updated);
+    }
+
     migrated.push(updated);
   }
 
@@ -168,36 +205,38 @@ function renderTasks() {
   els.compactToggle.classList.toggle("active", state.compact);
   els.compactToggle.setAttribute("aria-pressed", String(state.compact));
 
-  const actionable = sortTasks(matching.filter((task) => taskMatchesFilter(task, "now", now) && !isIgnored(task, now)), now);
-  const ignoredNowRows = sortTasks(
-    matching.filter((task) => !["completed", "canceled"].includes(task.state) && isIgnored(task, now)),
+  const actionable = sortTasks(
+    matching.filter((task) => taskMatchesFilter(task, "now", now) && !isSleeping(task, now)),
     now,
-  ).map((task) => ({ task }));
+  );
+
   const rowsBySection = {
     now: actionable.map((task) => ({ task })),
+    upcoming: upcomingRows(matching, now),
     waiting: sortTasks(
-      matching.filter((task) => taskMatchesFilter(task, "waiting", now) && !isIgnored(task, now)),
+      matching.filter((task) => taskMatchesFilter(task, "waiting", now) && !isSleeping(task, now)),
       now,
     ).map((task) => ({ task })),
-    upcoming: upcomingRows(matching, now),
+    sleeping: sortTasks(
+      matching.filter((task) => !["completed", "canceled"].includes(task.state) && isSleeping(task, now)),
+      now,
+    ).map((task) => ({ task })),
     all: sortTasks(matching.filter((task) => taskMatchesFilter(task, "all", now)), now).map((task) => ({ task })),
     completed: sortTasks(matching.filter((task) => taskMatchesFilter(task, "completed", now)), now).map((task) => ({ task })),
   };
 
   els.taskSections.replaceChildren();
   for (const definition of taskSectionDefinitions) {
-    els.taskSections.append(taskSection(definition, rowsBySection[definition.id], now, definition.id === "now" ? ignoredNowRows : []));
+    els.taskSections.append(taskSection(definition, rowsBySection[definition.id], now));
   }
 }
 
 function upcomingRows(tasks, now) {
-  const horizonEnd = new Date(now.getTime() + state.horizonDays * 24 * 60 * 60 * 1000);
+  const horizonEnd = upcomingHorizonEnd(now, state.horizonDays, state.horizonMode);
 
   return tasks
     .filter((task) => !["completed", "canceled"].includes(task.state))
-    .filter((task) => !isIgnored(task, now))
-    .filter((task) => !actionability(task, now).actionable)
-    .map((task) => ({ task, upcomingAt: nextActionableStart(task, now) }))
+    .map((task) => ({ task, upcomingAt: nextActionableStart(task, now, { respectSleep: true }) }))
     .filter(({ upcomingAt }) => upcomingAt && upcomingAt > now && upcomingAt <= horizonEnd)
     .sort((a, b) => {
       const byTime = a.upcomingAt.getTime() - b.upcomingAt.getTime();
@@ -206,20 +245,19 @@ function upcomingRows(tasks, now) {
     });
 }
 
-function taskSection(definition, rows, now, ignoredRows = []) {
+function taskSection(definition, rows, now) {
   const details = document.createElement("details");
   details.className = "task-section";
   details.dataset.section = definition.id;
   details.open = getSectionOpen(definition);
 
-  const totalCount = rows.length + ignoredRows.length;
   const summary = document.createElement("summary");
   summary.innerHTML = `
     <span class="section-heading">
       <span class="section-chevron" aria-hidden="true">›</span>
       <strong>${escapeHtml(definition.label)}</strong>
     </span>
-    <span class="section-count">${totalCount}</span>
+    <span class="section-count">${rows.length}</span>
   `;
   details.append(summary);
 
@@ -234,35 +272,26 @@ function taskSection(definition, rows, now, ignoredRows = []) {
   if (!rows.length) {
     const empty = document.createElement("div");
     empty.className = "section-empty";
-    empty.textContent = definition.id === "now" && ignoredRows.length ? "No unignored tasks right now." : emptySectionText(definition.id);
+    empty.textContent = emptySectionText(definition.id, now);
     list.append(empty);
   } else {
     for (const row of rows) list.append(taskCard(row.task, now, row.upcomingAt));
   }
 
   body.append(list);
-
-  if (definition.id === "now" && ignoredRows.length) {
-    const ignoredBlock = document.createElement("div");
-    ignoredBlock.className = "ignored-block";
-    ignoredBlock.innerHTML = `<div class="ignored-heading"><span>Ignored for today</span><span>${ignoredRows.length}</span></div>`;
-
-    const ignoredList = document.createElement("div");
-    ignoredList.className = "task-list section-task-list ignored-task-list";
-    for (const row of ignoredRows) ignoredList.append(taskCard(row.task, now, row.upcomingAt));
-    ignoredBlock.append(ignoredList);
-    body.append(ignoredBlock);
-  }
-
   details.append(body);
   details.addEventListener("toggle", () => setSectionOpen(definition.id, details.open));
   return details;
 }
 
-function emptySectionText(sectionId) {
+function emptySectionText(sectionId, now) {
   if (sectionId === "now") return "Nothing is actionable right now.";
-  if (sectionId === "waiting") return "Nothing has a known future opportunity.";
-  if (sectionId === "upcoming") return `Nothing becomes actionable in the next ${state.horizonDays} ${state.horizonDays === 1 ? "day" : "days"}.`;
+  if (sectionId === "waiting") return "Nothing is waiting for a known future opportunity.";
+  if (sectionId === "sleeping") return "No tasks are sleeping.";
+  if (sectionId === "upcoming") {
+    const horizonEnd = upcomingHorizonEnd(now, state.horizonDays, state.horizonMode);
+    return `Nothing becomes actionable by ${formatDateTime(horizonEnd)}.`;
+  }
   if (sectionId === "completed") return "No completed tasks.";
   return "No open tasks.";
 }
@@ -275,6 +304,9 @@ function upcomingHorizonControl() {
   label.className = "horizon-label";
   label.textContent = "Becomes available within";
   wrap.append(label);
+
+  const controls = document.createElement("div");
+  controls.className = "horizon-controls";
 
   const control = document.createElement("div");
   control.className = "segmented horizon-control";
@@ -295,7 +327,20 @@ function upcomingHorizonControl() {
     control.append(button);
   }
 
-  wrap.append(control);
+  const boundaryToggle = document.createElement("button");
+  boundaryToggle.type = "button";
+  boundaryToggle.className = `secondary-button boundary-toggle ${state.horizonMode === "boundary" ? "active" : ""}`;
+  boundaryToggle.textContent = "End of day/week/month";
+  boundaryToggle.title = "Use the end of the current day, week, or month instead of a rolling 1, 7, or 30 days.";
+  boundaryToggle.setAttribute("aria-pressed", String(state.horizonMode === "boundary"));
+  boundaryToggle.addEventListener("click", () => {
+    state.horizonMode = state.horizonMode === "boundary" ? "rolling" : "boundary";
+    localStorage.setItem("calendar.upcomingHorizonMode", state.horizonMode);
+    renderTasks();
+  });
+
+  controls.append(control, boundaryToggle);
+  wrap.append(controls);
   return wrap;
 }
 
@@ -316,23 +361,31 @@ function taskCard(task, now, upcomingAt = null) {
   article.dataset.id = task.id;
 
   const result = actionability(task, now);
-  const ignored = isIgnored(task, now);
+  const sleep = sleepInfo(task, now);
+  if (sleep.sleeping) article.classList.add("sleeping-task");
   const tags = (task.tags || []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
   const timing = [];
   if (upcomingAt) timing.push(`Next available ${formatDateTime(upcomingAt)}`);
   if (task.availableFrom) timing.push(`Starts ${formatDateTime(task.availableFrom)}`);
   if (task.deadline) timing.push(`Due ${formatDateTime(task.deadline)}`);
   if (task.latestStart) timing.push(`Latest start ${formatDateTime(task.latestStart)}`);
+  if (sleep.sleeping) timing.push(sleep.indefinite ? "Sleeping indefinitely" : `Sleeping until ${formatDateTime(sleep.until)}`);
 
   const schedule = task.availabilitySchedule;
   if (schedule?.enabled) {
     const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const days = (schedule.days || []).map((d) => names[d]).join(", ");
-    timing.push(`${days || "No days"} ${schedule.start || ""}–${schedule.end || ""}`);
+    timing.push(`${days || "No days"} ${schedule.start || ""}-${schedule.end || ""}`);
   }
 
   const closed = ["completed", "canceled"].includes(task.state);
-  const statusText = ignored ? "Ignored today" : result.reason;
+  const statusText = sleep.sleeping
+    ? sleep.indefinite
+      ? "Sleeping indefinitely"
+      : `Sleeping until ${formatDateTime(sleep.until)}`
+    : result.reason;
+  const futureAvailable = toDate(task.availableFrom);
+  const canConvertWaitToSleep = !sleep.sleeping && futureAvailable && futureAvailable > now;
 
   article.innerHTML = `
     <div class="task-main">
@@ -340,23 +393,37 @@ function taskCard(task, now, upcomingAt = null) {
       <div class="task-copy">
         <div class="task-title-row">
           <h3>${escapeHtml(task.title || "Untitled task")}</h3>
-          <span class="status-pill ${result.actionable && !ignored ? "ready" : "quiet"}">${escapeHtml(statusText)}</span>
+          <span class="status-pill ${result.actionable && !sleep.sleeping ? "ready" : sleep.sleeping ? "sleeping" : "quiet"}">${escapeHtml(statusText)}</span>
         </div>
         ${task.notes ? `<p class="notes">${escapeHtml(task.notes)}</p>` : ""}
         ${timing.length ? `<div class="timing">${timing.map((x) => `<span>${escapeHtml(x)}</span>`).join("")}</div>` : ""}
         ${tags ? `<div class="tags">${tags}</div>` : ""}
-        ${(task.attachments || []).length ? `<div class="attachments">${task.attachments.map((a, i) => `<button class="attachment" data-action="attachment" data-attachment-index="${i}">📎 ${escapeHtml(a.name || "Attachment")}</button>`).join("")}</div>` : ""}
+        ${(task.attachments || []).length ? `<div class="attachments">${task.attachments.map((a, i) => `<button class="attachment" data-action="attachment" data-attachment-index="${i}">Attachment: ${escapeHtml(a.name || "Attachment")}</button>`).join("")}</div>` : ""}
       </div>
     </div>
     <div class="task-actions">
-      ${!closed && ignored ? '<button class="text-button" data-action="unignore">Unignore</button>' : ""}
-      ${!closed && result.actionable && !ignored ? '<button class="text-button" data-action="check-tomorrow">Check tomorrow</button>' : ""}
+      ${!closed && sleep.sleeping ? '<button class="text-button" data-action="wake">Wake</button>' : ""}
+      ${!closed && sleep.sleeping && !sleep.indefinite ? '<button class="text-button" data-action="sleep-to-wait">Wait instead</button>' : ""}
+      ${!closed && !sleep.sleeping ? '<button class="text-button" data-action="sleep-tomorrow">Sleep</button>' : ""}
+      ${!closed && canConvertWaitToSleep ? '<button class="text-button" data-action="wait-to-sleep">Sleep instead</button>' : ""}
       <button class="text-button" data-action="edit">Edit</button>
     </div>
   `;
 
   article.addEventListener("click", handleTaskAction);
   return article;
+}
+
+async function saveTaskMutation(item, patch, historyEntry, toast) {
+  const now = new Date().toISOString();
+  await putItem({
+    ...item,
+    ...patch,
+    updatedAt: now,
+    history: [...(item.history || []), { at: now, ...historyEntry }],
+  });
+  await refresh();
+  showToast(toast);
 }
 
 async function handleTaskAction(event) {
@@ -386,7 +453,7 @@ async function handleTaskAction(event) {
       ...item,
       state: "completed",
       completedAt: now,
-      ignoredUntil: null,
+      sleep: null,
       updatedAt: now,
       history: [...(item.history || []), { at: now, type: "completed" }],
     });
@@ -395,37 +462,59 @@ async function handleTaskAction(event) {
     return;
   }
 
-  if (button.dataset.action === "unignore") {
-    const now = new Date().toISOString();
-    await putItem({
-      ...item,
-      ignoredUntil: null,
-      updatedAt: now,
-      history: [...(item.history || []), { at: now, type: "unignored" }],
-    });
-    await refresh();
-    showToast("Task restored for today");
+  if (button.dataset.action === "wake") {
+    await saveTaskMutation(item, { sleep: null }, { type: "woke" }, "Task is awake");
     return;
   }
 
-  if (button.dataset.action === "check-tomorrow") {
+  if (button.dataset.action === "sleep-tomorrow") {
     const nowDate = new Date();
     const until = tomorrowMidnight(nowDate);
-    const now = nowDate.toISOString();
-    await putItem({
-      ...item,
-      ignoredUntil: until.toISOString(),
-      updatedAt: now,
-      history: [...(item.history || []), { at: now, type: "check-tomorrow", until: until.toISOString() }],
-    });
-    await refresh();
-    showToast("Ignored for the rest of today");
+    await saveTaskMutation(
+      item,
+      { sleep: { until: until.toISOString(), startedAt: nowDate.toISOString() } },
+      { type: "slept", until: until.toISOString() },
+      "Sleeping until tomorrow",
+    );
+    return;
+  }
+
+  if (button.dataset.action === "sleep-to-wait") {
+    const sleep = sleepInfo(item, new Date());
+    if (!sleep.sleeping || sleep.indefinite) return;
+    const existingStart = toDate(item.availableFrom);
+    const waitUntil = existingStart && existingStart > sleep.until ? existingStart : sleep.until;
+    await saveTaskMutation(
+      item,
+      { sleep: null, availableFrom: waitUntil.toISOString() },
+      { type: "sleep-converted-to-wait", until: waitUntil.toISOString() },
+      "Converted sleep to waiting",
+    );
+    return;
+  }
+
+  if (button.dataset.action === "wait-to-sleep") {
+    const available = toDate(item.availableFrom);
+    if (!available || available <= new Date()) return;
+    const now = new Date().toISOString();
+    await saveTaskMutation(
+      item,
+      { availableFrom: null, sleep: { until: available.toISOString(), startedAt: now } },
+      { type: "wait-converted-to-sleep", until: available.toISOString() },
+      "Converted waiting to sleep",
+    );
   }
 }
 
 function renderCalendar() {
   const month = state.calendarMonth;
   els.monthLabel.textContent = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(month);
+  els.calendarSleepToggle.classList.toggle("active", state.calendarSleepMode === "respect");
+  els.calendarSleepToggle.setAttribute("aria-pressed", String(state.calendarSleepMode === "respect"));
+  els.calendarSleepToggle.textContent = state.calendarSleepMode === "respect" ? "Respect sleep" : "Ignore sleep";
+  els.calendarSleepToggle.title = state.calendarSleepMode === "respect"
+    ? "Sleeping tasks are treated as unavailable until they wake."
+    : "Sleep is ignored when projecting task opportunities. Sleeping projections are shown differently.";
   els.calendarGrid.replaceChildren();
 
   const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -458,15 +547,16 @@ function renderCalendar() {
     if (key === today) {
       const pendingTasks = state.items.filter((item) => isPendingOnDate(item, day));
       const pendingCount = pendingTasks.length;
-      const ignoredCount = pendingTasks.filter((item) => isIgnored(item, now)).length;
+      const sleepingCount = pendingTasks.filter((item) => isSleeping(item, now)).length;
       if (pendingCount) {
         const summary = document.createElement("button");
         summary.className = "calendar-chip task start";
-        summary.textContent = `${pendingCount} ${pendingCount === 1 ? "task" : "tasks"}${ignoredCount ? ` - ${ignoredCount} ignored` : ""}`;
+        summary.textContent = `${pendingCount} ${pendingCount === 1 ? "task" : "tasks"}${sleepingCount ? ` - ${sleepingCount} sleeping` : ""}`;
         summary.title = "Open today's tasks";
         summary.addEventListener("click", () => {
           setSectionOpen("now", true);
           setSectionOpen("upcoming", true);
+          setSectionOpen("sleeping", true);
           navigateView("tasks");
           requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" }));
         });
@@ -499,6 +589,8 @@ function renderCalendar() {
 function calendarItemsForDay(day, now = new Date()) {
   const key = dateKey(day);
   const entries = [];
+  const respectSleep = state.calendarSleepMode === "respect";
+
   for (const item of state.items) {
     if (isEvent(item) && dateKey(item.start) === key) {
       entries.push({
@@ -513,22 +605,38 @@ function calendarItemsForDay(day, now = new Date()) {
     }
     if (!isTask(item) || ["completed", "canceled"].includes(item.state)) continue;
 
-    const scheduledStart = availabilityStartForDate(item, day, now);
+    const scheduledStart = availabilityStartForDate(item, day, now, { respectSleep });
     if (scheduledStart) {
+      const sleep = sleepInfo(item, now);
+      const bypassesSleep = !respectSleep && sleep.sleeping && (sleep.indefinite || scheduledStart < sleep.until);
       entries.push({
         kind: "task",
-        role: "start",
+        role: bypassesSleep ? "start sleep-bypassed" : "start",
         label: `${shortTime(scheduledStart)} ${item.title}`,
-        title: `${item.title}: action window`,
+        title: bypassesSleep
+          ? `${item.title}: projected action window while sleep is ignored`
+          : `${item.title}: projected action window`,
         source: item,
         sort: scheduledStart.getTime(),
       });
     }
 
+    const sleep = sleepInfo(item, now);
+    if (sleep.sleeping && !sleep.indefinite && dateKey(sleep.until) === key) {
+      entries.push({
+        kind: "task",
+        role: "sleep",
+        label: `Sleep ends: ${item.title}`,
+        title: `${item.title}: sleep ends ${formatDateTime(sleep.until)}`,
+        source: item,
+        sort: sleep.until.getTime(),
+      });
+    }
+
     for (const [field, role, prefix] of [
-      ["availableFrom", "start", "↦"],
-      ["latestStart", "latest", "!"],
-      ["deadline", "due", "●"],
+      ["availableFrom", "start", "Start:"],
+      ["latestStart", "latest", "Latest:"],
+      ["deadline", "due", "Due:"],
     ]) {
       if (item[field] && dateKey(item[field]) === key) {
         entries.push({
@@ -572,6 +680,13 @@ function openEditor(item = null, defaultKind = "task") {
     els.form.elements.deadline.value = isoToLocalInput(item?.deadline);
     els.form.elements.latestStart.value = isoToLocalInput(item?.latestStart);
 
+    const sleep = sleepInfo(item, new Date());
+    els.form.elements.sleepMode.value = sleep.sleeping ? (sleep.indefinite ? "indefinite" : "until") : "awake";
+    els.form.elements.sleepUntil.value = sleep.sleeping && !sleep.indefinite
+      ? isoToLocalInput(sleep.until)
+      : isoToLocalInput(tomorrowMidnight(new Date()));
+    syncSleepFields();
+
     const schedule = item?.availabilitySchedule;
     els.form.elements.scheduleEnabled.checked = !!schedule?.enabled;
     els.form.elements.scheduleStart.value = schedule?.start || "08:00";
@@ -605,6 +720,28 @@ function syncScheduleFields() {
   document.querySelectorAll("#schedule-options input").forEach((input) => (input.disabled = !enabled));
 }
 
+function syncSleepFields() {
+  const enabled = els.form.elements.sleepMode.value === "until";
+  const field = document.querySelector("#sleep-until-field");
+  field.classList.toggle("disabled", !enabled);
+  els.form.elements.sleepUntil.disabled = !enabled;
+}
+
+function sleepFromEditor(existing, closed, now) {
+  if (closed) return null;
+  const mode = els.form.elements.sleepMode.value;
+  if (mode === "indefinite") {
+    return { until: null, startedAt: existing?.sleep?.startedAt || now };
+  }
+  if (mode === "until") {
+    const until = localInputToIso(els.form.elements.sleepUntil.value);
+    if (until && toDate(until) > new Date()) {
+      return { until, startedAt: existing?.sleep?.startedAt || now };
+    }
+  }
+  return null;
+}
+
 async function saveEditor(event) {
   event.preventDefault();
   const form = new FormData(els.form);
@@ -626,6 +763,12 @@ async function saveEditor(event) {
     }));
     const taskState = String(form.get("taskState") || "open");
     const closed = ["completed", "canceled"].includes(taskState);
+    const sleep = sleepFromEditor(existing?.kind === "task" ? existing : null, closed, now);
+    const history = [...(existing?.kind === "task" ? existing.history || [] : [{ at: now, type: "created" }])];
+    const oldSleep = existing?.kind === "task" ? existing.sleep || null : null;
+    if (JSON.stringify(oldSleep) !== JSON.stringify(sleep)) {
+      history.push({ at: now, type: sleep ? "sleep-updated" : "woke", until: sleep?.until ?? null });
+    }
 
     item = {
       ...(existing?.kind === "task" ? existing : {}),
@@ -642,8 +785,7 @@ async function saveEditor(event) {
       availableFrom: localInputToIso(form.get("availableFrom")),
       deadline: localInputToIso(form.get("deadline")),
       latestStart: localInputToIso(form.get("latestStart")),
-      wakeAt: null,
-      ignoredUntil: closed ? null : existing?.ignoredUntil || null,
+      sleep,
       availabilitySchedule: scheduleEnabled
         ? {
             enabled: true,
@@ -654,7 +796,7 @@ async function saveEditor(event) {
         : null,
       createdAt: existing?.createdAt || now,
       updatedAt: now,
-      history: existing?.history || [{ at: now, type: "created" }],
+      history,
     };
   } else {
     item = {
@@ -699,6 +841,11 @@ els.compactToggle.addEventListener("click", () => {
   localStorage.setItem("calendar.compactTasks", state.compact ? "1" : "0");
   renderTasks();
 });
+els.calendarSleepToggle.addEventListener("click", () => {
+  state.calendarSleepMode = state.calendarSleepMode === "respect" ? "ignore" : "respect";
+  localStorage.setItem("calendar.calendarSleepMode", state.calendarSleepMode);
+  renderCalendar();
+});
 els.prevMonth.addEventListener("click", () => {
   state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth() - 1, 1);
   renderCalendar();
@@ -715,6 +862,7 @@ els.todayButton.addEventListener("click", () => {
 els.kindTask.addEventListener("change", syncKindFields);
 els.kindEvent.addEventListener("change", syncKindFields);
 els.form.elements.scheduleEnabled.addEventListener("change", syncScheduleFields);
+els.form.elements.sleepMode.addEventListener("change", syncSleepFields);
 els.form.addEventListener("submit", saveEditor);
 els.cancelEditor.addEventListener("click", () => els.dialog.close());
 els.deleteButton.addEventListener("click", async () => {
