@@ -1,5 +1,15 @@
-const CACHE = "calendar-shell-v1";
-const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./domain.js", "./storage.js", "./manifest.webmanifest"];
+const CACHE = "calendar-shell-v2";
+const SHELL = [
+  "./",
+  "./index.html",
+  "./styles.css",
+  "./editor-fixes.css",
+  "./app.js",
+  "./editor-behavior.js",
+  "./domain.js",
+  "./storage.js",
+  "./manifest.webmanifest",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
