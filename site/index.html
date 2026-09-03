@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./editor-fixes.css" />
     <link rel="stylesheet" href="./task-view.css" />
+    <link rel="stylesheet" href="./ignore-view.css" />
   </head>
   <body>
     <div id="app" class="app-shell">
@@ -61,7 +62,6 @@
           <div class="calendar-legend">
             <span><i class="legend-dot event"></i>Event</span>
             <span><i class="legend-dot start"></i>Task start</span>
-            <span><i class="legend-dot wake"></i>Wake</span>
             <span><i class="legend-dot latest"></i>Latest start</span>
             <span><i class="legend-dot due"></i>Due</span>
           </div>
@@ -96,7 +96,6 @@
                 <span>State</span>
                 <select name="taskState">
                   <option value="open">Open</option>
-                  <option value="waiting">Waiting</option>
                   <option value="completed">Completed</option>
                   <option value="canceled">Canceled</option>
                 </select>
@@ -116,11 +115,6 @@
               <label class="field">
                 <span>Latest start</span>
                 <input name="latestStart" type="datetime-local" />
-              </label>
-              <label class="field">
-                <span>Wake / review</span>
-                <input name="wakeAt" type="datetime-local" />
-                <small class="field-hint">Clearing a scheduled wake removes the delay.</small>
               </label>
               <label class="field full-span">
                 <span>Attachments</span>

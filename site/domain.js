@@ -1,4 +1,4 @@
-export const TASK_STATES = ["open", "waiting", "completed", "canceled"];
+export const TASK_STATES = ["open", "completed", "canceled"];
 
 export function isTask(item) {
   return item?.kind === "task";
@@ -14,12 +14,6 @@ export function toDate(value) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-export function isEffectivelyWaiting(task, now = new Date()) {
-  if (task.state !== "waiting") return false;
-  const wake = toDate(task.wakeAt);
-  return !wake || wake > now;
-}
-
 export function withinAvailabilitySchedule(task, now = new Date()) {
   const schedule = task.availabilitySchedule;
   if (!schedule?.enabled) return true;
@@ -28,12 +22,8 @@ export function withinAvailabilitySchedule(task, now = new Date()) {
   if (!days.includes(now.getDay())) return false;
 
   const minutes = now.getHours() * 60 + now.getMinutes();
-  const [startHour = 0, startMinute = 0] = String(schedule.start || "00:00")
-    .split(":")
-    .map(Number);
-  const [endHour = 23, endMinute = 59] = String(schedule.end || "23:59")
-    .split(":")
-    .map(Number);
+  const [startHour = 0, startMinute = 0] = String(schedule.start || "00:00").split(":").map(Number);
+  const [endHour = 23, endMinute = 59] = String(schedule.end || "23:59").split(":").map(Number);
   const start = startHour * 60 + startMinute;
   const end = endHour * 60 + endMinute;
   return minutes >= start && minutes <= end;
@@ -50,14 +40,6 @@ export function actionability(task, now = new Date()) {
     return { actionable: false, reason: `Available ${formatRelativeDateTime(available, now)}` };
   }
 
-  const wake = toDate(task.wakeAt);
-  if (task.state === "waiting" && (!wake || wake > now)) {
-    return {
-      actionable: false,
-      reason: wake ? `Waiting until ${formatRelativeDateTime(wake, now)}` : "Waiting",
-    };
-  }
-
   const latestStart = toDate(task.latestStart);
   if (latestStart && latestStart < now) {
     return { actionable: false, reason: "Latest start has passed" };
@@ -67,23 +49,7 @@ export function actionability(task, now = new Date()) {
     return { actionable: false, reason: "Outside action window" };
   }
 
-  return { actionable: true, reason: task.state === "waiting" ? "Ready again" : "Can do now" };
-}
-
-export function isWaitingForOpportunity(task, now = new Date()) {
-  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return false;
-  if (actionability(task, now).actionable) return false;
-
-  const latestStart = toDate(task.latestStart);
-  if (latestStart && latestStart < now) return false;
-
-  const available = toDate(task.availableFrom);
-  if (available && available > now) return true;
-
-  const wake = toDate(task.wakeAt);
-  if (task.state === "waiting" && (!wake || wake > now)) return true;
-
-  return !!task.availabilitySchedule?.enabled && !withinAvailabilitySchedule(task, now);
+  return { actionable: true, reason: "Can do now" };
 }
 
 function sameLocalDay(a, b) {
@@ -117,11 +83,6 @@ function rawAvailabilityStartForDate(task, date) {
   if (available && available > endOfDay) return null;
   if (available && sameLocalDay(available, day) && available > start) start = available;
 
-  const wake = toDate(task.wakeAt);
-  if (task.state === "waiting" && !wake) return null;
-  if (task.state === "waiting" && wake > endOfDay) return null;
-  if (task.state === "waiting" && wake && sameLocalDay(wake, day) && wake > start) start = wake;
-
   const latestStart = toDate(task.latestStart);
   if (latestStart && latestStart < start) return null;
   if (!end || start > end) return null;
@@ -133,13 +94,10 @@ export function nextAvailabilityStart(task, now = new Date()) {
   if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return null;
   const schedule = task.availabilitySchedule;
   if (!schedule?.enabled || !(schedule.days || []).length) return null;
-  if (task.state === "waiting" && !task.wakeAt) return null;
 
   let earliest = new Date(now);
   const available = toDate(task.availableFrom);
   if (available && available > earliest) earliest = available;
-  const wake = task.state === "waiting" ? toDate(task.wakeAt) : null;
-  if (wake && wake > earliest) earliest = wake;
 
   const cursor = new Date(earliest.getFullYear(), earliest.getMonth(), earliest.getDate(), 0, 0, 0, 0);
   for (let offset = 0; offset < 14; offset += 1) {
@@ -165,18 +123,33 @@ export function nextActionableStart(task, now = new Date()) {
 
   if (task.availabilitySchedule?.enabled) return nextAvailabilityStart(task, now);
 
-  let earliest = new Date(now);
   const available = toDate(task.availableFrom);
-  if (available && available > earliest) earliest = available;
-
-  if (task.state === "waiting") {
-    const wake = toDate(task.wakeAt);
-    if (!wake) return null;
-    if (wake > earliest) earliest = wake;
+  if (available && available > now) {
+    if (latestStart && available > latestStart) return null;
+    return available;
   }
 
-  if (latestStart && earliest > latestStart) return null;
-  return earliest > now ? earliest : null;
+  return null;
+}
+
+export function isWaitingForOpportunity(task, now = new Date()) {
+  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return false;
+  if (actionability(task, now).actionable) return false;
+  const next = nextActionableStart(task, now);
+  return !!next && next > now;
+}
+
+export function isIgnored(task, now = new Date()) {
+  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return false;
+  const until = toDate(task.ignoredUntil);
+  return !!until && until > now;
+}
+
+export function tomorrowMidnight(now = new Date()) {
+  const result = new Date(now);
+  result.setDate(result.getDate() + 1);
+  result.setHours(0, 0, 0, 0);
+  return result;
 }
 
 export function availabilityStartForDate(task, date, now = new Date()) {
@@ -196,9 +169,6 @@ export function isPendingOnDate(task, date) {
 
   const available = toDate(task.availableFrom);
   if (available && available > endOfDay) return false;
-
-  const wake = toDate(task.wakeAt);
-  if (task.state === "waiting" && (!wake || wake > endOfDay)) return false;
 
   const latestStart = toDate(task.latestStart);
   if (latestStart && latestStart < startOfDay) return false;
