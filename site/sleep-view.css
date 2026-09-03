@@ -1,0 +1,12 @@
+.sleeping-task {
+  background: color-mix(in srgb, var(--surface) 80%, #29243a);
+  border-color: #40394e;
+}
+
+.sleeping-task .task-title-row h3 {
+  color: #d8d1e7;
+}
+
+.tasks-panel.compact .sleeping-task {
+  background: color-mix(in srgb, var(--surface) 84%, #29243a);
+}
