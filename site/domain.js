@@ -70,6 +70,70 @@ export function actionability(task, now = new Date()) {
   return { actionable: true, reason: task.state === "waiting" ? "Ready again" : "Can do now" };
 }
 
+export function isWaitingForOpportunity(task, now = new Date()) {
+  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return false;
+  if (actionability(task, now).actionable) return false;
+
+  const latestStart = toDate(task.latestStart);
+  if (latestStart && latestStart < now) return false;
+
+  const available = toDate(task.availableFrom);
+  if (available && available > now) return true;
+
+  const wake = toDate(task.wakeAt);
+  if (task.state === "waiting") return !wake || wake > now;
+
+  return !!task.availabilitySchedule?.enabled && !withinAvailabilitySchedule(task, now);
+}
+
+export function availabilityStartForDate(task, date) {
+  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return null;
+  const schedule = task.availabilitySchedule;
+  if (!schedule?.enabled) return null;
+
+  const day = date instanceof Date ? new Date(date) : toDate(date);
+  if (!day || !(schedule.days || []).includes(day.getDay())) return null;
+
+  const [hour = 0, minute = 0] = String(schedule.start || "00:00").split(":").map(Number);
+  const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, minute, 0, 0);
+  const endOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999);
+
+  const available = toDate(task.availableFrom);
+  if (available && available > endOfDay) return null;
+
+  const wake = toDate(task.wakeAt);
+  if (task.state === "waiting" && (!wake || wake > endOfDay)) return null;
+
+  const latestStart = toDate(task.latestStart);
+  if (latestStart && latestStart < start) return null;
+
+  return start;
+}
+
+export function isPendingOnDate(task, date) {
+  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return false;
+
+  const day = date instanceof Date ? new Date(date) : toDate(date);
+  if (!day) return false;
+  const startOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0);
+  const endOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999);
+
+  const available = toDate(task.availableFrom);
+  if (available && available > endOfDay) return false;
+
+  const wake = toDate(task.wakeAt);
+  if (task.state === "waiting" && (!wake || wake > endOfDay)) return false;
+
+  const latestStart = toDate(task.latestStart);
+  if (latestStart && latestStart < startOfDay) return false;
+
+  if (task.availabilitySchedule?.enabled) {
+    return (task.availabilitySchedule.days || []).includes(day.getDay());
+  }
+
+  return true;
+}
+
 export function taskMatchesFilter(task, filter, now = new Date()) {
   if (!isTask(task)) return false;
   const state = task.state || "open";
@@ -78,16 +142,7 @@ export function taskMatchesFilter(task, filter, now = new Date()) {
     case "now":
       return actionability(task, now).actionable;
     case "waiting":
-      return isEffectivelyWaiting(task, now);
-    case "due": {
-      if (["completed", "canceled"].includes(state)) return false;
-      const deadline = toDate(task.deadline);
-      if (!deadline) return false;
-      const horizon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-      return deadline <= horizon;
-    }
-    case "ongoing":
-      return !["completed", "canceled"].includes(state) && !task.deadline;
+      return isWaitingForOpportunity(task, now);
     case "completed":
       return state === "completed";
     case "all":
