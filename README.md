@@ -12,10 +12,12 @@ The app is a static web app that runs entirely in the browser:
 - available-from, due, and latest-start times;
 - recurring action windows for persistent tasks, such as office hours;
 - sleep as a separate user-imposed suppression layer, either until a chosen time or indefinitely;
-- one-click sleep until the next calendar day;
+- one-click sleep until the next calendar day plus a dedicated custom sleep dialog;
 - conversion between a finite sleep date and an available-from wait date;
-- task sections for Can do now, Upcoming, Waiting, Sleeping, All open, and Completed;
-- rolling 1/7/30-day upcoming horizons or calendar-boundary day/week/month horizons;
+- task sections for Can do now, a combined Upcoming/Waiting view, All open, and Completed;
+- sleeping tasks folded into the bottom of the combined Upcoming/Waiting section;
+- optional upcoming horizons: rolling 1/7/30 days or calendar-boundary Today/This week/This month;
+- turning the horizon off shows all tasks with a known future opportunity, i.e. Waiting;
 - month calendar rendering task timing markers, events, and sleep wake times;
 - a calendar-only toggle that either respects sleep when projecting task opportunities or ignores it while marking sleep-bypassed projections;
 - text/tag/attachment-name search;
