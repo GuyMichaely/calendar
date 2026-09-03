@@ -8,6 +8,8 @@ import {
   withinAvailabilitySchedule,
 } from "../site/domain.js";
 
+process.env.TZ = "America/New_York";
+
 const baseTask = {
   id: "1",
   kind: "task",
