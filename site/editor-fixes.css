@@ -1,0 +1,8 @@
+.editor-dialog {
+  overflow: hidden;
+}
+
+.editor-dialog form {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
