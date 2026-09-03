@@ -114,8 +114,33 @@ export function nextAvailabilityStart(task, now = new Date()) {
   return null;
 }
 
-export function nextActionableStart(task, now = new Date()) {
+export function sleepInfo(task, now = new Date()) {
+  if (!isTask(task) || ["completed", "canceled"].includes(task.state) || !task.sleep) {
+    return { sleeping: false, indefinite: false, until: null };
+  }
+
+  if (!task.sleep.until) return { sleeping: true, indefinite: true, until: null };
+
+  const until = toDate(task.sleep.until);
+  if (!until || until <= now) return { sleeping: false, indefinite: false, until: null };
+  return { sleeping: true, indefinite: false, until };
+}
+
+export function isSleeping(task, now = new Date()) {
+  return sleepInfo(task, now).sleeping;
+}
+
+export function nextActionableStart(task, now = new Date(), { respectSleep = false } = {}) {
   if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return null;
+
+  if (respectSleep) {
+    const sleep = sleepInfo(task, now);
+    if (sleep.sleeping) {
+      if (sleep.indefinite) return null;
+      return nextActionableStart(task, sleep.until, { respectSleep: false });
+    }
+  }
+
   if (actionability(task, now).actionable) return new Date(now);
 
   const latestStart = toDate(task.latestStart);
@@ -139,12 +164,6 @@ export function isWaitingForOpportunity(task, now = new Date()) {
   return !!next && next > now;
 }
 
-export function isIgnored(task, now = new Date()) {
-  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return false;
-  const until = toDate(task.ignoredUntil);
-  return !!until && until > now;
-}
-
 export function tomorrowMidnight(now = new Date()) {
   const result = new Date(now);
   result.setDate(result.getDate() + 1);
@@ -152,9 +171,15 @@ export function tomorrowMidnight(now = new Date()) {
   return result;
 }
 
-export function availabilityStartForDate(task, date, now = new Date()) {
+export function availabilityStartForDate(task, date, now = new Date(), { respectSleep = false } = {}) {
   const day = date instanceof Date ? new Date(date) : toDate(date);
-  if (!day) return null;
+  if (!day || !task.availabilitySchedule?.enabled) return null;
+
+  if (respectSleep && isSleeping(task, now)) {
+    const next = nextActionableStart(task, now, { respectSleep: true });
+    return next && sameLocalDay(next, day) ? next : null;
+  }
+
   const next = nextAvailabilityStart(task, now);
   return next && sameLocalDay(next, day) ? next : null;
 }
@@ -193,6 +218,25 @@ export function taskMatchesFilter(task, filter, now = new Date()) {
     default:
       return !["completed", "canceled"].includes(state);
   }
+}
+
+export function upcomingHorizonEnd(now = new Date(), horizonDays = 7, mode = "rolling") {
+  if (mode !== "boundary") return new Date(now.getTime() + horizonDays * 24 * 60 * 60 * 1000);
+
+  if (horizonDays === 1) {
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  }
+
+  if (horizonDays === 7) {
+    const daysUntilSaturday = (6 - now.getDay() + 7) % 7;
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilSaturday, 23, 59, 59, 999);
+  }
+
+  if (horizonDays === 30) {
+    return new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  }
+
+  return new Date(now.getTime() + horizonDays * 24 * 60 * 60 * 1000);
 }
 
 export function textMatches(item, query) {
