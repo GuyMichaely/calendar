@@ -93,75 +93,8 @@ function showToast(message) {
   showToast.timer = setTimeout(() => els.toast.classList.remove("show"), 2400);
 }
 
-async function migrateLegacyTasks(items) {
-  const nowDate = new Date();
-  const now = nowDate.toISOString();
-  const migrated = [];
-
-  for (const item of items) {
-    if (!isTask(item)) {
-      migrated.push(item);
-      continue;
-    }
-
-    let updated = { ...item };
-    let changed = false;
-    const history = [...(item.history || [])];
-
-    if (updated.state === "waiting") {
-      const wasOldTomorrow = history.some((entry) => entry?.type === "deferred");
-      const wake = toDate(updated.wakeAt);
-      const existingStart = toDate(updated.availableFrom);
-
-      updated.state = "open";
-      delete updated.wakeAt;
-      changed = true;
-
-      if (wake && wasOldTomorrow) {
-        updated.sleep = updated.sleep || { until: wake.toISOString(), startedAt: now };
-      } else if (wake && (!existingStart || wake > existingStart)) {
-        updated.availableFrom = wake.toISOString();
-      }
-      history.push({ at: now, type: "legacy-waiting-migrated" });
-    }
-
-    const ignoredUntil = toDate(updated.ignoredUntil);
-    if (Object.prototype.hasOwnProperty.call(updated, "ignoredUntil")) {
-      if (!updated.sleep && ignoredUntil && ignoredUntil > nowDate) {
-        updated.sleep = { until: ignoredUntil.toISOString(), startedAt: now };
-        history.push({ at: now, type: "legacy-ignore-migrated-to-sleep", until: ignoredUntil.toISOString() });
-      }
-      delete updated.ignoredUntil;
-      changed = true;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(updated, "wakeAt")) {
-      delete updated.wakeAt;
-      changed = true;
-    }
-
-    if (updated.sleep?.until) {
-      const until = toDate(updated.sleep.until);
-      if (!until || until <= nowDate) {
-        updated.sleep = null;
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      updated.updatedAt = now;
-      updated.history = history;
-      await putItem(updated);
-    }
-
-    migrated.push(updated);
-  }
-
-  return migrated;
-}
-
 async function refresh() {
-  state.items = await migrateLegacyTasks(await listItems());
+  state.items = await listItems();
   render();
 }
 
