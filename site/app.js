@@ -6,6 +6,7 @@ import {
   formatDateTime,
   isoToLocalInput,
   isEvent,
+  isIgnored,
   isPendingOnDate,
   isTask,
   localInputToIso,
@@ -14,12 +15,21 @@ import {
   taskMatchesFilter,
   textMatches,
   toDate,
+  tomorrowMidnight,
 } from "./domain.js";
 import { deleteItem, exportData, importData, listItems, putItem } from "./storage.js";
 
+function viewFromHash() {
+  return location.hash === "#calendar" ? "calendar" : "tasks";
+}
+
+if (!["#tasks", "#calendar"].includes(location.hash)) {
+  history.replaceState(null, "", "#tasks");
+}
+
 const state = {
   items: [],
-  view: "tasks",
+  view: viewFromHash(),
   query: "",
   calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   editingId: null,
@@ -51,7 +61,6 @@ const els = {
   taskFields: document.querySelector("#task-fields"),
   eventFields: document.querySelector("#event-fields"),
   cancelEditor: document.querySelector("#cancel-editor"),
-  menuButton: document.querySelector("#menu-button"),
   menu: document.querySelector("#data-menu"),
   exportButton: document.querySelector("#export-data"),
   importButton: document.querySelector("#import-data"),
@@ -78,8 +87,62 @@ function showToast(message) {
   showToast.timer = setTimeout(() => els.toast.classList.remove("show"), 2400);
 }
 
+async function migrateLegacyTasks(items) {
+  const now = new Date().toISOString();
+  const migrated = [];
+
+  for (const item of items) {
+    if (!isTask(item) || item.state !== "waiting") {
+      migrated.push(item);
+      continue;
+    }
+
+    const history = [...(item.history || [])];
+    const wasOldTomorrow = history.some((entry) => entry?.type === "deferred");
+    const wake = toDate(item.wakeAt);
+    const existingStart = toDate(item.availableFrom);
+
+    const updated = {
+      ...item,
+      state: "open",
+      wakeAt: null,
+      updatedAt: now,
+      history: [...history, { at: now, type: "legacy-waiting-migrated" }],
+    };
+
+    if (wake && wasOldTomorrow) {
+      updated.ignoredUntil = item.ignoredUntil || wake.toISOString();
+    } else if (wake && (!existingStart || wake > existingStart)) {
+      updated.availableFrom = wake.toISOString();
+    }
+
+    await putItem(updated);
+    migrated.push(updated);
+  }
+
+  return migrated;
+}
+
 async function refresh() {
-  state.items = await listItems();
+  state.items = await migrateLegacyTasks(await listItems());
+  render();
+}
+
+function navigateView(view, { replace = false } = {}) {
+  const target = view === "calendar" ? "calendar" : "tasks";
+  const hash = `#${target}`;
+  state.view = target;
+
+  if (location.hash !== hash) {
+    history[replace ? "replaceState" : "pushState"](null, "", hash);
+  }
+
+  render();
+}
+
+function syncViewFromLocation() {
+  const next = viewFromHash();
+  if (state.view !== next) state.view = next;
   render();
 }
 
@@ -105,9 +168,17 @@ function renderTasks() {
   els.compactToggle.classList.toggle("active", state.compact);
   els.compactToggle.setAttribute("aria-pressed", String(state.compact));
 
+  const actionable = sortTasks(matching.filter((task) => taskMatchesFilter(task, "now", now) && !isIgnored(task, now)), now);
+  const ignoredNowRows = sortTasks(
+    matching.filter((task) => !["completed", "canceled"].includes(task.state) && isIgnored(task, now)),
+    now,
+  ).map((task) => ({ task }));
   const rowsBySection = {
-    now: sortTasks(matching.filter((task) => taskMatchesFilter(task, "now", now)), now).map((task) => ({ task })),
-    waiting: sortTasks(matching.filter((task) => taskMatchesFilter(task, "waiting", now)), now).map((task) => ({ task })),
+    now: actionable.map((task) => ({ task })),
+    waiting: sortTasks(
+      matching.filter((task) => taskMatchesFilter(task, "waiting", now) && !isIgnored(task, now)),
+      now,
+    ).map((task) => ({ task })),
     upcoming: upcomingRows(matching, now),
     all: sortTasks(matching.filter((task) => taskMatchesFilter(task, "all", now)), now).map((task) => ({ task })),
     completed: sortTasks(matching.filter((task) => taskMatchesFilter(task, "completed", now)), now).map((task) => ({ task })),
@@ -115,7 +186,7 @@ function renderTasks() {
 
   els.taskSections.replaceChildren();
   for (const definition of taskSectionDefinitions) {
-    els.taskSections.append(taskSection(definition, rowsBySection[definition.id], now));
+    els.taskSections.append(taskSection(definition, rowsBySection[definition.id], now, definition.id === "now" ? ignoredNowRows : []));
   }
 }
 
@@ -124,6 +195,7 @@ function upcomingRows(tasks, now) {
 
   return tasks
     .filter((task) => !["completed", "canceled"].includes(task.state))
+    .filter((task) => !isIgnored(task, now))
     .filter((task) => !actionability(task, now).actionable)
     .map((task) => ({ task, upcomingAt: nextActionableStart(task, now) }))
     .filter(({ upcomingAt }) => upcomingAt && upcomingAt > now && upcomingAt <= horizonEnd)
@@ -134,19 +206,20 @@ function upcomingRows(tasks, now) {
     });
 }
 
-function taskSection(definition, rows, now) {
+function taskSection(definition, rows, now, ignoredRows = []) {
   const details = document.createElement("details");
   details.className = "task-section";
   details.dataset.section = definition.id;
   details.open = getSectionOpen(definition);
 
+  const totalCount = rows.length + ignoredRows.length;
   const summary = document.createElement("summary");
   summary.innerHTML = `
     <span class="section-heading">
       <span class="section-chevron" aria-hidden="true">›</span>
       <strong>${escapeHtml(definition.label)}</strong>
     </span>
-    <span class="section-count">${rows.length}</span>
+    <span class="section-count">${totalCount}</span>
   `;
   details.append(summary);
 
@@ -161,13 +234,26 @@ function taskSection(definition, rows, now) {
   if (!rows.length) {
     const empty = document.createElement("div");
     empty.className = "section-empty";
-    empty.textContent = emptySectionText(definition.id);
+    empty.textContent = definition.id === "now" && ignoredRows.length ? "No unignored tasks right now." : emptySectionText(definition.id);
     list.append(empty);
   } else {
     for (const row of rows) list.append(taskCard(row.task, now, row.upcomingAt));
   }
 
   body.append(list);
+
+  if (definition.id === "now" && ignoredRows.length) {
+    const ignoredBlock = document.createElement("div");
+    ignoredBlock.className = "ignored-block";
+    ignoredBlock.innerHTML = `<div class="ignored-heading"><span>Ignored for today</span><span>${ignoredRows.length}</span></div>`;
+
+    const ignoredList = document.createElement("div");
+    ignoredList.className = "task-list section-task-list ignored-task-list";
+    for (const row of ignoredRows) ignoredList.append(taskCard(row.task, now, row.upcomingAt));
+    ignoredBlock.append(ignoredList);
+    body.append(ignoredBlock);
+  }
+
   details.append(body);
   details.addEventListener("toggle", () => setSectionOpen(definition.id, details.open));
   return details;
@@ -175,7 +261,7 @@ function taskSection(definition, rows, now) {
 
 function emptySectionText(sectionId) {
   if (sectionId === "now") return "Nothing is actionable right now.";
-  if (sectionId === "waiting") return "Nothing is waiting for a future opportunity.";
+  if (sectionId === "waiting") return "Nothing has a known future opportunity.";
   if (sectionId === "upcoming") return `Nothing becomes actionable in the next ${state.horizonDays} ${state.horizonDays === 1 ? "day" : "days"}.`;
   if (sectionId === "completed") return "No completed tasks.";
   return "No open tasks.";
@@ -230,13 +316,13 @@ function taskCard(task, now, upcomingAt = null) {
   article.dataset.id = task.id;
 
   const result = actionability(task, now);
+  const ignored = isIgnored(task, now);
   const tags = (task.tags || []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
   const timing = [];
   if (upcomingAt) timing.push(`Next available ${formatDateTime(upcomingAt)}`);
   if (task.availableFrom) timing.push(`Starts ${formatDateTime(task.availableFrom)}`);
   if (task.deadline) timing.push(`Due ${formatDateTime(task.deadline)}`);
   if (task.latestStart) timing.push(`Latest start ${formatDateTime(task.latestStart)}`);
-  if (task.state === "waiting" && task.wakeAt) timing.push(`Wake ${formatDateTime(task.wakeAt)}`);
 
   const schedule = task.availabilitySchedule;
   if (schedule?.enabled) {
@@ -245,8 +331,8 @@ function taskCard(task, now, upcomingAt = null) {
     timing.push(`${days || "No days"} ${schedule.start || ""}–${schedule.end || ""}`);
   }
 
-  const canResume = task.state === "waiting" && !!task.wakeAt;
   const closed = ["completed", "canceled"].includes(task.state);
+  const statusText = ignored ? "Ignored today" : result.reason;
 
   article.innerHTML = `
     <div class="task-main">
@@ -254,7 +340,7 @@ function taskCard(task, now, upcomingAt = null) {
       <div class="task-copy">
         <div class="task-title-row">
           <h3>${escapeHtml(task.title || "Untitled task")}</h3>
-          <span class="status-pill ${result.actionable ? "ready" : "quiet"}">${escapeHtml(result.reason)}</span>
+          <span class="status-pill ${result.actionable && !ignored ? "ready" : "quiet"}">${escapeHtml(statusText)}</span>
         </div>
         ${task.notes ? `<p class="notes">${escapeHtml(task.notes)}</p>` : ""}
         ${timing.length ? `<div class="timing">${timing.map((x) => `<span>${escapeHtml(x)}</span>`).join("")}</div>` : ""}
@@ -263,8 +349,8 @@ function taskCard(task, now, upcomingAt = null) {
       </div>
     </div>
     <div class="task-actions">
-      ${!closed && canResume ? '<button class="text-button" data-action="resume">Resume now</button>' : ""}
-      ${!closed ? '<button class="text-button" data-action="tomorrow">Tomorrow</button>' : ""}
+      ${!closed && ignored ? '<button class="text-button" data-action="unignore">Unignore</button>' : ""}
+      ${!closed && result.actionable && !ignored ? '<button class="text-button" data-action="check-tomorrow">Check tomorrow</button>' : ""}
       <button class="text-button" data-action="edit">Edit</button>
     </div>
   `;
@@ -300,6 +386,7 @@ async function handleTaskAction(event) {
       ...item,
       state: "completed",
       completedAt: now,
+      ignoredUntil: null,
       updatedAt: now,
       history: [...(item.history || []), { at: now, type: "completed" }],
     });
@@ -308,34 +395,31 @@ async function handleTaskAction(event) {
     return;
   }
 
-  if (button.dataset.action === "resume") {
+  if (button.dataset.action === "unignore") {
     const now = new Date().toISOString();
     await putItem({
       ...item,
-      state: "open",
-      wakeAt: null,
+      ignoredUntil: null,
       updatedAt: now,
-      history: [...(item.history || []), { at: now, type: "resumed" }],
+      history: [...(item.history || []), { at: now, type: "unignored" }],
     });
     await refresh();
-    showToast("Delay cleared");
+    showToast("Task restored for today");
     return;
   }
 
-  if (button.dataset.action === "tomorrow") {
-    const wake = new Date();
-    wake.setDate(wake.getDate() + 1);
-    wake.setHours(0, 0, 0, 0);
-    const now = new Date().toISOString();
+  if (button.dataset.action === "check-tomorrow") {
+    const nowDate = new Date();
+    const until = tomorrowMidnight(nowDate);
+    const now = nowDate.toISOString();
     await putItem({
       ...item,
-      state: "waiting",
-      wakeAt: wake.toISOString(),
+      ignoredUntil: until.toISOString(),
       updatedAt: now,
-      history: [...(item.history || []), { at: now, type: "deferred", until: wake.toISOString() }],
+      history: [...(item.history || []), { at: now, type: "check-tomorrow", until: until.toISOString() }],
     });
     await refresh();
-    showToast("Deferred until tomorrow");
+    showToast("Ignored for the rest of today");
   }
 }
 
@@ -353,7 +437,8 @@ function renderCalendar() {
   });
 
   const start = calendarGridStart(month);
-  const today = dateKey(new Date());
+  const now = new Date();
+  const today = dateKey(now);
 
   for (let i = 0; i < 42; i += 1) {
     const day = new Date(start);
@@ -371,24 +456,26 @@ function renderCalendar() {
 
     let reservedRows = 0;
     if (key === today) {
-      const pendingCount = state.items.filter((item) => isPendingOnDate(item, day)).length;
+      const pendingTasks = state.items.filter((item) => isPendingOnDate(item, day));
+      const pendingCount = pendingTasks.length;
+      const ignoredCount = pendingTasks.filter((item) => isIgnored(item, now)).length;
       if (pendingCount) {
         const summary = document.createElement("button");
         summary.className = "calendar-chip task start";
-        summary.textContent = `✓ ${pendingCount} pending ${pendingCount === 1 ? "task" : "tasks"}`;
-        summary.title = "Open today's pending tasks";
+        summary.textContent = `${pendingCount} ${pendingCount === 1 ? "task" : "tasks"}${ignoredCount ? ` - ${ignoredCount} ignored` : ""}`;
+        summary.title = "Open today's tasks";
         summary.addEventListener("click", () => {
-          state.view = "tasks";
-          setSectionOpen("all", true);
-          render();
-          requestAnimationFrame(() => document.querySelector('[data-section="all"]')?.scrollIntoView({ block: "start" }));
+          setSectionOpen("now", true);
+          setSectionOpen("upcoming", true);
+          navigateView("tasks");
+          requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" }));
         });
         cell.append(summary);
         reservedRows = 1;
       }
     }
 
-    const items = calendarItemsForDay(day);
+    const items = calendarItemsForDay(day, now);
     const itemLimit = 4 - reservedRows;
     for (const item of items.slice(0, itemLimit)) {
       const chip = document.createElement("button");
@@ -409,7 +496,7 @@ function renderCalendar() {
   }
 }
 
-function calendarItemsForDay(day) {
+function calendarItemsForDay(day, now = new Date()) {
   const key = dateKey(day);
   const entries = [];
   for (const item of state.items) {
@@ -426,7 +513,7 @@ function calendarItemsForDay(day) {
     }
     if (!isTask(item) || ["completed", "canceled"].includes(item.state)) continue;
 
-    const scheduledStart = availabilityStartForDate(item, day);
+    const scheduledStart = availabilityStartForDate(item, day, now);
     if (scheduledStart) {
       entries.push({
         kind: "task",
@@ -440,7 +527,6 @@ function calendarItemsForDay(day) {
 
     for (const [field, role, prefix] of [
       ["availableFrom", "start", "↦"],
-      ["wakeAt", "wake", "↻"],
       ["latestStart", "latest", "!"],
       ["deadline", "due", "●"],
     ]) {
@@ -480,12 +566,11 @@ function openEditor(item = null, defaultKind = "task") {
   els.form.elements.notes.value = item?.notes || "";
 
   if (kind === "task") {
-    els.form.elements.taskState.value = item?.state || "open";
+    els.form.elements.taskState.value = ["completed", "canceled"].includes(item?.state) ? item.state : "open";
     els.form.elements.tags.value = (item?.tags || []).join(", ");
     els.form.elements.availableFrom.value = isoToLocalInput(item?.availableFrom);
     els.form.elements.deadline.value = isoToLocalInput(item?.deadline);
     els.form.elements.latestStart.value = isoToLocalInput(item?.latestStart);
-    els.form.elements.wakeAt.value = isoToLocalInput(item?.wakeAt);
 
     const schedule = item?.availabilitySchedule;
     els.form.elements.scheduleEnabled.checked = !!schedule?.enabled;
@@ -539,18 +624,8 @@ async function saveEditor(event) {
       size: file.size,
       blob: file,
     }));
-
-    const requestedState = String(form.get("taskState") || "open");
-    let wakeAt = localInputToIso(form.get("wakeAt"));
-    let taskState = requestedState;
-    const clearedExistingWake = existing?.kind === "task" && existing.state === "waiting" && existing.wakeAt && !wakeAt;
-
-    if (requestedState === "open" && wakeAt) taskState = "waiting";
-    if (clearedExistingWake && requestedState === "waiting") taskState = "open";
-    if (taskState !== "waiting") wakeAt = null;
-
-    const history = existing?.history ? [...existing.history] : [{ at: now, type: "created" }];
-    if (clearedExistingWake) history.push({ at: now, type: "resumed" });
+    const taskState = String(form.get("taskState") || "open");
+    const closed = ["completed", "canceled"].includes(taskState);
 
     item = {
       ...(existing?.kind === "task" ? existing : {}),
@@ -567,7 +642,8 @@ async function saveEditor(event) {
       availableFrom: localInputToIso(form.get("availableFrom")),
       deadline: localInputToIso(form.get("deadline")),
       latestStart: localInputToIso(form.get("latestStart")),
-      wakeAt,
+      wakeAt: null,
+      ignoredUntil: closed ? null : existing?.ignoredUntil || null,
       availabilitySchedule: scheduleEnabled
         ? {
             enabled: true,
@@ -578,7 +654,7 @@ async function saveEditor(event) {
         : null,
       createdAt: existing?.createdAt || now,
       updatedAt: now,
-      history,
+      history: existing?.history || [{ at: now, type: "created" }],
     };
   } else {
     item = {
@@ -610,16 +686,13 @@ function escapeHtml(value) {
 }
 
 els.navButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    state.view = button.dataset.view;
-    render();
-  });
+  button.addEventListener("click", () => navigateView(button.dataset.view));
 });
 els.newButton.addEventListener("click", () => openEditor(null, state.view === "calendar" ? "event" : "task"));
 els.search.addEventListener("input", () => {
   state.query = els.search.value;
-  if (state.view !== "tasks") state.view = "tasks";
-  render();
+  if (state.view !== "tasks") navigateView("tasks");
+  else renderTasks();
 });
 els.compactToggle.addEventListener("click", () => {
   state.compact = !state.compact;
@@ -679,6 +752,9 @@ els.importInput.addEventListener("change", async () => {
     els.importInput.value = "";
   }
 });
+
+window.addEventListener("popstate", syncViewFromLocation);
+window.addEventListener("hashchange", syncViewFromLocation);
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   navigator.serviceWorker.register("./sw.js").catch(() => {});
