@@ -81,7 +81,7 @@ export function isWaitingForOpportunity(task, now = new Date()) {
   if (available && available > now) return true;
 
   const wake = toDate(task.wakeAt);
-  if (task.state === "waiting") return !wake || wake > now;
+  if (task.state === "waiting" && (!wake || wake > now)) return true;
 
   return !!task.availabilitySchedule?.enabled && !withinAvailabilitySchedule(task, now);
 }
@@ -154,6 +154,29 @@ export function nextAvailabilityStart(task, now = new Date()) {
   }
 
   return null;
+}
+
+export function nextActionableStart(task, now = new Date()) {
+  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return null;
+  if (actionability(task, now).actionable) return new Date(now);
+
+  const latestStart = toDate(task.latestStart);
+  if (latestStart && latestStart < now) return null;
+
+  if (task.availabilitySchedule?.enabled) return nextAvailabilityStart(task, now);
+
+  let earliest = new Date(now);
+  const available = toDate(task.availableFrom);
+  if (available && available > earliest) earliest = available;
+
+  if (task.state === "waiting") {
+    const wake = toDate(task.wakeAt);
+    if (!wake) return null;
+    if (wake > earliest) earliest = wake;
+  }
+
+  if (latestStart && earliest > latestStart) return null;
+  return earliest > now ? earliest : null;
 }
 
 export function availabilityStartForDate(task, date, now = new Date()) {
