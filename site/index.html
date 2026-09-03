@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f7f7f4" />
+    <meta name="theme-color" content="#0d100e" />
     <title>Calendar</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./styles.css" />
@@ -56,12 +56,16 @@
               <button id="today" class="text-button">Today</button>
               <button id="next-month" class="icon-button" aria-label="Next month">›</button>
             </div>
-            <h1 id="month-label"></h1>
+            <div class="calendar-heading-actions">
+              <button id="calendar-sleep-toggle" type="button" class="secondary-button calendar-sleep-toggle" aria-pressed="true">Respect sleep</button>
+              <h1 id="month-label"></h1>
+            </div>
           </div>
           <div id="calendar-grid" class="calendar-grid"></div>
           <div class="calendar-legend">
             <span><i class="legend-dot event"></i>Event</span>
             <span><i class="legend-dot start"></i>Task start</span>
+            <span><i class="legend-dot sleep"></i>Sleep ends</span>
             <span><i class="legend-dot latest"></i>Latest start</span>
             <span><i class="legend-dot due"></i>Due</span>
           </div>
@@ -115,6 +119,18 @@
               <label class="field">
                 <span>Latest start</span>
                 <input name="latestStart" type="datetime-local" />
+              </label>
+              <label class="field">
+                <span>Sleep</span>
+                <select name="sleepMode">
+                  <option value="awake">Awake</option>
+                  <option value="until">Until a date</option>
+                  <option value="indefinite">Indefinitely</option>
+                </select>
+              </label>
+              <label id="sleep-until-field" class="field disabled">
+                <span>Sleep until</span>
+                <input name="sleepUntil" type="datetime-local" />
               </label>
               <label class="field full-span">
                 <span>Attachments</span>
