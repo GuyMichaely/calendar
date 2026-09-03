@@ -9,6 +9,7 @@ import {
   isPendingOnDate,
   isTask,
   localInputToIso,
+  nextActionableStart,
   sortTasks,
   taskMatchesFilter,
   textMatches,
@@ -19,10 +20,11 @@ import { deleteItem, exportData, importData, listItems, putItem } from "./storag
 const state = {
   items: [],
   view: "tasks",
-  filter: "now",
   query: "",
   calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   editingId: null,
+  compact: localStorage.getItem("calendar.compactTasks") === "1",
+  horizonDays: Number(localStorage.getItem("calendar.upcomingHorizon")) || 7,
 };
 
 const els = {
@@ -32,9 +34,9 @@ const els = {
   search: document.querySelector("#search"),
   taskPanel: document.querySelector("#tasks-panel"),
   calendarPanel: document.querySelector("#calendar-panel"),
-  taskList: document.querySelector("#task-list"),
+  taskSections: document.querySelector("#task-sections"),
   taskCount: document.querySelector("#task-count"),
-  filterBar: document.querySelector("#filter-bar"),
+  compactToggle: document.querySelector("#compact-toggle"),
   calendarGrid: document.querySelector("#calendar-grid"),
   monthLabel: document.querySelector("#month-label"),
   prevMonth: document.querySelector("#prev-month"),
@@ -57,12 +59,13 @@ const els = {
   toast: document.querySelector("#toast"),
 };
 
-const filterLabels = {
-  now: "Can do now",
-  waiting: "Waiting",
-  all: "All open",
-  completed: "Completed",
-};
+const taskSectionDefinitions = [
+  { id: "now", label: "Can do now", defaultOpen: true },
+  { id: "waiting", label: "Waiting", defaultOpen: true },
+  { id: "upcoming", label: "Upcoming", defaultOpen: true },
+  { id: "all", label: "All open", defaultOpen: false },
+  { id: "completed", label: "Completed", defaultOpen: false },
+];
 
 function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -90,34 +93,138 @@ function render() {
 }
 
 function renderTasks() {
-  [...els.filterBar.querySelectorAll("button")].forEach((button) => {
-    button.classList.toggle("active", button.dataset.filter === state.filter);
-  });
-
   const now = new Date();
-  const tasks = sortTasks(
-    state.items
-      .filter(isTask)
-      .filter((task) => taskMatchesFilter(task, state.filter, now))
-      .filter((task) => textMatches(task, state.query)),
-    now,
-  );
+  const matching = state.items.filter(isTask).filter((task) => textMatches(task, state.query));
+  const openCount = matching.filter((task) => !["completed", "canceled"].includes(task.state)).length;
 
-  els.taskCount.textContent = `${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}`;
-  els.taskList.replaceChildren();
+  els.taskCount.textContent = state.query
+    ? `${openCount} matching open ${openCount === 1 ? "task" : "tasks"}`
+    : `${openCount} open ${openCount === 1 ? "task" : "tasks"}`;
 
-  if (!tasks.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty-state";
-    empty.innerHTML = `<strong>No ${filterLabels[state.filter].toLowerCase()} tasks.</strong><span>Create one or switch filters.</span>`;
-    els.taskList.append(empty);
-    return;
+  els.taskPanel.classList.toggle("compact", state.compact);
+  els.compactToggle.classList.toggle("active", state.compact);
+  els.compactToggle.setAttribute("aria-pressed", String(state.compact));
+
+  const rowsBySection = {
+    now: sortTasks(matching.filter((task) => taskMatchesFilter(task, "now", now)), now).map((task) => ({ task })),
+    waiting: sortTasks(matching.filter((task) => taskMatchesFilter(task, "waiting", now)), now).map((task) => ({ task })),
+    upcoming: upcomingRows(matching, now),
+    all: sortTasks(matching.filter((task) => taskMatchesFilter(task, "all", now)), now).map((task) => ({ task })),
+    completed: sortTasks(matching.filter((task) => taskMatchesFilter(task, "completed", now)), now).map((task) => ({ task })),
+  };
+
+  els.taskSections.replaceChildren();
+  for (const definition of taskSectionDefinitions) {
+    els.taskSections.append(taskSection(definition, rowsBySection[definition.id], now));
   }
-
-  for (const task of tasks) els.taskList.append(taskCard(task, now));
 }
 
-function taskCard(task, now) {
+function upcomingRows(tasks, now) {
+  const horizonEnd = new Date(now.getTime() + state.horizonDays * 24 * 60 * 60 * 1000);
+
+  return tasks
+    .filter((task) => !["completed", "canceled"].includes(task.state))
+    .filter((task) => !actionability(task, now).actionable)
+    .map((task) => ({ task, upcomingAt: nextActionableStart(task, now) }))
+    .filter(({ upcomingAt }) => upcomingAt && upcomingAt > now && upcomingAt <= horizonEnd)
+    .sort((a, b) => {
+      const byTime = a.upcomingAt.getTime() - b.upcomingAt.getTime();
+      if (byTime) return byTime;
+      return String(a.task.title || "").localeCompare(String(b.task.title || ""));
+    });
+}
+
+function taskSection(definition, rows, now) {
+  const details = document.createElement("details");
+  details.className = "task-section";
+  details.dataset.section = definition.id;
+  details.open = getSectionOpen(definition);
+
+  const summary = document.createElement("summary");
+  summary.innerHTML = `
+    <span class="section-heading">
+      <span class="section-chevron" aria-hidden="true">›</span>
+      <strong>${escapeHtml(definition.label)}</strong>
+    </span>
+    <span class="section-count">${rows.length}</span>
+  `;
+  details.append(summary);
+
+  const body = document.createElement("div");
+  body.className = "task-section-body";
+
+  if (definition.id === "upcoming") body.append(upcomingHorizonControl());
+
+  const list = document.createElement("div");
+  list.className = "task-list section-task-list";
+
+  if (!rows.length) {
+    const empty = document.createElement("div");
+    empty.className = "section-empty";
+    empty.textContent = emptySectionText(definition.id);
+    list.append(empty);
+  } else {
+    for (const row of rows) list.append(taskCard(row.task, now, row.upcomingAt));
+  }
+
+  body.append(list);
+  details.append(body);
+  details.addEventListener("toggle", () => setSectionOpen(definition.id, details.open));
+  return details;
+}
+
+function emptySectionText(sectionId) {
+  if (sectionId === "now") return "Nothing is actionable right now.";
+  if (sectionId === "waiting") return "Nothing is waiting for a future opportunity.";
+  if (sectionId === "upcoming") return `Nothing becomes actionable in the next ${state.horizonDays} ${state.horizonDays === 1 ? "day" : "days"}.`;
+  if (sectionId === "completed") return "No completed tasks.";
+  return "No open tasks.";
+}
+
+function upcomingHorizonControl() {
+  const wrap = document.createElement("div");
+  wrap.className = "horizon-row";
+
+  const label = document.createElement("span");
+  label.className = "horizon-label";
+  label.textContent = "Becomes available within";
+  wrap.append(label);
+
+  const control = document.createElement("div");
+  control.className = "segmented horizon-control";
+  control.setAttribute("aria-label", "Upcoming task horizon");
+
+  for (const days of [1, 7, 30]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.horizon = String(days);
+    button.className = days === state.horizonDays ? "active" : "";
+    button.textContent = `${days}d`;
+    button.setAttribute("aria-pressed", String(days === state.horizonDays));
+    button.addEventListener("click", () => {
+      state.horizonDays = days;
+      localStorage.setItem("calendar.upcomingHorizon", String(days));
+      renderTasks();
+    });
+    control.append(button);
+  }
+
+  wrap.append(control);
+  return wrap;
+}
+
+function getSectionOpen(definition) {
+  const stored = localStorage.getItem(`calendar.section.${definition.id}`);
+  if (stored === "open") return true;
+  if (stored === "closed") return false;
+  return definition.defaultOpen;
+}
+
+function setSectionOpen(sectionId, open) {
+  localStorage.setItem(`calendar.section.${sectionId}`, open ? "open" : "closed");
+}
+
+function taskCard(task, now, upcomingAt = null) {
   const article = document.createElement("article");
   article.className = "task-card";
   article.dataset.id = task.id;
@@ -125,6 +232,7 @@ function taskCard(task, now) {
   const result = actionability(task, now);
   const tags = (task.tags || []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
   const timing = [];
+  if (upcomingAt) timing.push(`Next available ${formatDateTime(upcomingAt)}`);
   if (task.availableFrom) timing.push(`Starts ${formatDateTime(task.availableFrom)}`);
   if (task.deadline) timing.push(`Due ${formatDateTime(task.deadline)}`);
   if (task.latestStart) timing.push(`Latest start ${formatDateTime(task.latestStart)}`);
@@ -137,9 +245,12 @@ function taskCard(task, now) {
     timing.push(`${days || "No days"} ${schedule.start || ""}–${schedule.end || ""}`);
   }
 
+  const canResume = task.state === "waiting" && !!task.wakeAt;
+  const closed = ["completed", "canceled"].includes(task.state);
+
   article.innerHTML = `
     <div class="task-main">
-      <button class="complete-button" data-action="complete" aria-label="Mark complete" title="Mark complete"></button>
+      ${closed ? '<span class="complete-indicator" aria-hidden="true">✓</span>' : '<button class="complete-button" data-action="complete" aria-label="Mark complete" title="Mark complete"></button>'}
       <div class="task-copy">
         <div class="task-title-row">
           <h3>${escapeHtml(task.title || "Untitled task")}</h3>
@@ -152,7 +263,8 @@ function taskCard(task, now) {
       </div>
     </div>
     <div class="task-actions">
-      <button class="text-button" data-action="tomorrow">Tomorrow</button>
+      ${!closed && canResume ? '<button class="text-button" data-action="resume">Resume now</button>' : ""}
+      ${!closed ? '<button class="text-button" data-action="tomorrow">Tomorrow</button>' : ""}
       <button class="text-button" data-action="edit">Edit</button>
     </div>
   `;
@@ -183,15 +295,30 @@ async function handleTaskAction(event) {
   }
 
   if (button.dataset.action === "complete") {
+    const now = new Date().toISOString();
     await putItem({
       ...item,
       state: "completed",
-      completedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      history: [...(item.history || []), { at: new Date().toISOString(), type: "completed" }],
+      completedAt: now,
+      updatedAt: now,
+      history: [...(item.history || []), { at: now, type: "completed" }],
     });
     await refresh();
     showToast("Task completed");
+    return;
+  }
+
+  if (button.dataset.action === "resume") {
+    const now = new Date().toISOString();
+    await putItem({
+      ...item,
+      state: "open",
+      wakeAt: null,
+      updatedAt: now,
+      history: [...(item.history || []), { at: now, type: "resumed" }],
+    });
+    await refresh();
+    showToast("Delay cleared");
     return;
   }
 
@@ -199,12 +326,13 @@ async function handleTaskAction(event) {
     const wake = new Date();
     wake.setDate(wake.getDate() + 1);
     wake.setHours(0, 0, 0, 0);
+    const now = new Date().toISOString();
     await putItem({
       ...item,
       state: "waiting",
       wakeAt: wake.toISOString(),
-      updatedAt: new Date().toISOString(),
-      history: [...(item.history || []), { at: new Date().toISOString(), type: "deferred", until: wake.toISOString() }],
+      updatedAt: now,
+      history: [...(item.history || []), { at: now, type: "deferred", until: wake.toISOString() }],
     });
     await refresh();
     showToast("Deferred until tomorrow");
@@ -251,8 +379,9 @@ function renderCalendar() {
         summary.title = "Open today's pending tasks";
         summary.addEventListener("click", () => {
           state.view = "tasks";
-          state.filter = "all";
+          setSectionOpen("all", true);
           render();
+          requestAnimationFrame(() => document.querySelector('[data-section="all"]')?.scrollIntoView({ block: "start" }));
         });
         cell.append(summary);
         reservedRows = 1;
@@ -303,7 +432,7 @@ function calendarItemsForDay(day) {
         kind: "task",
         role: "start",
         label: `${shortTime(scheduledStart)} ${item.title}`,
-        title: `${item.title} — action window`,
+        title: `${item.title}: action window`,
         source: item,
         sort: scheduledStart.getTime(),
       });
@@ -320,7 +449,7 @@ function calendarItemsForDay(day) {
           kind: "task",
           role,
           label: `${prefix} ${item.title}`,
-          title: `${item.title} — ${role}`,
+          title: `${item.title}: ${role}`,
           source: item,
           sort: toDate(item[field])?.getTime() || 0,
         });
@@ -410,13 +539,26 @@ async function saveEditor(event) {
       size: file.size,
       blob: file,
     }));
+
+    const requestedState = String(form.get("taskState") || "open");
+    let wakeAt = localInputToIso(form.get("wakeAt"));
+    let taskState = requestedState;
+    const clearedExistingWake = existing?.kind === "task" && existing.state === "waiting" && existing.wakeAt && !wakeAt;
+
+    if (requestedState === "open" && wakeAt) taskState = "waiting";
+    if (clearedExistingWake && requestedState === "waiting") taskState = "open";
+    if (taskState !== "waiting") wakeAt = null;
+
+    const history = existing?.history ? [...existing.history] : [{ at: now, type: "created" }];
+    if (clearedExistingWake) history.push({ at: now, type: "resumed" });
+
     item = {
       ...(existing?.kind === "task" ? existing : {}),
       id: existing?.id || uuid(),
       kind: "task",
       title: String(form.get("title")).trim(),
       notes: String(form.get("notes") || "").trim(),
-      state: String(form.get("taskState") || "open"),
+      state: taskState,
       tags: String(form.get("tags") || "")
         .split(",")
         .map((x) => x.trim())
@@ -425,7 +567,7 @@ async function saveEditor(event) {
       availableFrom: localInputToIso(form.get("availableFrom")),
       deadline: localInputToIso(form.get("deadline")),
       latestStart: localInputToIso(form.get("latestStart")),
-      wakeAt: localInputToIso(form.get("wakeAt")),
+      wakeAt,
       availabilitySchedule: scheduleEnabled
         ? {
             enabled: true,
@@ -436,7 +578,7 @@ async function saveEditor(event) {
         : null,
       createdAt: existing?.createdAt || now,
       updatedAt: now,
-      history: existing?.history || [{ at: now, type: "created" }],
+      history,
     };
   } else {
     item = {
@@ -473,17 +615,15 @@ els.navButtons.forEach((button) => {
     render();
   });
 });
-
 els.newButton.addEventListener("click", () => openEditor(null, state.view === "calendar" ? "event" : "task"));
 els.search.addEventListener("input", () => {
   state.query = els.search.value;
   if (state.view !== "tasks") state.view = "tasks";
   render();
 });
-els.filterBar.addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-filter]");
-  if (!button) return;
-  state.filter = button.dataset.filter;
+els.compactToggle.addEventListener("click", () => {
+  state.compact = !state.compact;
+  localStorage.setItem("calendar.compactTasks", state.compact ? "1" : "0");
   renderTasks();
 });
 els.prevMonth.addEventListener("click", () => {
