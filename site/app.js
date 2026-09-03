@@ -1,10 +1,12 @@
 import {
   actionability,
+  availabilityStartForDate,
   calendarGridStart,
   dateKey,
   formatDateTime,
   isoToLocalInput,
   isEvent,
+  isPendingOnDate,
   isTask,
   localInputToIso,
   sortTasks,
@@ -58,8 +60,6 @@ const els = {
 const filterLabels = {
   now: "Can do now",
   waiting: "Waiting",
-  due: "Due soon",
-  ongoing: "Ongoing",
   all: "All open",
   completed: "Completed",
 };
@@ -198,6 +198,7 @@ async function handleTaskAction(event) {
   if (button.dataset.action === "tomorrow") {
     const wake = new Date();
     wake.setDate(wake.getDate() + 1);
+    wake.setHours(0, 0, 0, 0);
     await putItem({
       ...item,
       state: "waiting",
@@ -240,8 +241,27 @@ function renderCalendar() {
     header.textContent = day.getDate();
     cell.append(header);
 
-    const items = calendarItemsForDay(key);
-    for (const item of items.slice(0, 4)) {
+    let reservedRows = 0;
+    if (key === today) {
+      const pendingCount = state.items.filter((item) => isPendingOnDate(item, day)).length;
+      if (pendingCount) {
+        const summary = document.createElement("button");
+        summary.className = "calendar-chip task start";
+        summary.textContent = `✓ ${pendingCount} pending ${pendingCount === 1 ? "task" : "tasks"}`;
+        summary.title = "Open today's pending tasks";
+        summary.addEventListener("click", () => {
+          state.view = "tasks";
+          state.filter = "all";
+          render();
+        });
+        cell.append(summary);
+        reservedRows = 1;
+      }
+    }
+
+    const items = calendarItemsForDay(day);
+    const itemLimit = 4 - reservedRows;
+    for (const item of items.slice(0, itemLimit)) {
       const chip = document.createElement("button");
       chip.className = `calendar-chip ${item.kind} ${item.role || ""}`;
       chip.textContent = item.label;
@@ -249,10 +269,10 @@ function renderCalendar() {
       chip.addEventListener("click", () => openEditor(item.source));
       cell.append(chip);
     }
-    if (items.length > 4) {
+    if (items.length > itemLimit) {
       const more = document.createElement("div");
       more.className = "more-count";
-      more.textContent = `+${items.length - 4} more`;
+      more.textContent = `+${items.length - itemLimit} more`;
       cell.append(more);
     }
 
@@ -260,7 +280,8 @@ function renderCalendar() {
   }
 }
 
-function calendarItemsForDay(key) {
+function calendarItemsForDay(day) {
+  const key = dateKey(day);
   const entries = [];
   for (const item of state.items) {
     if (isEvent(item) && dateKey(item.start) === key) {
@@ -275,6 +296,19 @@ function calendarItemsForDay(key) {
       continue;
     }
     if (!isTask(item) || ["completed", "canceled"].includes(item.state)) continue;
+
+    const scheduledStart = availabilityStartForDate(item, day);
+    if (scheduledStart) {
+      entries.push({
+        kind: "task",
+        role: "start",
+        label: `${shortTime(scheduledStart)} ${item.title}`,
+        title: `${item.title} — action window`,
+        source: item,
+        sort: scheduledStart.getTime(),
+      });
+    }
+
     for (const [field, role, prefix] of [
       ["availableFrom", "start", "↦"],
       ["wakeAt", "wake", "↻"],
