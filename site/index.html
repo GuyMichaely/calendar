@@ -8,6 +8,7 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./editor-fixes.css" />
+    <link rel="stylesheet" href="./task-view.css" />
   </head>
   <body>
     <div id="app" class="app-shell">
@@ -39,18 +40,12 @@
           <div class="panel-heading">
             <div>
               <h1>Tasks</h1>
-              <p id="task-count" class="muted">0 tasks</p>
+              <p id="task-count" class="muted">0 open tasks</p>
             </div>
+            <button id="compact-toggle" type="button" class="secondary-button density-toggle" aria-pressed="false">Compact</button>
           </div>
 
-          <div id="filter-bar" class="filter-bar" aria-label="Task filters">
-            <button class="active" data-filter="now">Can do now</button>
-            <button data-filter="waiting">Waiting</button>
-            <button data-filter="all">All open</button>
-            <button data-filter="completed">Completed</button>
-          </div>
-
-          <div id="task-list" class="task-list"></div>
+          <div id="task-sections" class="task-sections"></div>
         </section>
 
         <section id="calendar-panel" class="panel calendar-panel" hidden>
@@ -125,6 +120,7 @@
               <label class="field">
                 <span>Wake / review</span>
                 <input name="wakeAt" type="datetime-local" />
+                <small class="field-hint">Clearing a scheduled wake removes the delay.</small>
               </label>
               <label class="field full-span">
                 <span>Attachments</span>
