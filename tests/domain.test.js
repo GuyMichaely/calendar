@@ -4,6 +4,7 @@ import {
   actionability,
   availabilityStartForDate,
   isPendingOnDate,
+  nextAvailabilityStart,
   taskMatchesFilter,
   withinAvailabilitySchedule,
 } from "../site/domain.js";
@@ -15,6 +16,11 @@ const baseTask = {
   kind: "task",
   title: "Call doctor",
   state: "open",
+};
+
+const eveningTask = {
+  ...baseTask,
+  availabilitySchedule: { enabled: true, days: [1, 2, 3, 4, 5], start: "18:00", end: "23:59" },
 };
 
 test("future availableFrom blocks actionability and appears in waiting", () => {
@@ -31,43 +37,40 @@ test("waiting task wakes without needing a new occurrence", () => {
 });
 
 test("weekday action window is a recurring opportunity, not a recurrence instance", () => {
-  const task = {
-    ...baseTask,
-    availabilitySchedule: { enabled: true, days: [1, 2, 3, 4, 5], start: "18:00", end: "23:59" },
-  };
-  assert.equal(withinAvailabilitySchedule(task, new Date("2026-09-03T17:00:00-04:00")), false);
-  assert.equal(withinAvailabilitySchedule(task, new Date("2026-09-03T19:00:00-04:00")), true);
-  assert.equal(withinAvailabilitySchedule(task, new Date("2026-09-05T19:00:00-04:00")), false);
+  assert.equal(withinAvailabilitySchedule(eveningTask, new Date("2026-09-03T17:00:00-04:00")), false);
+  assert.equal(withinAvailabilitySchedule(eveningTask, new Date("2026-09-03T19:00:00-04:00")), true);
+  assert.equal(withinAvailabilitySchedule(eveningTask, new Date("2026-09-05T19:00:00-04:00")), false);
 });
 
 test("open task outside today's action window appears in waiting", () => {
-  const task = {
-    ...baseTask,
-    availabilitySchedule: { enabled: true, days: [1, 2, 3, 4, 5], start: "18:00", end: "23:59" },
-  };
-  assert.equal(taskMatchesFilter(task, "waiting", new Date("2026-09-03T13:00:00-04:00")), true);
-  assert.equal(taskMatchesFilter(task, "waiting", new Date("2026-09-03T19:00:00-04:00")), false);
+  assert.equal(taskMatchesFilter(eveningTask, "waiting", new Date("2026-09-03T13:00:00-04:00")), true);
+  assert.equal(taskMatchesFilter(eveningTask, "waiting", new Date("2026-09-03T19:00:00-04:00")), false);
 });
 
-test("recurring availability produces a calendar start on matching days", () => {
-  const task = {
-    ...baseTask,
-    availabilitySchedule: { enabled: true, days: [1, 2, 3, 4, 5], start: "18:00", end: "23:59" },
-  };
-  const start = availabilityStartForDate(task, new Date("2026-09-03T12:00:00-04:00"));
-  assert.equal(start?.getHours(), 18);
-  assert.equal(start?.getMinutes(), 0);
-  assert.equal(availabilityStartForDate(task, new Date("2026-09-05T12:00:00-04:00")), null);
+test("calendar shows only the current or next recurring opportunity", () => {
+  const beforeWindow = new Date("2026-09-03T13:00:00-04:00");
+  const today = new Date("2026-09-03T12:00:00-04:00");
+  const tomorrow = new Date("2026-09-04T12:00:00-04:00");
+
+  const nextBefore = nextAvailabilityStart(eveningTask, beforeWindow);
+  assert.equal(nextBefore?.getDate(), 3);
+  assert.equal(nextBefore?.getHours(), 18);
+  assert.equal(availabilityStartForDate(eveningTask, today, beforeWindow)?.getHours(), 18);
+  assert.equal(availabilityStartForDate(eveningTask, tomorrow, beforeWindow), null);
+
+  const duringWindow = new Date("2026-09-03T20:00:00-04:00");
+  assert.equal(availabilityStartForDate(eveningTask, today, duringWindow)?.getHours(), 18);
+  assert.equal(availabilityStartForDate(eveningTask, tomorrow, duringWindow), null);
+
+  const afterWindow = new Date("2026-09-04T00:01:00-04:00");
+  assert.equal(availabilityStartForDate(eveningTask, today, afterWindow), null);
+  assert.equal(availabilityStartForDate(eveningTask, tomorrow, afterWindow)?.getHours(), 18);
 });
 
 test("pending-today includes open tasks with an opportunity today", () => {
-  const scheduled = {
-    ...baseTask,
-    availabilitySchedule: { enabled: true, days: [1, 2, 3, 4, 5], start: "18:00", end: "23:59" },
-  };
   assert.equal(isPendingOnDate(baseTask, new Date("2026-09-03T12:00:00-04:00")), true);
-  assert.equal(isPendingOnDate(scheduled, new Date("2026-09-03T12:00:00-04:00")), true);
-  assert.equal(isPendingOnDate(scheduled, new Date("2026-09-05T12:00:00-04:00")), false);
+  assert.equal(isPendingOnDate(eveningTask, new Date("2026-09-03T12:00:00-04:00")), true);
+  assert.equal(isPendingOnDate(eveningTask, new Date("2026-09-05T12:00:00-04:00")), false);
 });
 
 test("future-deferred task is not pending before its wake date", () => {
