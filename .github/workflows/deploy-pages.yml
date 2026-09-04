@@ -1,0 +1,91 @@
+name: Deploy Calendar Pages
+run-name: Deploy manifest ${{ inputs.control_sha || github.sha }}
+
+on:
+  push:
+    branches:
+      - main
+      - deployment-control
+    paths:
+      - deployment.json
+  workflow_dispatch:
+    inputs:
+      control_sha:
+        description: Exact control commit whose deployment.json should be published
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-deployments
+  queue: max
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve exact control commit
+        id: control
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ inputs.control_sha }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            SHA="${DISPATCH_SHA,,}"
+          else
+            SHA="${PUSH_SHA,,}"
+          fi
+          if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Deployment requires an exact 40-character control SHA." >&2
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact deployment state
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.control.outputs.sha }}
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Materialize pinned deploy units
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/materialize-deployment.mjs deployment.json .sources
+
+      - name: Assemble Pages artifact
+        run: >-
+          node scripts/assemble-pages.mjs
+          .sources/root
+          .sources/vanilla
+          .sources/solid
+          .pages-dist
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .pages-dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
