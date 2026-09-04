@@ -4,5 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "@automerge/automerge": "3.4.1"
   }
 }
