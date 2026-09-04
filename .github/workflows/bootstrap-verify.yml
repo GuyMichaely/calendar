@@ -1,0 +1,53 @@
+name: Bootstrap Verification
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify ${{ matrix.unit }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - unit: root
+            sha: bfd64a4770a715517ca68d1a663a30f8c07012cf
+          - unit: vanilla
+            sha: 04d65983449bacf9ee236a1e25a592faa13a18a7
+          - unit: solid
+            sha: fe03ddf5191af2872e779366e40dfa95346edc94
+    steps:
+      - name: Check out deployment control
+        uses: actions/checkout@v4
+
+      - name: Check out candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.sha }}
+          path: .candidate
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify and build candidate
+        run: >-
+          node scripts/build-deploy-unit.mjs
+          --unit "${{ matrix.unit }}"
+          --source .candidate
+          --output .artifact
+          --verify
+
+      - name: Upload verified artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-${{ matrix.unit }}-${{ matrix.sha }}
+          path: .artifact
+          if-no-files-found: error
+          retention-days: 90
