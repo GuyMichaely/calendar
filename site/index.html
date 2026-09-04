@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="./editor-fixes.css" />
     <link rel="stylesheet" href="./task-view.css" />
     <link rel="stylesheet" href="./sleep-view.css" />
+    <link rel="stylesheet" href="./interactions.css" />
   </head>
   <body>
     <div id="app" class="app-shell">
@@ -93,6 +94,20 @@
             <textarea name="notes" rows="4"></textarea>
           </label>
 
+          <div class="form-grid shared-item-fields">
+            <label class="field full-span">
+              <span>Tags</span>
+              <input name="tags" placeholder="project, errands" />
+            </label>
+            <label class="field full-span">
+              <span>Attachments</span>
+              <div class="attachment-drop-zone" data-attachment-drop-zone>
+                <input name="attachments" type="file" multiple />
+                <small id="existing-attachments" class="field-hint">Drop files here or use Choose Files.</small>
+              </div>
+            </label>
+          </div>
+
           <div id="task-fields">
             <div class="form-grid">
               <label class="field">
@@ -102,10 +117,6 @@
                   <option value="completed">Completed</option>
                   <option value="canceled">Canceled</option>
                 </select>
-              </label>
-              <label class="field">
-                <span>Tags</span>
-                <input name="tags" placeholder="project, errands" />
               </label>
               <label class="field">
                 <span>Can start</span>
@@ -130,11 +141,6 @@
               <label id="sleep-until-field" class="field disabled">
                 <span>Sleep until</span>
                 <input name="sleepUntil" type="datetime-local" />
-              </label>
-              <label class="field full-span">
-                <span>Attachments</span>
-                <input name="attachments" type="file" multiple />
-                <small id="existing-attachments" class="field-hint"></small>
               </label>
             </div>
 
