@@ -119,7 +119,7 @@ export function ItemEditor(props: {
         const until = localInputToIso(data.get("sleepUntil"));
         if (until && toDate(until) > new Date()) sleep = { until, startedAt: task?.sleep?.startedAt || now };
       }
-      const historyEntries = [...(task?.history || (task ? [] : [{ at: now, type: "created" }]))];
+      const historyEntries = [...(task?.history || [{ at: now, type: "created" }])];
       if (task && JSON.stringify(task.sleep || null) !== JSON.stringify(sleep)) {
         historyEntries.push({ at: now, type: sleep ? "sleep-updated" : "woke", until: sleep?.until ?? null });
       }
@@ -189,6 +189,11 @@ export function ItemEditor(props: {
       })()
     : "";
   const attachedNames = createMemo(() => existing?.attachments?.map((attachment) => attachment.name).join(", ") || "");
+  const attachmentHint = createMemo(() => attachedNames()
+    ? `Attached: ${attachedNames()}. New files are added to these.`
+    : kind() === "task"
+      ? "Files stay on this device until cloud sync is added."
+      : "Drop files here or use Choose Files.");
 
   return (
     <DialogShell labelledBy="editor-title" onClose={close}>
@@ -222,9 +227,7 @@ export function ItemEditor(props: {
               }}
             >
               <input type="file" multiple onChange={(event) => addFiles([...(event.currentTarget.files || [])])} />
-              <small class="field-hint">
-                {attachedNames() ? `Attached: ${attachedNames()}. New files are added to these.` : "Drop files here or use Choose Files."}
-              </small>
+              <small class="field-hint">{attachmentHint()}</small>
               <Show when={pendingFiles().length}><div class="pending-files">Adding: {pendingFiles().map((file) => file.name).join(", ")}</div></Show>
             </div>
           </label>
@@ -278,6 +281,7 @@ export function SleepDialog(props: {
   task: Task;
   onClose: () => void;
   onSave: (until: string | null) => Promise<void>;
+  onInvalid: () => void;
 }) {
   const sleep = sleepInfo(props.task, new Date());
   const initialValue = sleep.sleeping && !sleep.indefinite
@@ -296,7 +300,10 @@ export function SleepDialog(props: {
       <form onSubmit={(event) => {
         event.preventDefault();
         const until = localInputToIso(value());
-        if (!until || toDate(until) <= new Date()) return;
+        if (!until || toDate(until) <= new Date()) {
+          props.onInvalid();
+          return;
+        }
         void props.onSave(until);
       }}>
         <div class="dialog-header">
