@@ -3,6 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "dev:framework": "vite --config framework/vite.config.ts",
+    "typecheck:framework": "tsc -p framework/tsconfig.json --noEmit",
+    "build:framework": "vite build --config framework/vite.config.ts"
+  },
+  "dependencies": {
+    "preact": "10.29.8"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vite": "8.2.2"
   }
 }
