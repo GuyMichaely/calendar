@@ -285,11 +285,19 @@ export function SleepDialog(props: {
   onSave: (until: string | null) => Promise<void>;
 }) {
   const sleep = sleepInfo(props.task, new Date());
-  const [value, setValue] = useState(sleep.sleeping && !sleep.indefinite ? isoToLocalInput(sleep.until) : isoToLocalInput(tomorrowMidnight(new Date())));
+  const initialValue = sleep.sleeping && !sleep.indefinite
+    ? isoToLocalInput(sleep.until)
+    : isoToLocalInput(tomorrowMidnight(new Date()));
+  const [value, setValue] = useState(initialValue);
   const title = String(props.task.title || "").replace(/[\p{Cf}\p{Cc}\s]/gu, "") ? props.task.title : "Untitled task";
 
+  const close = () => {
+    if (value !== initialValue && !window.confirm("Discard your unsaved changes?")) return;
+    props.onClose();
+  };
+
   return (
-    <DialogShell labelledBy="sleep-title" className="sleep-dialog" onClose={props.onClose}>
+    <DialogShell labelledBy="sleep-title" className="sleep-dialog" onClose={close}>
       <form onSubmit={(event) => {
         event.preventDefault();
         const until = localInputToIso(value);
@@ -298,13 +306,13 @@ export function SleepDialog(props: {
       }}>
         <div class="dialog-header">
           <div><h2 id="sleep-title">Sleep task</h2><p class="muted">{title}</p></div>
-          <button type="button" class="icon-button" aria-label="Close" onClick={props.onClose}>×</button>
+          <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
         </div>
         <label class="field full"><span>Sleep until</span><input type="datetime-local" required value={value} onInput={(event) => setValue(event.currentTarget.value)} autoFocus /></label>
         <div class="dialog-actions">
           <button type="button" class="secondary-button" onClick={() => void props.onSave(null)}>Sleep indefinitely</button>
           <div class="spacer" />
-          <button type="button" class="secondary-button" onClick={props.onClose}>Cancel</button>
+          <button type="button" class="secondary-button" onClick={close}>Cancel</button>
           <button type="submit" class="primary-button">Sleep until</button>
         </div>
       </form>
