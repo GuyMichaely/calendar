@@ -12,6 +12,7 @@ function source(relativePath) {
 test("framework task cards retain live icon actions and roving focus behavior", () => {
   const tasks = source("framework/src/TasksView.tsx");
   const shortcuts = source("framework/src/shortcuts.tsx");
+  const frameworkApp = source("framework/src/FrameworkApp.tsx");
 
   assert.match(tasks, /TaskActionIcon action="sleepTomorrow"/);
   assert.match(tasks, /TaskActionIcon action="sleepIndefinite"/);
@@ -24,6 +25,8 @@ test("framework task cards retain live icon actions and roving focus behavior", 
   assert.match(shortcuts, /function SleepIndefiniteIcon/);
   assert.match(shortcuts, /function CustomSleepIcon/);
   assert.match(shortcuts, /shortcutTooltip\(props\.action, props\.shortcuts\)/);
+  assert.match(frameworkApp, /\[data-task-card="true"\]\[tabindex="0"\]/);
+  assert.match(frameworkApp, /requestAnimationFrame\(\(\) => task\.focus\(\)\)/);
 });
 
 test("framework calendar omits the live UI's removed sleep-end markers", () => {
