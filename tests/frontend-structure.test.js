@@ -53,4 +53,19 @@ test("removed DOM patch modules stay out of the runtime", () => {
   assert.match(app, /createTasksView/);
   assert.match(app, /createCalendarView/);
   assert.match(app, /createEditor/);
+  assert.match(app, /createKeyboardController/);
+});
+
+test("active frontend controllers do not depend on DOM mutation observers", () => {
+  const controllerFiles = [
+    "app.js",
+    "editor.js",
+    "keyboard.js",
+    "views/tasks-view.js",
+    "views/calendar-view.js",
+  ];
+  for (const name of controllerFiles) {
+    const source = fs.readFileSync(path.join(site, name), "utf8");
+    assert.doesNotMatch(source, /\bMutationObserver\b/, `${name} should use explicit render/init hooks`);
+  }
 });
