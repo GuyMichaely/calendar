@@ -59,6 +59,7 @@ export function ItemEditor(props: {
   const [eventStart, setEventStart] = useState(defaults.start);
   const [eventEnd, setEventEnd] = useState(defaults.end);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [draggingAttachments, setDraggingAttachments] = useState(false);
   const [dirty, setDirty] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -186,6 +187,13 @@ export function ItemEditor(props: {
   const sleepUntil = initialSleep.sleeping && !initialSleep.indefinite
     ? isoToLocalInput(initialSleep.until)
     : isoToLocalInput(tomorrowMidnight(new Date()));
+  const defaultAvailableFrom = !existing && props.request.date
+    ? (() => {
+        const date = new Date(props.request.date);
+        date.setHours(9, 0, 0, 0);
+        return localDateInput(date);
+      })()
+    : "";
 
   return (
     <DialogShell labelledBy="editor-title" onClose={close}>
@@ -207,7 +215,17 @@ export function ItemEditor(props: {
           <label class="field full-span"><span>Tags</span><input name="tags" placeholder="project, errands" defaultValue={(existing?.tags || []).join(", ")} /></label>
           <label class="field full-span">
             <span>Attachments</span>
-            <div class="attachment-drop-zone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); addFiles([...(event.dataTransfer?.files || [])]); }}>
+            <div
+              class={`attachment-drop-zone ${draggingAttachments ? "dragging" : ""}`}
+              onDragEnter={(event) => { event.preventDefault(); setDraggingAttachments(true); }}
+              onDragOver={(event) => { event.preventDefault(); setDraggingAttachments(true); }}
+              onDragLeave={() => setDraggingAttachments(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDraggingAttachments(false);
+                addFiles([...(event.dataTransfer?.files || [])]);
+              }}
+            >
               <input type="file" multiple onChange={(event) => addFiles([...(event.currentTarget.files || [])])} />
               <small class="field-hint">
                 {existing?.attachments?.length ? `Attached: ${existing.attachments.map((attachment) => attachment.name).join(", ")}. New files are added to these.` : "Drop files here or use Choose Files."}
@@ -221,7 +239,7 @@ export function ItemEditor(props: {
           <div>
             <div class="form-grid">
               <label class="field"><span>State</span><select name="taskState" defaultValue={task?.state || "open"}><option value="open">Open</option><option value="completed">Completed</option><option value="canceled">Canceled</option></select></label>
-              <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" defaultValue={isoToLocalInput(task?.availableFrom) || (!existing && props.request.date ? localDateInput(new Date(props.request.date.setHours(9, 0, 0, 0))) : "")} /></label>
+              <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" defaultValue={isoToLocalInput(task?.availableFrom) || defaultAvailableFrom} /></label>
               <label class="field"><span>Due</span><input name="deadline" type="datetime-local" defaultValue={isoToLocalInput(task?.deadline)} /></label>
               <label class="field"><span>Latest start</span><input name="latestStart" type="datetime-local" defaultValue={isoToLocalInput(task?.latestStart)} /></label>
               <label class="field"><span>Sleep</span><select name="sleepMode" value={sleepMode} onChange={(event) => { setSleepMode(event.currentTarget.value as typeof sleepMode); setDirty(true); }}><option value="awake">Awake</option><option value="until">Until a date</option><option value="indefinite">Indefinitely</option></select></label>
