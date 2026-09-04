@@ -41,13 +41,13 @@ jobs:
           node scripts/build-deploy-unit.mjs
           --unit "${{ matrix.unit }}"
           --source .candidate
-          --output .artifact
+          --output artifact-output
           --verify
 
       - name: Upload verified artifact
         uses: actions/upload-artifact@v4
         with:
           name: verified-${{ matrix.unit }}-${{ matrix.sha }}
-          path: .artifact
+          path: artifact-output
           if-no-files-found: error
           retention-days: 90
