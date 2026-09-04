@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 const [manifestFile, unit, rawSha, verificationFile] = process.argv.slice(2);
 const sha = String(rawSha || "").toLowerCase();
-const units = new Set(["root", "vanilla", "solid"]);
+const units = new Set(["root", "old", "vanilla"]);
 
 if (!manifestFile || !units.has(unit) || !/^[0-9a-f]{40}$/.test(sha) || !verificationFile) {
   throw new Error("Usage: node scripts/update-manifest.mjs <manifest> <unit> <40-char-sha> <verification-json>");
