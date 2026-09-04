@@ -1,5 +1,5 @@
 import { render } from "preact";
-import { App } from "./App";
+import { FrameworkApp } from "./FrameworkApp";
 import "../../site/styles.css";
 import "../../site/editor-fixes.css";
 import "../../site/task-view.css";
@@ -11,4 +11,4 @@ import "./framework.css";
 const root = document.querySelector("#app");
 if (!root) throw new Error("Missing #app mount point");
 
-render(<App />, root);
+render(<FrameworkApp />, root);
