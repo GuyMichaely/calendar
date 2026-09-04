@@ -1,4 +1,4 @@
-import { useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   actionability,
   formatDateTime,
@@ -11,7 +11,7 @@ import {
   toDate,
   upcomingHorizonEnd,
 } from "../../site/domain.js";
-import { actionForKey, normalizeEventKey, type Shortcuts } from "./shortcuts";
+import { actionForKey, normalizeEventKey, TaskActionIcon, type Shortcuts } from "./shortcuts";
 import type { Attachment, HorizonMode, Item, Task } from "./types";
 
 type TaskRow = { task: Task; upcomingAt?: Date | null };
@@ -22,6 +22,49 @@ const taskSections = [
   { id: "all", label: "All open", defaultOpen: false },
   { id: "completed", label: "Completed", defaultOpen: false },
 ] as const;
+
+let rememberedTaskId: string | null = null;
+let rememberedTaskIndex = 0;
+let taskFocusActive = false;
+
+function visibleTaskCards() {
+  return [...document.querySelectorAll<HTMLElement>('[data-task-card="true"]')].filter((card) => {
+    if (card.closest("details:not([open])")) return false;
+    return card.getClientRects().length > 0;
+  });
+}
+
+function rememberCard(card: HTMLElement) {
+  const cards = visibleTaskCards();
+  const index = cards.indexOf(card);
+  if (index >= 0) rememberedTaskIndex = index;
+  rememberedTaskId = card.dataset.id || rememberedTaskId;
+  cards.forEach((candidate) => { candidate.tabIndex = candidate === card ? 0 : -1; });
+}
+
+function focusCard(card: HTMLElement | undefined, { scroll = true } = {}) {
+  if (!card) return;
+  rememberCard(card);
+  card.focus({ preventScroll: !scroll });
+  if (scroll) card.scrollIntoView({ block: "nearest" });
+}
+
+function moveTaskFocus(direction: number, activeCard?: HTMLElement) {
+  const cards = visibleTaskCards();
+  if (!cards.length) return;
+  if (!activeCard) {
+    focusCard(direction > 0 ? cards[0] : cards[cards.length - 1]);
+    return;
+  }
+  const index = cards.indexOf(activeCard);
+  if (index < 0) return;
+  const nextIndex = Math.max(0, Math.min(cards.length - 1, index + direction));
+  focusCard(cards[nextIndex]);
+}
+
+function isInteractiveTarget(target: EventTarget | null) {
+  return target instanceof Element && !!target.closest("button, a, input, textarea, select, label, [contenteditable='true']");
+}
 
 function readSectionOpen(id: string, fallback: boolean) {
   const stored = localStorage.getItem(`calendar.section.${id}`);
@@ -95,6 +138,25 @@ export function TasksView(props: {
     all: (sortTasks(matching.filter((task) => taskMatchesFilter(task, "all", now)), now) as Task[]).map((task) => ({ task })),
     completed: (sortTasks(matching.filter((task) => taskMatchesFilter(task, "completed", now)), now) as Task[]).map((task) => ({ task })),
   };
+
+  useEffect(() => {
+    const cards = visibleTaskCards();
+    if (!cards.length) return;
+    const remembered = rememberedTaskId ? cards.find((card) => card.dataset.id === rememberedTaskId) : null;
+    const roving = remembered || cards[Math.min(rememberedTaskIndex, cards.length - 1)] || cards[0];
+    cards.forEach((card) => { card.tabIndex = card === roving ? 0 : -1; });
+    if (taskFocusActive && document.activeElement === document.body) focusCard(roving, { scroll: false });
+  });
+
+  useEffect(() => {
+    const onFocusIn = (event: FocusEvent) => {
+      const card = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-task-card="true"]') : null;
+      taskFocusActive = !!card;
+      if (card) rememberCard(card);
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, []);
 
   const horizonLabel = (days: number) => {
     if (props.horizonMode !== "boundary") return `${days}d`;
@@ -228,10 +290,7 @@ function TaskCard(props: {
     }
     if (["ArrowUp", "ArrowDown"].includes(event.key)) {
       event.preventDefault();
-      const cards = [...document.querySelectorAll<HTMLElement>('[data-task-card="true"]')].filter((card) => !card.closest("details:not([open])"));
-      const index = cards.indexOf(event.currentTarget as HTMLElement);
-      const nextIndex = event.key === "ArrowUp" ? index - 1 : index + 1;
-      cards[nextIndex]?.focus();
+      moveTaskFocus(event.key === "ArrowUp" ? -1 : 1, event.currentTarget as HTMLElement);
       return;
     }
     if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -245,7 +304,19 @@ function TaskCard(props: {
   };
 
   return (
-    <article class={`task-card ${sleep.sleeping ? "sleeping-task" : ""}`} data-id={task.id} data-task-card="true" tabIndex={0} onKeyDown={onKeyDown}>
+    <article
+      class={`task-card ${sleep.sleeping ? "sleeping-task" : ""}`}
+      data-id={task.id}
+      data-task-card="true"
+      tabIndex={-1}
+      onFocus={(event) => rememberCard(event.currentTarget)}
+      onPointerDown={(event) => {
+        if (isInteractiveTarget(event.target)) return;
+        taskFocusActive = true;
+        focusCard(event.currentTarget, { scroll: false });
+      }}
+      onKeyDown={onKeyDown}
+    >
       <div class="task-main">
         {closed ? <span class="complete-indicator" aria-hidden="true">✓</span> : <button class="complete-button" aria-label="Mark complete" title="Mark complete" onClick={() => void props.onComplete(task)} />}
         <div class="task-copy">
@@ -270,8 +341,9 @@ function TaskCard(props: {
             </>
           ) : (
             <>
-              <button class="text-button" onClick={() => void props.onSleepTomorrow(task)}>Sleep until tomorrow</button>
-              <button class="text-button" onClick={() => props.onSleepCustom(task)}>Sleep until…</button>
+              <TaskActionIcon action="sleepTomorrow" shortcuts={props.shortcuts} onClick={() => void props.onSleepTomorrow(task)} />
+              <TaskActionIcon action="sleepIndefinite" shortcuts={props.shortcuts} onClick={() => void props.onSleepIndefinite(task)} />
+              <TaskActionIcon action="customSleep" shortcuts={props.shortcuts} onClick={() => props.onSleepCustom(task)} />
               {canConvertWaitToSleep ? <button class="text-button" onClick={() => void props.onWaitToSleep(task)}>Sleep instead</button> : null}
             </>
           )}
