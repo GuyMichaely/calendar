@@ -2,10 +2,10 @@ import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } fro
 import path from "node:path";
 import process from "node:process";
 
-const [rootSite, vanillaSite, frameworkSite, solidSite, outputDir] = process.argv.slice(2).map((value) => value && path.resolve(value));
+const [rootSite, vanillaSite, frameworkSite, solidSite, svelteSite, outputDir] = process.argv.slice(2).map((value) => value && path.resolve(value));
 
-if (![rootSite, vanillaSite, frameworkSite, solidSite, outputDir].every(Boolean)) {
-  throw new Error("Usage: node scripts/assemble-pages.mjs <root-site> <vanilla-site> <framework-site> <solid-site> <output-dir>");
+if (![rootSite, vanillaSite, frameworkSite, solidSite, svelteSite, outputDir].every(Boolean)) {
+  throw new Error("Usage: node scripts/assemble-pages.mjs <root-site> <vanilla-site> <framework-site> <solid-site> <svelte-site> <output-dir>");
 }
 
 for (const [label, directory] of [
@@ -13,6 +13,7 @@ for (const [label, directory] of [
   ["vanilla", vanillaSite],
   ["framework", frameworkSite],
   ["solid", solidSite],
+  ["svelte", svelteSite],
 ]) {
   if (!existsSync(path.join(directory, "index.html"))) {
     throw new Error(`${label} site is missing index.html: ${directory}`);
@@ -25,7 +26,7 @@ function collectShellAssets(sourceDir, relativeDir = "") {
 
   for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (entry.name.startsWith(".")) continue;
-    if (!relativeDir && entry.isDirectory() && ["vanilla", "framework", "solid"].includes(entry.name)) continue;
+    if (!relativeDir && entry.isDirectory() && ["vanilla", "framework", "solid", "svelte"].includes(entry.name)) continue;
 
     const relativePath = path.join(relativeDir, entry.name);
     if (entry.isDirectory()) {
@@ -52,20 +53,23 @@ rmSync(outputDir, { recursive: true, force: true });
 mkdirSync(outputDir, { recursive: true });
 cpSync(rootSite, outputDir, { recursive: true });
 
-for (const preview of ["vanilla", "framework", "solid"]) {
+for (const preview of ["vanilla", "framework", "solid", "svelte"]) {
   rmSync(path.join(outputDir, preview), { recursive: true, force: true });
 }
 
 const vanillaOutput = path.join(outputDir, "vanilla");
 const frameworkOutput = path.join(outputDir, "framework");
 const solidOutput = path.join(outputDir, "solid");
+const svelteOutput = path.join(outputDir, "svelte");
 cpSync(vanillaSite, vanillaOutput, { recursive: true });
 cpSync(frameworkSite, frameworkOutput, { recursive: true });
 cpSync(solidSite, solidOutput, { recursive: true });
+cpSync(svelteSite, svelteOutput, { recursive: true });
 
 writeShellManifest(rootSite, outputDir);
 writeShellManifest(vanillaSite, vanillaOutput);
 writeShellManifest(frameworkSite, frameworkOutput);
 writeShellManifest(solidSite, solidOutput);
+writeShellManifest(svelteSite, svelteOutput);
 
 console.log(`Assembled Pages artifact at ${outputDir}`);
