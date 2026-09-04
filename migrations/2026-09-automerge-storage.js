@@ -4,6 +4,8 @@
 // This file is never loaded by the application. Back up first, then paste it
 // into DevTools on guymichaely.com/calendar/ (or /calendar/old/) and run once.
 // The old database is left untouched so /calendar/old/ remains a rollback path.
+// Undo history is intentionally not migrated; a new local history session starts
+// after reload.
 
 (async () => {
   const OLD_DB = "calendar-app";
@@ -21,8 +23,8 @@
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(OLD_DB);
       let didNotExist = false;
-      request.onupgradeneeded = () => {
-        didNotExist = request.oldVersion === 0;
+      request.onupgradeneeded = (event) => {
+        didNotExist = event.oldVersion === 0;
         request.transaction.abort();
       };
       request.onsuccess = () => {
@@ -140,5 +142,9 @@
   }
 
   await writeNewState(newDb, bytes, oldItems);
-  console.log(`Migrated ${Object.keys(initialItems).length} items to ${NEW_DB}. The old ${OLD_DB} database was left unchanged.`);
+  sessionStorage.removeItem("calendar.historySessionId");
+  console.log(
+    `Migrated ${Object.keys(initialItems).length} items to ${NEW_DB}. ` +
+    `The old ${OLD_DB} database was left unchanged; reload to start a new local undo session.`,
+  );
 })();
