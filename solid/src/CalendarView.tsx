@@ -23,6 +23,12 @@ function shortTime(value: string | Date | null | undefined) {
   return date ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date) : "";
 }
 
+function displayTitle(item: Item) {
+  const raw = String(item.title || "");
+  if (raw.replace(/[\p{Cf}\p{Cc}\s]/gu, "")) return raw;
+  return item.kind === "event" ? "Untitled event" : "Untitled task";
+}
+
 export function CalendarView(props: {
   items: Item[];
   query: string;
@@ -65,13 +71,14 @@ export function CalendarView(props: {
     const key = dateKey(day);
     const entries: CalendarEntry[] = [];
     for (const item of props.items) {
+      const title = displayTitle(item);
       if (item.kind === "event") {
         if (dateKey(item.start) !== key) continue;
         entries.push({
           item,
           className: "event event",
-          label: `${shortTime(item.start)} ${item.title}`,
-          title: item.title,
+          label: `${shortTime(item.start)} ${title}`,
+          title,
           sort: toDate(item.start)?.getTime() || 0,
         });
         continue;
@@ -83,10 +90,10 @@ export function CalendarView(props: {
         entries.push({
           item,
           className: `task start${projected.bypassesSleep ? " sleep-bypassed" : ""}`,
-          label: `${shortTime(projected.start)} ${item.title}`,
+          label: `${shortTime(projected.start)} ${title}`,
           title: projected.bypassesSleep
-            ? `${item.title}: projected start while sleep is ignored`
-            : `${item.title}: projected start`,
+            ? `${title}: projected start while sleep is ignored`
+            : `${title}: projected start`,
           sort: projected.start.getTime(),
         });
       }
@@ -99,8 +106,8 @@ export function CalendarView(props: {
           entries.push({
             item,
             className: `task ${role}`,
-            label: `${prefix} ${item.title}`,
-            title: `${item.title}: ${role}`,
+            label: `${prefix} ${title}`,
+            title: `${title}: ${role}`,
             sort: toDate(item[field])?.getTime() || 0,
           });
         }
@@ -125,7 +132,9 @@ export function CalendarView(props: {
             type="button"
             class={`secondary-button calendar-sleep-toggle ${props.sleepMode === "respect" ? "active" : ""}`}
             aria-pressed={props.sleepMode === "respect"}
-            title={props.sleepMode === "respect" ? "Sleeping tasks are treated as unavailable until they wake." : "Sleep is ignored when projecting task opportunities."}
+            title={props.sleepMode === "respect"
+              ? "Sleeping tasks are treated as unavailable until they wake."
+              : "Sleep is ignored when projecting task opportunities. Sleeping projections are shown differently."}
             onClick={() => props.onSleepModeChange(props.sleepMode === "respect" ? "ignore" : "respect")}
           >
             {props.sleepMode === "respect" ? "Respect sleep" : "Ignore sleep"}
@@ -142,6 +151,12 @@ export function CalendarView(props: {
             : [];
           const matchingPending = () => props.query ? pending().filter((item) => textMatches(item, props.query)) : pending();
           const sleepingCount = () => matchingPending().filter((item) => isSleeping(item, props.now)).length;
+          const pendingText = () => {
+            const count = matchingPending().length;
+            const noun = count === 1 ? "task" : "tasks";
+            const prefix = props.query ? `${count} matching ${noun}` : `${count} ${noun}`;
+            return `${prefix}${sleepingCount() ? ` - ${sleepingCount()} sleeping` : ""}`;
+          };
           const entries = () => entriesForDay(day);
           const itemLimit = () => 4 - (pending().length ? 1 : 0);
           return (
@@ -162,7 +177,7 @@ export function CalendarView(props: {
                     props.onOpenTodayTasks();
                   }}
                 >
-                  {matchingPending().length} {matchingPending().length === 1 ? "task" : "tasks"}{sleepingCount() ? ` - ${sleepingCount()} sleeping` : ""}
+                  {pendingText()}
                 </button>
               </Show>
               <For each={entries().slice(0, itemLimit())}>{(entry) => (
