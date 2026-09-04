@@ -89,11 +89,13 @@ test("shared CI owns both frontend branch triggers", () => {
   assert.match(ci, /name: Calendar CI/);
 });
 
-test("Pages deployment follows successful shared CI for preview branches", () => {
+test("Pages deployment follows successful push CI for preview branches", () => {
   const deploy = fs.readFileSync(path.join(root, ".github", "workflows", "deploy-pages.yml"), "utf8");
   assert.match(deploy, /workflows: \["Calendar CI"\]/);
   assert.match(deploy, /agent\/vanilla-refactor/);
   assert.match(deploy, /agent\/framework-preact-refactor/);
+  assert.match(deploy, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(deploy, /github\.event\.workflow_run\.event == 'push'/);
   assert.doesNotMatch(deploy, /Deploy Calendar to Pages/);
   assert.doesNotMatch(deploy, /site\/sw-shell\.js/);
 });
