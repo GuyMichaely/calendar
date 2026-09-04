@@ -12,6 +12,7 @@ import {
   upcomingHorizonEnd,
 } from "../../site/domain.js";
 import { actionForKey, normalizeEventKey, TaskActionIcon, type Shortcuts } from "./shortcuts";
+import { availabilitySummary, taskTiming } from "./task-display";
 import type { Attachment, HorizonMode, Item, Task } from "./types";
 
 type TaskRow = { task: Task; upcomingAt?: Date | null };
@@ -84,18 +85,6 @@ function readSectionOpen(id: string, fallback: boolean) {
   if (stored === "open") return true;
   if (stored === "closed") return false;
   return fallback;
-}
-
-function friendlyWhen(date: Date | null, now = new Date()) {
-  if (!date) return "";
-  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const days = Math.round((target.getTime() - today.getTime()) / 86400000);
-  if (days === 0) return `today · ${time}`;
-  if (days === 1) return `tomorrow · ${time}`;
-  if (days > 1 && days < 7) return `${new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(date)} · ${time}`;
-  return `${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date)} · ${time}`;
 }
 
 function taskTitle(task: Task) {
@@ -194,10 +183,11 @@ export function TasksView(props: TasksViewProps) {
     return "No open tasks.";
   };
 
-  const taskCard = (row: TaskRow) => (
+  const taskCard = (row: TaskRow, showAvailability: boolean) => (
     <TaskCard
       row={row}
       now={props.now}
+      showAvailability={showAvailability}
       shortcuts={props.shortcuts}
       onEdit={props.onEdit}
       onComplete={props.onComplete}
@@ -278,7 +268,7 @@ export function TasksView(props: TasksViewProps) {
 
                 <div class="task-list section-task-list">
                   <Show when={sectionRows().length} fallback={<div class="section-empty">{emptyText(section.id)}</div>}>
-                    <For each={sectionRows()}>{taskCard}</For>
+                    <For each={sectionRows()}>{(row) => taskCard(row, section.id === "upcoming")}</For>
                   </Show>
                 </div>
 
@@ -286,7 +276,7 @@ export function TasksView(props: TasksViewProps) {
                   <div class="sleeping-block">
                     <div class="sleeping-heading"><span>Sleeping</span><span>{sleepingRows().length}</span></div>
                     <div class="task-list section-task-list sleeping-task-list">
-                      <For each={sleepingRows()}>{taskCard}</For>
+                      <For each={sleepingRows()}>{(row) => taskCard(row, true)}</For>
                     </div>
                   </div>
                 </Show>
@@ -302,6 +292,7 @@ export function TasksView(props: TasksViewProps) {
 function TaskCard(props: {
   row: TaskRow;
   now: Date;
+  showAvailability: boolean;
   shortcuts: Shortcuts;
   onEdit: (task: Task) => void;
   onComplete: (task: Task) => Promise<void>;
@@ -317,30 +308,8 @@ function TaskCard(props: {
   const closed = createMemo(() => ["completed", "canceled"].includes(props.row.task.state));
   const futureAvailable = createMemo(() => toDate(props.row.task.availableFrom));
   const canConvertWaitToSleep = createMemo(() => !sleep().sleeping && !!futureAvailable() && futureAvailable()! > props.now);
-  const timing = createMemo(() => {
-    const task = props.row.task;
-    const values: string[] = [];
-    if (task.deadline) values.push(`Due ${formatDateTime(task.deadline)}`);
-    if (task.latestStart) values.push(`Latest start ${formatDateTime(task.latestStart)}`);
-    const schedule = task.availabilitySchedule;
-    if (schedule?.enabled) {
-      const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-      values.push(`${schedule.days.map((day) => names[day]).join(", ") || "No days"} ${schedule.start}-${schedule.end}`);
-    }
-    return values;
-  });
-  const next = createMemo(() => nextActionableStart(props.row.task, props.now, { respectSleep: sleep().sleeping }) as Date | null);
-  const summary = createMemo(() => {
-    const currentSleep = sleep();
-    if (currentSleep.sleeping && currentSleep.indefinite) return "Sleeping indefinitely";
-    if (currentSleep.sleeping) {
-      const nextValue = next();
-      return nextValue && Math.abs(nextValue.getTime() - currentSleep.until.getTime()) >= 60000
-        ? `Sleeping until ${friendlyWhen(currentSleep.until, props.now)} · available ${friendlyWhen(nextValue, props.now)}`
-        : `Sleeping until ${friendlyWhen(currentSleep.until, props.now)}`;
-    }
-    return props.row.upcomingAt ? `Available ${friendlyWhen(props.row.upcomingAt, props.now)}` : "";
-  });
+  const timing = createMemo(() => taskTiming(props.row.task, props.now, props.showAvailability));
+  const summary = createMemo(() => availabilitySummary(props.row.task, props.now, props.row.upcomingAt, props.showAvailability));
   const statusText = createMemo(() => {
     const currentSleep = sleep();
     return currentSleep.sleeping
