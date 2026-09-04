@@ -117,6 +117,15 @@ export function patchItem(doc, id, patch, message = `Update item ${id}`) {
   });
 }
 
+export function deleteItemField(doc, id, field, message = `Clear ${field} for ${id}`) {
+  assertDocument(doc);
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
+  if (!(field in doc.items[id])) return doc;
+  return Automerge.change(doc, message, (draft) => {
+    delete draft.items[id][field];
+  });
+}
+
 export function putItem(doc, item, message = `Put item ${item?.id || ""}`) {
   assertDocument(doc);
   const copy = itemForSync(item);
@@ -175,6 +184,43 @@ export function addAttachmentMetadata(doc, id, attachment, message = `Attach fil
   return Automerge.change(doc, message, (draft) => {
     if (!Array.isArray(draft.items[id].attachments)) draft.items[id].attachments = [];
     draft.items[id].attachments.push(clean);
+  });
+}
+
+export function removeAttachmentMetadata(doc, id, attachmentId, message = `Remove attachment from ${id}`) {
+  assertDocument(doc);
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
+  const index = (doc.items[id].attachments || []).findIndex((candidate) => candidate.id === attachmentId);
+  if (index < 0) return doc;
+  return Automerge.change(doc, message, (draft) => {
+    draft.items[id].attachments.splice(index, 1);
+  });
+}
+
+function valueFingerprint(value) {
+  return JSON.stringify(plainClone(value));
+}
+
+export function addHistoryEntry(doc, id, entry, message = `Append history for ${id}`) {
+  assertDocument(doc);
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
+  const clean = cloneForDocument(entry);
+  const fingerprint = valueFingerprint(clean);
+  if ((doc.items[id].history || []).some((candidate) => valueFingerprint(candidate) === fingerprint)) return doc;
+  return Automerge.change(doc, message, (draft) => {
+    if (!Array.isArray(draft.items[id].history)) draft.items[id].history = [];
+    draft.items[id].history.push(clean);
+  });
+}
+
+export function removeHistoryEntry(doc, id, entry, message = `Remove history for ${id}`) {
+  assertDocument(doc);
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
+  const fingerprint = valueFingerprint(entry);
+  const index = (doc.items[id].history || []).findIndex((candidate) => valueFingerprint(candidate) === fingerprint);
+  if (index < 0) return doc;
+  return Automerge.change(doc, message, (draft) => {
+    draft.items[id].history.splice(index, 1);
   });
 }
 
