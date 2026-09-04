@@ -2,7 +2,7 @@ name: Deploy Calendar to Pages
 
 on:
   push:
-    branches: [main, agent/framework-preact-refactor]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
