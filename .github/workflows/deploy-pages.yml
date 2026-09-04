@@ -17,6 +17,8 @@ on:
     branches:
       - agent/vanilla-refactor
       - agent/framework-preact-refactor
+      - agent/solid-refactor
+      - agent/svelte-refactor
 
 permissions:
   contents: read
@@ -53,6 +55,18 @@ jobs:
           ref: agent/framework-preact-refactor
           path: .sources/framework
 
+      - name: Check out Solid preview
+        uses: actions/checkout@v4
+        with:
+          ref: agent/solid-refactor
+          path: .sources/solid
+
+      - name: Check out Svelte preview
+        uses: actions/checkout@v4
+        with:
+          ref: agent/svelte-refactor
+          path: .sources/svelte
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -81,12 +95,46 @@ jobs:
         run: npm run build:framework
         working-directory: .sources/framework
 
+      - name: Install Solid dependencies
+        run: npm install --no-audit --no-fund
+        working-directory: .sources/solid
+
+      - name: Test Solid preview
+        run: npm test && npm run test:solid
+        working-directory: .sources/solid
+
+      - name: Typecheck Solid preview
+        run: npm run typecheck:solid
+        working-directory: .sources/solid
+
+      - name: Build Solid preview
+        run: npm run build:solid
+        working-directory: .sources/solid
+
+      - name: Install Svelte dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+        working-directory: .sources/svelte
+
+      - name: Test Svelte preview
+        run: npm test && npm run test:svelte
+        working-directory: .sources/svelte
+
+      - name: Check Svelte preview
+        run: npm run check:svelte
+        working-directory: .sources/svelte
+
+      - name: Build Svelte preview
+        run: npm run build:svelte
+        working-directory: .sources/svelte
+
       - name: Assemble Pages artifact
         run: >-
           node scripts/assemble-pages.mjs
           .sources/main/site
           .sources/vanilla/site
           .sources/framework/site/framework
+          .sources/solid/site/solid
+          .sources/svelte/site/svelte
           .pages-dist
 
       - name: Configure Pages
