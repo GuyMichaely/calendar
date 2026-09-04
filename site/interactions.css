@@ -43,8 +43,19 @@
 }
 .attachment-drop-zone small { display: block; margin-top: 6px; }
 
-.day-create-dialog { width: min(360px, calc(100vw - 28px)); }
-.day-create-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.task-title-link {
+  display: inline-block;
+  min-width: 1ch;
+  color: inherit;
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+.task-title-link:hover,
+.task-title-link:focus-visible {
+  color: var(--accent-strong);
+  text-decoration: underline;
+}
+.task-actions [data-action="edit"] { display: none !important; }
 
 [data-section="upcoming"] .task-card .status-pill { display: none; }
 .availability-summary {
