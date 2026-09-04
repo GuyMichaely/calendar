@@ -1,0 +1,295 @@
+import { useState, useRef } from "preact/hooks";
+import {
+  isoToLocalInput,
+  localInputToIso,
+  sleepInfo,
+  toDate,
+  tomorrowMidnight,
+} from "../../site/domain.js";
+import { DialogShell } from "./DialogShell";
+import type { Attachment, Item, Task } from "./types";
+
+export type EditorRequest = {
+  item: Item | null;
+  kind: "task" | "event";
+  date?: Date;
+  nonce: number;
+};
+
+function uuid() {
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function localDateInput(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function parseTags(value: FormDataEntryValue | null) {
+  return String(value || "").split(",").map((tag) => tag.trim()).filter(Boolean);
+}
+
+function eventDefaults(request: EditorRequest) {
+  const existing = request.item?.kind === "event" ? request.item : null;
+  if (existing) return { start: isoToLocalInput(existing.start), end: isoToLocalInput(existing.end) };
+
+  const start = request.date ? new Date(request.date) : new Date();
+  if (request.date) start.setHours(9, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start: localDateInput(start), end: localDateInput(end) };
+}
+
+export function ItemEditor(props: {
+  request: EditorRequest;
+  onClose: () => void;
+  onDelete: (item: Item) => Promise<void>;
+  onSave: (item: Item, created: boolean) => Promise<void>;
+}) {
+  const existing = props.request.item;
+  const task = existing?.kind === "task" ? existing : null;
+  const storedEvent = existing?.kind === "event" ? existing : null;
+  const [kind, setKind] = useState<"task" | "event">(props.request.kind);
+  const [scheduleEnabled, setScheduleEnabled] = useState(!!task?.availabilitySchedule?.enabled);
+  const initialSleep = task ? sleepInfo(task, new Date()) : { sleeping: false, indefinite: false, until: null };
+  const [sleepMode, setSleepMode] = useState<"awake" | "until" | "indefinite">(
+    initialSleep.sleeping ? (initialSleep.indefinite ? "indefinite" : "until") : "awake",
+  );
+  const defaults = eventDefaults(props.request);
+  const [eventStart, setEventStart] = useState(defaults.start);
+  const [eventEnd, setEventEnd] = useState(defaults.end);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [dirty, setDirty] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  const close = () => {
+    if (dirty && !window.confirm("Discard your unsaved changes?")) return;
+    props.onClose();
+  };
+
+  const addFiles = (files: File[]) => {
+    setPendingFiles((current) => {
+      const seen = new Set(current.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
+      return [...current, ...files.filter((file) => !seen.has(`${file.name}:${file.size}:${file.lastModified}`))];
+    });
+    setDirty(true);
+  };
+
+  const deriveEnd = (value: string) => {
+    setEventStart(value);
+    if (!value || eventEnd) return;
+    const start = new Date(value);
+    if (Number.isNaN(start.getTime())) return;
+    start.setDate(start.getDate() + 1);
+    setEventEnd(localDateInput(start));
+  };
+
+  const deriveStart = (value: string) => {
+    setEventEnd(value);
+    if (!value || eventStart) return;
+    const end = new Date(value);
+    if (Number.isNaN(end.getTime())) return;
+    end.setDate(end.getDate() - 1);
+    setEventStart(localDateInput(end));
+  };
+
+  const save = async (eventObject: SubmitEvent) => {
+    eventObject.preventDefault();
+    const form = formRef.current;
+    if (!form) return;
+    const data = new FormData(form);
+    const title = String(data.get("title") || "").trim();
+    if (!title) return;
+    const now = new Date().toISOString();
+    const attachments: Attachment[] = pendingFiles.map((file) => ({
+      id: uuid(),
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      blob: file,
+    }));
+    let item: Item;
+
+    if (kind === "task") {
+      const taskState = String(data.get("taskState") || "open") as Task["state"];
+      const closed = ["completed", "canceled"].includes(taskState);
+      let sleep = null;
+      if (!closed && sleepMode === "indefinite") {
+        sleep = { until: null, startedAt: task?.sleep?.startedAt || now };
+      } else if (!closed && sleepMode === "until") {
+        const until = localInputToIso(data.get("sleepUntil"));
+        if (until && toDate(until) > new Date()) sleep = { until, startedAt: task?.sleep?.startedAt || now };
+      }
+      const historyEntries = [...(task?.history || (task ? [] : [{ at: now, type: "created" }]))];
+      if (task && JSON.stringify(task.sleep || null) !== JSON.stringify(sleep)) {
+        historyEntries.push({ at: now, type: sleep ? "sleep-updated" : "woke", until: sleep?.until ?? null });
+      }
+      item = {
+        ...(task || {}),
+        id: existing?.id || uuid(),
+        kind: "task",
+        title,
+        notes: String(data.get("notes") || "").trim(),
+        state: taskState,
+        tags: parseTags(data.get("tags")),
+        attachments: [...(task?.attachments || []), ...attachments],
+        availableFrom: localInputToIso(data.get("availableFrom")),
+        deadline: localInputToIso(data.get("deadline")),
+        latestStart: localInputToIso(data.get("latestStart")),
+        sleep,
+        availabilitySchedule: scheduleEnabled ? {
+          enabled: true,
+          days: data.getAll("scheduleDay").map(Number),
+          start: String(data.get("scheduleStart") || "08:00"),
+          end: String(data.get("scheduleEnd") || "17:00"),
+        } : null,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+        history: historyEntries,
+      };
+    } else {
+      let start = localInputToIso(eventStart);
+      let end = localInputToIso(eventEnd);
+      if (start && !end) {
+        const derived = toDate(start);
+        if (derived) {
+          derived.setDate(derived.getDate() + 1);
+          end = derived.toISOString();
+        }
+      } else if (!start && end) {
+        const derived = toDate(end);
+        if (derived) {
+          derived.setDate(derived.getDate() - 1);
+          start = derived.toISOString();
+        }
+      }
+      item = {
+        ...(storedEvent || {}),
+        id: existing?.id || uuid(),
+        kind: "event",
+        title,
+        notes: String(data.get("notes") || "").trim(),
+        tags: parseTags(data.get("tags")),
+        attachments: [...(storedEvent?.attachments || []), ...attachments],
+        start,
+        end,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      };
+    }
+    setDirty(false);
+    await props.onSave(item, !existing);
+  };
+
+  const schedule = task?.availabilitySchedule;
+  const selectedDays = schedule?.enabled ? schedule.days : [1, 2, 3, 4, 5];
+  const sleepUntil = initialSleep.sleeping && !initialSleep.indefinite
+    ? isoToLocalInput(initialSleep.until)
+    : isoToLocalInput(tomorrowMidnight(new Date()));
+
+  return (
+    <DialogShell labelledBy="editor-title" onClose={close}>
+      <form ref={formRef} onSubmit={save} onInput={() => setDirty(true)}>
+        <div class="dialog-header">
+          <h2 id="editor-title">{existing ? "Edit item" : "New item"}</h2>
+          <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
+        </div>
+
+        <div class="segmented kind-switch">
+          <label><input type="radio" name="kind" value="task" checked={kind === "task"} onChange={() => { setKind("task"); setDirty(true); }} /><span>Task</span></label>
+          <label><input type="radio" name="kind" value="event" checked={kind === "event"} onChange={() => { setKind("event"); setDirty(true); }} /><span>Event</span></label>
+        </div>
+
+        <label class="field full"><span>Title</span><input name="title" required maxLength={240} defaultValue={existing?.title || ""} autoFocus /></label>
+        <label class="field full"><span>Notes</span><textarea name="notes" rows={4} defaultValue={existing?.notes || ""} /></label>
+
+        <div class="form-grid shared-item-fields">
+          <label class="field full-span"><span>Tags</span><input name="tags" placeholder="project, errands" defaultValue={(existing?.tags || []).join(", ")} /></label>
+          <label class="field full-span">
+            <span>Attachments</span>
+            <div class="attachment-drop-zone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); addFiles([...(event.dataTransfer?.files || [])]); }}>
+              <input type="file" multiple onChange={(event) => addFiles([...(event.currentTarget.files || [])])} />
+              <small class="field-hint">
+                {existing?.attachments?.length ? `Attached: ${existing.attachments.map((attachment) => attachment.name).join(", ")}. New files are added to these.` : "Drop files here or use Choose Files."}
+              </small>
+              {pendingFiles.length ? <div class="pending-files">Adding: {pendingFiles.map((file) => file.name).join(", ")}</div> : null}
+            </div>
+          </label>
+        </div>
+
+        {kind === "task" ? (
+          <div>
+            <div class="form-grid">
+              <label class="field"><span>State</span><select name="taskState" defaultValue={task?.state || "open"}><option value="open">Open</option><option value="completed">Completed</option><option value="canceled">Canceled</option></select></label>
+              <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" defaultValue={isoToLocalInput(task?.availableFrom) || (!existing && props.request.date ? localDateInput(new Date(props.request.date.setHours(9, 0, 0, 0))) : "")} /></label>
+              <label class="field"><span>Due</span><input name="deadline" type="datetime-local" defaultValue={isoToLocalInput(task?.deadline)} /></label>
+              <label class="field"><span>Latest start</span><input name="latestStart" type="datetime-local" defaultValue={isoToLocalInput(task?.latestStart)} /></label>
+              <label class="field"><span>Sleep</span><select name="sleepMode" value={sleepMode} onChange={(event) => { setSleepMode(event.currentTarget.value as typeof sleepMode); setDirty(true); }}><option value="awake">Awake</option><option value="until">Until a date</option><option value="indefinite">Indefinitely</option></select></label>
+              <label class={`field ${sleepMode !== "until" ? "disabled" : ""}`}><span>Sleep until</span><input name="sleepUntil" type="datetime-local" defaultValue={sleepUntil} disabled={sleepMode !== "until"} /></label>
+            </div>
+            <div class="schedule-box">
+              <label class="toggle-row">
+                <input type="checkbox" name="scheduleEnabled" checked={scheduleEnabled} onChange={(event) => { setScheduleEnabled(event.currentTarget.checked); setDirty(true); }} />
+                <span><strong>Recurring action window</strong><small>The same task becomes actionable during these times until you close it.</small></span>
+              </label>
+              <div class={`schedule-options ${scheduleEnabled ? "" : "disabled"}`}>
+                <div class="weekday-picks" aria-label="Action days">
+                  {["S", "M", "T", "W", "T", "F", "S"].map((name, day) => <label key={day}><input type="checkbox" name="scheduleDay" value={day} defaultChecked={selectedDays.includes(day)} disabled={!scheduleEnabled} /><span>{name}</span></label>)}
+                </div>
+                <div class="time-pair">
+                  <label class="field"><span>From</span><input name="scheduleStart" type="time" defaultValue={schedule?.start || "08:00"} disabled={!scheduleEnabled} /></label>
+                  <label class="field"><span>Until</span><input name="scheduleEnd" type="time" defaultValue={schedule?.end || "17:00"} disabled={!scheduleEnabled} /></label>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div class="form-grid">
+            <label class="field"><span>Starts</span><input name="eventStart" type="datetime-local" required value={eventStart} onInput={(event) => { setDirty(true); deriveEnd(event.currentTarget.value); }} /></label>
+            <label class="field"><span>Ends</span><input name="eventEnd" type="datetime-local" value={eventEnd} onInput={(event) => { setDirty(true); deriveStart(event.currentTarget.value); }} /></label>
+          </div>
+        )}
+
+        <div class="dialog-actions">
+          {existing ? <button type="button" class="danger-button" onClick={() => void props.onDelete(existing)}>Delete</button> : null}
+          <div class="spacer" />
+          <button type="button" class="secondary-button" onClick={close}>Cancel</button>
+          <button type="submit" class="primary-button">Save</button>
+        </div>
+      </form>
+    </DialogShell>
+  );
+}
+
+export function SleepDialog(props: {
+  task: Task;
+  onClose: () => void;
+  onSave: (until: string | null) => Promise<void>;
+}) {
+  const sleep = sleepInfo(props.task, new Date());
+  const [value, setValue] = useState(sleep.sleeping && !sleep.indefinite ? isoToLocalInput(sleep.until) : isoToLocalInput(tomorrowMidnight(new Date())));
+  const title = String(props.task.title || "").replace(/[\p{Cf}\p{Cc}\s]/gu, "") ? props.task.title : "Untitled task";
+
+  return (
+    <DialogShell labelledBy="sleep-title" className="sleep-dialog" onClose={props.onClose}>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        const until = localInputToIso(value);
+        if (!until || toDate(until) <= new Date()) return;
+        void props.onSave(until);
+      }}>
+        <div class="dialog-header">
+          <div><h2 id="sleep-title">Sleep task</h2><p class="muted">{title}</p></div>
+          <button type="button" class="icon-button" aria-label="Close" onClick={props.onClose}>×</button>
+        </div>
+        <label class="field full"><span>Sleep until</span><input type="datetime-local" required value={value} onInput={(event) => setValue(event.currentTarget.value)} autoFocus /></label>
+        <div class="dialog-actions">
+          <button type="button" class="secondary-button" onClick={() => void props.onSave(null)}>Sleep indefinitely</button>
+          <div class="spacer" />
+          <button type="button" class="secondary-button" onClick={props.onClose}>Cancel</button>
+          <button type="submit" class="primary-button">Sleep until</button>
+        </div>
+      </form>
+    </DialogShell>
+  );
+}
