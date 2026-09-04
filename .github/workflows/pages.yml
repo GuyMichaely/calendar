@@ -2,7 +2,10 @@ name: Calendar CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - agent/vanilla-refactor
+      - agent/framework-preact-refactor
   pull_request:
   workflow_dispatch:
 
@@ -18,3 +21,16 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+
+  framework:
+    if: github.head_ref == 'agent/framework-preact-refactor' || github.ref_name == 'agent/framework-preact-refactor'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck:framework
+      - run: npm run build:framework
