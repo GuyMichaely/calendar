@@ -1,0 +1,56 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import test from "node:test";
+
+const root = path.resolve(import.meta.dirname, "..");
+const site = path.join(root, "site");
+
+function walkJs(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) return walkJs(file);
+    return entry.isFile() && entry.name.endsWith(".js") ? [file] : [];
+  });
+}
+
+test("all browser JavaScript parses", () => {
+  for (const file of walkJs(site)) {
+    execFileSync(process.execPath, ["--check", file], { stdio: "pipe" });
+  }
+});
+
+test("index has one application module entry point", () => {
+  const html = fs.readFileSync(path.join(site, "index.html"), "utf8");
+  const moduleScripts = [...html.matchAll(/<script\s+type="module"\s+src="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(moduleScripts, ["./app.js"]);
+});
+
+test("service-worker shell only references files that exist", () => {
+  const sw = fs.readFileSync(path.join(site, "sw.js"), "utf8");
+  const shellMatch = sw.match(/const SHELL = \[([\s\S]*?)\];/);
+  assert.ok(shellMatch, "service worker should define SHELL");
+  const entries = [...shellMatch[1].matchAll(/"(\.\/[^\"]*)"/g)].map((match) => match[1]);
+  for (const entry of entries) {
+    if (entry === "./") continue;
+    assert.ok(fs.existsSync(path.join(site, entry.slice(2))), `missing shell asset: ${entry}`);
+  }
+});
+
+test("removed DOM patch modules stay out of the runtime", () => {
+  const removed = [
+    "editor-behavior.js",
+    "calendar-projection.js",
+    "calendar-ui.js",
+    "modal-events.js",
+    "task-enhancements.js",
+    "toast-history.js",
+  ];
+  for (const name of removed) assert.equal(fs.existsSync(path.join(site, name)), false, `${name} should remain removed`);
+
+  const app = fs.readFileSync(path.join(site, "app.js"), "utf8");
+  assert.match(app, /createTasksView/);
+  assert.match(app, /createCalendarView/);
+  assert.match(app, /createEditor/);
+});
