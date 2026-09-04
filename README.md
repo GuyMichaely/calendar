@@ -66,4 +66,14 @@ npm test
 
 ## Deployment
 
-GitHub Actions deploys the `site/` directory to GitHub Pages. All browser assets use relative URLs, so the app works when GitHub serves the project under `/calendar/` and does not depend on that pathname being hard-coded in the application.
+GitHub Pages publishes one artifact for this repository. The deployment workflow assembles that artifact from three independently developed sources:
+
+- `main` is published at `/calendar/`;
+- `agent/vanilla-refactor` is published at `/calendar/vanilla/`;
+- `agent/framework-preact-refactor` is built and published at `/calendar/framework/`.
+
+`scripts/assemble-pages.mjs` creates the final artifact without changing any source tree. The root app is copied first, then each preview replaces only its own subdirectory. The deployment workflow runs the tests for all three sources and the framework typecheck/build before publishing.
+
+The Pages deployment runs after `main` changes, can be dispatched manually, and is also refreshed after successful CI runs on either preview branch. Browser assets use relative URLs, so the same frontend source can operate at its assigned subpath without hard-coding `/calendar/`.
+
+The root service worker does not intercept the `vanilla/` or `framework/` preview paths. Service-worker caches are scoped by registration path so independently deployed app versions cannot delete or read each other's shell caches.
