@@ -88,7 +88,7 @@ test("task view owns task action markup while keyboard routes semantic actions",
   const tasks = fs.readFileSync(path.join(site, "views", "tasks-view.js"), "utf8");
 
   assert.match(tasks, /class="task-action-icon"/);
-  assert.match(tasks, /data-action="sleep-indefinite"/);
+  assert.match(tasks, /iconActionButton\("sleep-indefinite", "sleepIndefinite"/);
   assert.match(tasks, /ACTION_ICONS\.sleepTomorrow/);
   assert.match(tasks, /ACTION_ICONS\.sleepIndefinite/);
   assert.match(tasks, /ACTION_ICONS\.customSleep/);
