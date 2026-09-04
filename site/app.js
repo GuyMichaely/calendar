@@ -1,10 +1,10 @@
 import { dateKey, sleepInfo, toDate, tomorrowMidnight } from "./domain.js";
-import { exportData, importData, listItems, putItem } from "./storage.js";
 import { createEditor } from "./editor.js";
+import { createKeyboardController } from "./keyboard.js";
+import { exportData, importData, listItems, putItem } from "./storage.js";
 import { createToaster, escapeHtml } from "./ui.js";
 import { createCalendarView } from "./views/calendar-view.js";
 import { createTasksView } from "./views/tasks-view.js";
-import "./keyboard.js";
 
 function viewFromHash() {
   return location.hash === "#calendar" ? "calendar" : "tasks";
@@ -81,6 +81,11 @@ async function saveTaskMutation(item, patch, historyEntry, message) {
 }
 
 const editor = createEditor({ getItem, onChanged: refresh, showToast });
+const keyboard = createKeyboardController({
+  taskSections: els.taskSections,
+  showToast,
+  onHistoryApplied: refresh,
+});
 
 async function handleTaskAction({ action, id, attachmentIndex }) {
   const item = getItem(id);
@@ -180,6 +185,7 @@ const tasksView = createTasksView({
   compactToggle: els.compactToggle,
   onAction: (detail) => handleTaskAction(detail).catch(console.error),
   onPreferencesChanged: updateTaskPreferences,
+  onRendered: keyboard.enhance,
 });
 
 const calendarView = createCalendarView({
@@ -296,8 +302,6 @@ els.importInput.addEventListener("change", async () => {
 
 window.addEventListener("popstate", syncViewFromLocation);
 window.addEventListener("hashchange", syncViewFromLocation);
-window.addEventListener("calendar:history-applied", () => refresh().catch(console.error));
-window.addEventListener("calendar:toast", (event) => showToast(event.detail?.message));
 
 setInterval(() => {
   if (!document.querySelector("dialog[open]")) render();
