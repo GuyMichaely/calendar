@@ -3,22 +3,13 @@ name: Deploy Calendar Pages
 on:
   push:
     branches: [main]
-  pull_request:
-    paths:
-      - ".github/workflows/deploy-pages.yml"
-      - ".github/workflows/pages.yml"
-      - "scripts/assemble-pages.mjs"
-      - "tests/pages-deployment.test.js"
-      - "site/sw.js"
   workflow_dispatch:
   workflow_run:
     workflows: ["Calendar CI"]
     types: [completed]
     branches:
       - agent/vanilla-refactor
-      - agent/framework-preact-refactor
       - agent/solid-refactor
-      - agent/svelte-refactor
 
 permissions:
   contents: read
@@ -26,7 +17,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.event.pull_request.number) || (github.event_name == 'workflow_run' && github.event.workflow_run.event != 'push' && format('pages-noop-{0}', github.event.workflow_run.id)) || 'pages-deploy' }}
+  group: pages-deploy
   cancel-in-progress: true
 
 jobs:
@@ -36,6 +27,8 @@ jobs:
     steps:
       - name: Check out deployment tooling
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Check out main app
         uses: actions/checkout@v4
@@ -49,23 +42,11 @@ jobs:
           ref: agent/vanilla-refactor
           path: .sources/vanilla
 
-      - name: Check out framework preview
-        uses: actions/checkout@v4
-        with:
-          ref: agent/framework-preact-refactor
-          path: .sources/framework
-
       - name: Check out Solid preview
         uses: actions/checkout@v4
         with:
           ref: agent/solid-refactor
           path: .sources/solid
-
-      - name: Check out Svelte preview
-        uses: actions/checkout@v4
-        with:
-          ref: agent/svelte-refactor
-          path: .sources/svelte
 
       - uses: actions/setup-node@v4
         with:
@@ -78,22 +59,6 @@ jobs:
       - name: Test vanilla preview
         run: npm test
         working-directory: .sources/vanilla
-
-      - name: Install framework dependencies
-        run: npm install --no-audit --no-fund
-        working-directory: .sources/framework
-
-      - name: Test framework preview
-        run: npm test
-        working-directory: .sources/framework
-
-      - name: Typecheck framework preview
-        run: npm run typecheck:framework
-        working-directory: .sources/framework
-
-      - name: Build framework preview
-        run: npm run build:framework
-        working-directory: .sources/framework
 
       - name: Install Solid dependencies
         run: npm install --no-audit --no-fund
@@ -111,34 +76,15 @@ jobs:
         run: npm run build:solid
         working-directory: .sources/solid
 
-      - name: Install Svelte dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund
-        working-directory: .sources/svelte
-
-      - name: Test Svelte preview
-        run: npm test && npm run test:svelte
-        working-directory: .sources/svelte
-
-      - name: Check Svelte preview
-        run: npm run check:svelte
-        working-directory: .sources/svelte
-
-      - name: Build Svelte preview
-        run: npm run build:svelte
-        working-directory: .sources/svelte
-
       - name: Assemble Pages artifact
         run: >-
           node scripts/assemble-pages.mjs
           .sources/main/site
           .sources/vanilla/site
-          .sources/framework/site/framework
           .sources/solid/site/solid
-          .sources/svelte/site/svelte
           .pages-dist
 
       - name: Configure Pages
-        if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
@@ -146,7 +92,6 @@ jobs:
           path: .pages-dist
 
   deploy:
-    if: github.event_name != 'pull_request'
     needs: build
     environment:
       name: github-pages

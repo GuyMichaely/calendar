@@ -66,18 +66,18 @@ npm test
 
 ## Deployment
 
-GitHub Pages publishes one artifact for this repository. The deployment workflow assembles that artifact from three independently developed sources:
+GitHub Pages publishes one aggregate artifact with three active frontends:
 
 - `main` is published at `/calendar/`;
 - `agent/vanilla-refactor` is published at `/calendar/vanilla/`;
-- `agent/framework-preact-refactor` is built and published at `/calendar/framework/`.
+- `agent/solid-refactor` is built and published at `/calendar/solid/`.
 
-`scripts/assemble-pages.mjs` creates the final artifact without changing any source tree. The root app is copied first, then each preview replaces only its own subdirectory. The deployment workflow runs the tests for all three sources and the framework typecheck/build before publishing.
+Preact and Svelte are retired from the deployment. Their old preview directories are explicitly removed during artifact assembly so `/calendar/framework/`, `/calendar/preact/`, and `/calendar/svelte/` are not published.
 
-The Pages deployment runs after `main` changes, can be dispatched manually, and is also refreshed after successful `Calendar CI` runs on either preview branch. Browser assets use relative URLs, so the same frontend source can operate at its assigned subpath without hard-coding `/calendar/`.
+`scripts/assemble-pages.mjs` copies the root app first, removes any stale preview directories, and then installs fresh vanilla and Solid previews. Service-worker shell manifests are generated from each active source during assembly rather than stored as branch-owned deployment files.
 
-Frontend branches do not own deployment files. `.github/workflows/pages.yml`, `.github/workflows/deploy-pages.yml`, `scripts/assemble-pages.mjs`, `tests/pages-deployment.test.js`, and `site/sw.js` are maintained on `main` and should remain identical in both frontend branches. Service-worker shell manifests are not tracked source files: the assembler generates `sw-shell.js` independently for each deployed frontend from that frontend's actual static files. This lets each preview have the correct offline shell without creating a branch-owned deployment file that can conflict with `main`.
+Deployment is branch-driven. `Calendar CI` runs on pushes to `main`, `agent/vanilla-refactor`, and `agent/solid-refactor`. A successful push CI run on vanilla or Solid triggers a complete aggregate Pages rebuild; a push to `main` deploys directly. The Pages workflow can also be dispatched manually. Pull requests do not trigger CI or Pages deployment.
 
-A frontend change is deployed by pushing to its existing preview branch. The shared `Calendar CI` workflow validates the branch. A successful run triggers the `main` deployment workflow, which rebuilds and tests the combined artifact before publishing. Frontend agents should not add branch-specific Pages jobs, service-worker deployment manifests, or modify the deployment aggregator to publish their own preview.
+The aggregate build retests `main` and vanilla and tests, typechecks, and builds Solid before publishing. All real deployments share one concurrency group, so a newer real deployment supersedes an older one.
 
-When shared deployment infrastructure changes, change and validate it on `main` first, then merge that `main` commit into both frontend branches before further frontend work. Shared deployment files should arrive through that merge unchanged. Changes to backend, sync, authentication, or other non-frontend branches are outside this protocol.
+Shared deployment infrastructure is owned by `main`: `.github/workflows/pages.yml`, `.github/workflows/deploy-pages.yml`, `scripts/assemble-pages.mjs`, `tests/pages-deployment.test.js`, and `site/sw.js`. The archival branch `reference/pre-preview-deployment-main` preserves the last feature-complete `main` commit from before the aggregate-preview deployment work and does not participate in CI or deployment.
