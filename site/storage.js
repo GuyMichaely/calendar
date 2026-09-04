@@ -1,6 +1,12 @@
-const DB_NAME = "calendar-app";
-const DB_VERSION = 1;
-const STORE = "items";
+import {
+  applyLocalSnapshot,
+  deleteLocalItem,
+  getLocalItem,
+  listLocalItems,
+  mergeLocalSyncSnapshot,
+  putLocalItem,
+  readLocalSyncSnapshot,
+} from "./automerge-storage.js";
 
 const HISTORY_DB_NAME = "calendar-history";
 const HISTORY_DB_VERSION = 1;
@@ -20,22 +26,6 @@ if (!historySessionId) {
   sessionStorage.setItem(HISTORY_SESSION_KEY, historySessionId);
 }
 
-function openDb() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        const store = db.createObjectStore(STORE, { keyPath: "id" });
-        store.createIndex("kind", "kind", { unique: false });
-        store.createIndex("updatedAt", "updatedAt", { unique: false });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
 function openHistoryDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(HISTORY_DB_NAME, HISTORY_DB_VERSION);
@@ -48,35 +38,6 @@ function openHistoryDb() {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-}
-
-function transaction(mode, fn) {
-  return openDb().then(
-    (db) =>
-      new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, mode);
-        const store = tx.objectStore(STORE);
-        let result;
-        try {
-          result = fn(store);
-        } catch (error) {
-          reject(error);
-          return;
-        }
-        tx.oncomplete = () => {
-          db.close();
-          resolve(result);
-        };
-        tx.onerror = () => {
-          db.close();
-          reject(tx.error);
-        };
-        tx.onabort = () => {
-          db.close();
-          reject(tx.error || new Error("IndexedDB transaction aborted"));
-        };
-      }),
-  );
 }
 
 function cloneValue(value) {
@@ -95,23 +56,9 @@ function syncLiveItem(id, snapshot) {
   else liveItems.push(copy);
 }
 
-async function getItem(id) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readonly");
-    const req = tx.objectStore(STORE).get(id);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => db.close();
-  });
-}
-
-function rawPut(item) {
-  return transaction("readwrite", (store) => store.put(item));
-}
-
-function rawDelete(id) {
-  return transaction("readwrite", (store) => store.delete(id));
+function replaceLiveItems(items) {
+  if (!liveItems) return;
+  liveItems.splice(0, liveItems.length, ...items.map(cloneValue));
 }
 
 function actionLabel(before, after) {
@@ -216,44 +163,27 @@ async function pushHistory(entry) {
   emitHistoryState();
 }
 
-async function recordMutation(id, after, operation) {
-  const before = await getItem(id);
-  await operation();
-  syncLiveItem(id, after);
-  if (applyingHistory) return;
-  await pushHistory({
-    label: actionLabel(before, after),
-    changes: [{ id, before: cloneValue(before), after: cloneValue(after) }],
-  });
-}
-
-async function readAllItems() {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readonly");
-    const req = tx.objectStore(STORE).getAll();
-    req.onsuccess = () => resolve(req.result || []);
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => db.close();
-  });
-}
-
 export async function listItems() {
-  liveItems = await readAllItems();
+  liveItems = await listLocalItems();
   return liveItems;
 }
 
 export function listItemsSnapshot() {
-  return readAllItems();
+  return listLocalItems();
 }
 
-export function putItem(item) {
-  return recordMutation(item.id, item, () => rawPut(item));
+export async function putItem(item) {
+  const { before, after } = await putLocalItem(item);
+  syncLiveItem(item.id, after);
+  if (applyingHistory) return;
+  await pushHistory({
+    label: actionLabel(before, after),
+    changes: [{ id: item.id, before: cloneValue(before), after: cloneValue(after) }],
+  });
 }
 
 export async function deleteItem(id) {
-  const before = await getItem(id);
-  await rawDelete(id);
+  const { before } = await deleteLocalItem(id);
   syncLiveItem(id, null);
   if (applyingHistory || !before) return;
   await pushHistory({
@@ -280,9 +210,8 @@ export function redoLabel() {
 
 async function applySnapshot(change, side) {
   const snapshot = change[side];
-  if (snapshot == null) await rawDelete(change.id);
-  else await rawPut(cloneValue(snapshot));
-  syncLiveItem(change.id, snapshot);
+  const after = await applyLocalSnapshot(change.id, snapshot == null ? null : cloneValue(snapshot));
+  syncLiveItem(change.id, after);
 }
 
 export async function undo() {
@@ -357,7 +286,7 @@ function dataUrlToBlob(dataUrl) {
 }
 
 export async function exportData() {
-  const items = await readAllItems();
+  const items = await listLocalItems();
   const portable = [];
   for (const item of items) {
     const copy = { ...item };
@@ -402,3 +331,15 @@ export async function importData(text) {
   }
   return imported;
 }
+
+export function readSyncSnapshot() {
+  return readLocalSyncSnapshot();
+}
+
+export async function mergeSyncSnapshot(bytes) {
+  const items = await mergeLocalSyncSnapshot(bytes);
+  replaceLiveItems(items);
+  return items;
+}
+
+export { getLocalItem as getItem };
