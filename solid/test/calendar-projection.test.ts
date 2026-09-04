@@ -1,5 +1,6 @@
-import { describe, expect, test } from "vitest";
-import { projectedStartBypassesSleep, projectedTaskStart } from "../src/calendar-projection";
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+import { projectedStartBypassesSleep, projectedTaskStart } from "../src/calendar-projection.ts";
 import type { Task } from "../src/types";
 
 function task(patch: Partial<Task> = {}): Task {
@@ -21,16 +22,16 @@ describe("Solid calendar task projection", () => {
   test("sleep can delay a projected start or be ignored", () => {
     const item = task({ sleep: { until: "2026-09-06T13:00:00.000Z", startedAt: "2026-09-04T12:00:00.000Z" } });
 
-    expect(projectedTaskStart(item, now, true)?.toISOString()).toBe("2026-09-06T13:00:00.000Z");
+    assert.equal(projectedTaskStart(item, now, true)?.toISOString(), "2026-09-06T13:00:00.000Z");
     const ignored = projectedTaskStart(item, now, false);
-    expect(ignored?.toISOString()).toBe("2026-09-05T13:00:00.000Z");
-    expect(projectedStartBypassesSleep(item, ignored!, now, false)).toBe(true);
+    assert.equal(ignored?.toISOString(), "2026-09-05T13:00:00.000Z");
+    assert.equal(projectedStartBypassesSleep(item, ignored!, now, false), true);
   });
 
   test("indefinite sleep removes a respected projection", () => {
     const item = task({ sleep: { until: null, startedAt: "2026-09-04T12:00:00.000Z" } });
-    expect(projectedTaskStart(item, now, true)).toBeNull();
-    expect(projectedTaskStart(item, now, false)?.toISOString()).toBe("2026-09-05T13:00:00.000Z");
+    assert.equal(projectedTaskStart(item, now, true), null);
+    assert.equal(projectedTaskStart(item, now, false)?.toISOString(), "2026-09-05T13:00:00.000Z");
   });
 
   test("sleep-delayed starts past latest start are not projected", () => {
@@ -38,6 +39,6 @@ describe("Solid calendar task projection", () => {
       latestStart: "2026-09-05T18:00:00.000Z",
       sleep: { until: "2026-09-06T13:00:00.000Z", startedAt: "2026-09-04T12:00:00.000Z" },
     });
-    expect(projectedTaskStart(item, now, true)).toBeNull();
+    assert.equal(projectedTaskStart(item, now, true), null);
   });
 });
