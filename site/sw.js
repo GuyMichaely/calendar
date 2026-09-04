@@ -1,4 +1,4 @@
-const CACHE = "calendar-shell-v10";
+const CACHE = "calendar-shell-v11";
 const SHELL = [
   "./",
   "./index.html",
