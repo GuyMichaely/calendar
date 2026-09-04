@@ -1,4 +1,4 @@
-const CACHE = "calendar-shell-v11";
+const CACHE = "calendar-shell-v12";
 const SHELL = [
   "./",
   "./index.html",
@@ -42,6 +42,14 @@ self.addEventListener("fetch", (event) => {
         caches.open(CACHE).then((cache) => cache.put(event.request, copy));
         return response;
       })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html"))),
+      .catch(async (error) => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        if (event.request.mode === "navigate") {
+          const shell = await caches.match("./index.html");
+          if (shell) return shell;
+        }
+        throw error;
+      }),
   );
 });
