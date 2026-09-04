@@ -5,8 +5,7 @@ on:
     branches:
       - main
       - agent/vanilla-refactor
-      - agent/framework-preact-refactor
-  pull_request:
+      - agent/solid-refactor
   workflow_dispatch:
 
 permissions:
@@ -22,8 +21,8 @@ jobs:
           node-version: 22
       - run: npm test
 
-  framework:
-    if: github.head_ref == 'agent/framework-preact-refactor' || github.ref_name == 'agent/framework-preact-refactor'
+  solid:
+    if: github.ref_name == 'agent/solid-refactor'
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -32,5 +31,6 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-audit --no-fund
-      - run: npm run typecheck:framework
-      - run: npm run build:framework
+      - run: npm run test:solid
+      - run: npm run typecheck:solid
+      - run: npm run build:solid

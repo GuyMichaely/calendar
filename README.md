@@ -21,7 +21,7 @@ The app is a static web app that runs entirely in the browser:
 - keyboard task navigation: click or arrow-focus task cards, use Up/Down between visible tasks, Enter to open details, and Tab through a focused card's controls;
 - configurable task hotkeys for completion, sleep until tomorrow, indefinite sleep, and custom sleep;
 - icon sleep actions with accessible labels/tooltips;
-- month calendar rendering one projected start marker per task plus latest-start and due markers;
+- month calendar rendering one projected start marker per task, plus distinct latest-start, due, and sleep-wake markers;
 - a calendar-only toggle that moves each projected task start according to whether sleep is respected or ignored;
 - calendar-day creation flow for events or tasks with the selected day prefilled;
 - calendar search that dims nonmatching items without leaving the calendar view;
@@ -42,22 +42,6 @@ There is deliberately no cloud backend yet. Data is local to each browser/device
 
 Undo/redo history is deliberately stored in the separate `calendar-history` IndexedDB database and is session-scoped. A future cloud-sync implementation should sync calendar items and attachments, not the undo-history database.
 
-## Frontend structure
-
-The frontend uses browser-native ES modules. There is no component framework or build step.
-
-`site/app.js` owns application state and task mutations and composes the frontend controllers. It does not render task cards, calendar cells, or editor fields itself.
-
-- `site/views/tasks-view.js` owns task-list rendering, task-view controls, and all task-card action markup.
-- `site/views/calendar-view.js` owns calendar rendering, projection, and calendar search presentation.
-- `site/editor.js` owns the item editor and sleep dialog.
-- `site/keyboard.js` owns task focus, shortcut interpretation/configuration, and undo/redo controls. It routes semantic task actions back to `app.js` and does not rewrite task-card markup.
-- `site/ui.js` contains small shared DOM-formatting utilities.
-- `site/domain.js` contains task/calendar rules that do not depend on the DOM.
-- `site/storage.js` is the persistence and undo/redo boundary.
-
-View modules render directly from passed application state. Do not add MutationObserver passes or post-render enhancement passes that rewrite another module's rendered DOM. If a view needs different output, change the view renderer or its input model instead.
-
 ## Data migrations
 
 The application code under `site/` assumes the current data schema. It should not contain runtime compatibility or automatic migration paths for older schemas.
@@ -74,28 +58,26 @@ python3 -m http.server 8000 -d site
 
 Then open `http://localhost:8000`.
 
-Run the test suite with:
+Run domain tests with:
 
 ```bash
 npm test
 ```
 
-The frontend structure tests also run `node --check` over every browser JavaScript file and verify the rendering/controller ownership boundaries.
-
 ## Deployment
 
-GitHub Pages publishes one artifact for this repository. The deployment workflow assembles that artifact from three independently developed sources:
+GitHub Pages publishes one aggregate artifact with three active frontends:
 
 - `main` is published at `/calendar/`;
 - `agent/vanilla-refactor` is published at `/calendar/vanilla/`;
-- `agent/framework-preact-refactor` is built and published at `/calendar/framework/`.
+- `agent/solid-refactor` is built and published at `/calendar/solid/`.
 
-`scripts/assemble-pages.mjs` creates the final artifact without changing any source tree. The root app is copied first, then each preview replaces only its own subdirectory. The deployment workflow runs the tests for all three sources and the framework typecheck/build before publishing.
+Preact and Svelte are retired from the deployment. Their old preview directories are explicitly removed during artifact assembly so `/calendar/framework/`, `/calendar/preact/`, and `/calendar/svelte/` are not published.
 
-The Pages deployment runs after `main` changes, can be dispatched manually, and is also refreshed after successful `Calendar CI` runs on either preview branch. Browser assets use relative URLs, so the same frontend source can operate at its assigned subpath without hard-coding `/calendar/`.
+`scripts/assemble-pages.mjs` copies the root app first, removes any stale preview directories, and then installs fresh vanilla and Solid previews. Service-worker shell manifests are generated from each active source during assembly rather than stored as branch-owned deployment files.
 
-Frontend branches do not own deployment files. `.github/workflows/pages.yml`, `.github/workflows/deploy-pages.yml`, `scripts/assemble-pages.mjs`, `tests/pages-deployment.test.js`, and `site/sw.js` are maintained on `main` and remain identical in both frontend branches. Service-worker shell manifests are generated only in the assembled Pages artifact from each frontend's actual static files, so the vanilla preview needs no branch-specific deployment manifest.
+Deployment is branch-driven. `Calendar CI` runs on pushes to `main`, `agent/vanilla-refactor`, and `agent/solid-refactor`. A successful push CI run on vanilla or Solid triggers a complete aggregate Pages rebuild; a push to `main` deploys directly. The Pages workflow can also be dispatched manually. Pull requests do not trigger CI or Pages deployment.
 
-A frontend change is deployed by pushing to its existing preview branch. The shared `Calendar CI` workflow validates the branch. A successful run triggers the `main` deployment workflow, which rebuilds and tests the combined artifact before publishing. Frontend agents should not add branch-specific Pages jobs, service-worker deployment manifests, or modify the deployment aggregator to publish their own preview.
+The aggregate build retests `main` and vanilla and tests, typechecks, and builds Solid before publishing. All real deployments share one concurrency group, so a newer real deployment supersedes an older one.
 
-When shared deployment infrastructure changes, change and validate it on `main` first, then merge that `main` commit into both frontend branches before further frontend work. Shared deployment files should arrive through that merge unchanged. Changes to backend, sync, authentication, or other non-frontend branches are outside this protocol.
+Shared deployment infrastructure is owned by `main`: `.github/workflows/pages.yml`, `.github/workflows/deploy-pages.yml`, `scripts/assemble-pages.mjs`, `tests/pages-deployment.test.js`, and `site/sw.js`. The archival branch `reference/pre-preview-deployment-main` preserves the last feature-complete `main` commit from before the aggregate-preview deployment work and does not participate in CI or deployment.
