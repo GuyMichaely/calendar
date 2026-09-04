@@ -18,11 +18,16 @@ The app is a static web app that runs entirely in the browser:
 - sleeping tasks folded into the bottom of the combined Upcoming/Waiting section;
 - optional upcoming horizons: rolling 1/7/30 days or calendar-boundary Today/This week/This month;
 - turning the horizon off shows all tasks with a known future opportunity, i.e. Waiting;
-- keyboard task navigation: click or arrow-focus task cards, use Up/Down between visible tasks, and Tab through a focused card's controls;
+- keyboard task navigation: click or arrow-focus task cards, use Up/Down between visible tasks, Enter to open details, and Tab through a focused card's controls;
 - configurable task hotkeys for completion, sleep until tomorrow, indefinite sleep, and custom sleep;
 - icon sleep actions with accessible labels/tooltips;
 - month calendar rendering one projected start marker per task, plus distinct latest-start, due, and sleep-wake markers;
 - a calendar-only toggle that moves each projected task start according to whether sleep is respected or ignored;
+- calendar-day creation flow for events or tasks with the selected day prefilled;
+- calendar search that dims nonmatching items without leaving the calendar view;
+- tags and local file attachments on tasks and events, with file-picker and drag/drop attachment input;
+- compact task cards that retain a two-line notes preview;
+- queued, click-to-dismiss toast notifications;
 - text/tag/attachment-name search;
 - local file attachments stored in IndexedDB;
 - JSON backup/export and import, including attachment contents;
@@ -34,6 +39,8 @@ The app is a static web app that runs entirely in the browser:
 Waiting is derived from real availability constraints. Sleep does not change a task's underlying actionability. It only controls whether the task is surfaced to the user and, when enabled in the calendar, whether sleep is treated as an additional delay while projecting the next work opportunity.
 
 There is deliberately no cloud backend yet. Data is local to each browser/device. The storage boundary is isolated so a cloud-backed implementation can replace or supplement IndexedDB later.
+
+Undo/redo history is deliberately stored in the separate `calendar-history` IndexedDB database and is session-scoped. A future cloud-sync implementation should sync calendar items and attachments, not the undo-history database.
 
 ## Data migrations
 
