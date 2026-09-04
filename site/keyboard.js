@@ -1,3 +1,5 @@
+import { canRedo, canUndo, redo, redoLabel, undo, undoLabel } from "./storage.js";
+
 const SHORTCUT_STORAGE_KEY = "calendar.keyboardShortcuts";
 const DEFAULT_SHORTCUTS = {
   complete: " ",
@@ -21,11 +23,12 @@ if (!document.querySelector('link[data-keyboard-styles="true"]')) document.head.
 const ICONS = {
   sleepTomorrow: `
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M5.5 10.5a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z" />
-      <path d="M6.3 8.3c1.3-3.1 4.2-4.8 7.1-4.5 2.1.2 3.9 1.3 5 3.1-2.1-.8-4.2-.6-6 .5-1.8 1.2-3.8 1.5-6.1.9Z" />
-      <path d="M6.1 8.4 4.3 6.8" />
-      <path d="M8.4 11.1c.7.7 1.4.7 2.1 0M13.5 11.1c.7.7 1.4.7 2.1 0" />
-      <path d="M9.2 14.2c1.8 1.2 3.8 1.2 5.6 0" />
+      <circle cx="12" cy="12.5" r="6.2" />
+      <path d="M6.4 9.1h11.2" />
+      <path d="M7.3 8.9c1.1-3.2 3.8-5.3 7.1-5.3 1.2 0 2.2.2 3.1.7l-2.2 4.6" />
+      <circle cx="18.2" cy="4.4" r="1.25" />
+      <path d="M8.4 12c.7.7 1.4.7 2.1 0M13.5 12c.7.7 1.4.7 2.1 0" />
+      <path d="M9.3 15.1c1.8 1.1 3.6 1.1 5.4 0" />
     </svg>`,
   sleepIndefinite: `
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -250,9 +253,27 @@ function moveTaskFocus(direction, activeCard = null) {
   focusCard(cards[nextIndex]);
 }
 
+async function runHistoryCommand(direction) {
+  const changed = direction === "undo" ? await undo() : await redo();
+  if (!changed) return;
+  location.reload();
+}
+
 function handleGlobalKeydown(event) {
   if (document.querySelector("dialog[open]")) return;
   if (isEditableTarget(event.target)) return;
+
+  const commandKey = event.ctrlKey || event.metaKey;
+  if (commandKey && !event.altKey) {
+    const key = event.key.toLowerCase();
+    if (key === "z" || key === "y") {
+      const direction = key === "y" || event.shiftKey ? "redo" : "undo";
+      event.preventDefault();
+      runHistoryCommand(direction).catch(console.error);
+      return;
+    }
+  }
+
   if (event.ctrlKey || event.metaKey || event.altKey) return;
 
   const active = document.activeElement;
@@ -376,21 +397,82 @@ function saveShortcutSettings(event, dialog) {
   scheduleEnhance();
 }
 
-function setupShortcutMenu() {
+let undoMenuButton = null;
+let redoMenuButton = null;
+
+function updateHistoryMenu() {
+  if (undoMenuButton) {
+    undoMenuButton.disabled = !canUndo();
+    undoMenuButton.textContent = canUndo() ? `Undo ${undoLabel()}` : "Undo";
+  }
+  if (redoMenuButton) {
+    redoMenuButton.disabled = !canRedo();
+    redoMenuButton.textContent = canRedo() ? `Redo ${redoLabel()}` : "Redo";
+  }
+}
+
+function positionDataMenu() {
   const menu = document.querySelector("#data-menu");
-  if (!menu || document.querySelector("#keyboard-shortcuts-button")) return;
-  const dialog = document.querySelector("#keyboard-shortcuts-dialog") || createShortcutDialog();
-  const button = document.createElement("button");
-  button.id = "keyboard-shortcuts-button";
-  button.type = "button";
-  button.textContent = "Keyboard shortcuts…";
-  button.addEventListener("click", () => {
-    menu.hidePopover?.();
-    fillShortcutInputs(dialog);
-    dialog.showModal();
-    requestAnimationFrame(() => dialog.querySelector("[data-shortcut]")?.focus());
+  const trigger = document.querySelector("#menu-button");
+  if (!menu || !trigger || !menu.matches(":popover-open")) return;
+
+  const rect = trigger.getBoundingClientRect();
+  const gap = 6;
+  const width = menu.offsetWidth;
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+  menu.style.left = `${left}px`;
+  menu.style.top = `${rect.bottom + gap}px`;
+}
+
+function setupDataMenu() {
+  const menu = document.querySelector("#data-menu");
+  if (!menu) return;
+
+  if (!document.querySelector("#undo-button")) {
+    undoMenuButton = document.createElement("button");
+    undoMenuButton.id = "undo-button";
+    undoMenuButton.type = "button";
+    undoMenuButton.addEventListener("click", () => {
+      menu.hidePopover?.();
+      runHistoryCommand("undo").catch(console.error);
+    });
+
+    redoMenuButton = document.createElement("button");
+    redoMenuButton.id = "redo-button";
+    redoMenuButton.type = "button";
+    redoMenuButton.addEventListener("click", () => {
+      menu.hidePopover?.();
+      runHistoryCommand("redo").catch(console.error);
+    });
+
+    menu.prepend(redoMenuButton);
+    menu.prepend(undoMenuButton);
+  } else {
+    undoMenuButton = document.querySelector("#undo-button");
+    redoMenuButton = document.querySelector("#redo-button");
+  }
+
+  if (!document.querySelector("#keyboard-shortcuts-button")) {
+    const dialog = document.querySelector("#keyboard-shortcuts-dialog") || createShortcutDialog();
+    const button = document.createElement("button");
+    button.id = "keyboard-shortcuts-button";
+    button.type = "button";
+    button.textContent = "Keyboard shortcuts…";
+    button.addEventListener("click", () => {
+      menu.hidePopover?.();
+      fillShortcutInputs(dialog);
+      dialog.showModal();
+      requestAnimationFrame(() => dialog.querySelector("[data-shortcut]")?.focus());
+    });
+    menu.append(button);
+  }
+
+  menu.addEventListener("toggle", (event) => {
+    if (event.newState === "open") requestAnimationFrame(positionDataMenu);
   });
-  menu.append(button);
+  window.addEventListener("resize", positionDataMenu);
+  window.addEventListener("calendar:history-state", updateHistoryMenu);
+  updateHistoryMenu();
 }
 
 document.addEventListener("pointerdown", (event) => {
@@ -419,5 +501,5 @@ for (const dialog of document.querySelectorAll("dialog")) {
   });
 }
 
-setupShortcutMenu();
+setupDataMenu();
 scheduleEnhance();
