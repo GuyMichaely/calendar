@@ -7,6 +7,7 @@ const search = document.querySelector("#search");
 const editorDialog = document.querySelector("#editor-dialog");
 const editorForm = document.querySelector("#editor-form");
 let filterScheduled = false;
+let gridObserver = null;
 
 function currentMonth() {
   const label = document.querySelector("#month-label")?.textContent?.trim();
@@ -79,42 +80,53 @@ function summaryText(tasks, query) {
 async function filterCalendar() {
   filterScheduled = false;
   if (!grid || calendarPanel?.hidden) return;
-  removeSleepEndMarkers();
 
-  const query = search?.value?.trim() || "";
-  const items = await listItemsSnapshot();
-  const byId = new Map(items.map((item) => [item.id, item]));
-  const month = currentMonth();
-  const dates = month ? gridDates(month) : [];
-  const cells = [...grid.querySelectorAll(".calendar-day")];
+  // This pass mutates calendar UI derived from the rendered grid. Disconnect its
+  // own observer while doing so, otherwise text/node writes can recursively
+  // schedule another filtering pass. The projection observer may still react to
+  // a real structural change, so all writes below are idempotent.
+  gridObserver?.disconnect();
+  try {
+    removeSleepEndMarkers();
 
-  cells.forEach((cell, index) => {
-    const day = dates[index];
-    const key = day ? dateKey(day) : "";
-    const todaySummary = [...cell.querySelectorAll(".calendar-chip")].find((chip) => chip.title === "Open today's tasks");
+    const query = search?.value?.trim() || "";
+    const items = await listItemsSnapshot();
+    const byId = new Map(items.map((item) => [item.id, item]));
+    const month = currentMonth();
+    const dates = month ? gridDates(month) : [];
+    const cells = [...grid.querySelectorAll(".calendar-day")];
 
-    if (todaySummary && day) {
-      const pending = items.filter((item) => isTask(item) && isPendingOnDate(item, day));
-      const matching = query ? pending.filter((item) => textMatches(item, query)) : pending;
-      todaySummary.textContent = summaryText(matching, query);
-      todaySummary.classList.toggle("search-dimmed", !!query && matching.length === 0);
-    }
+    cells.forEach((cell, index) => {
+      const day = dates[index];
+      const key = day ? dateKey(day) : "";
+      const todaySummary = [...cell.querySelectorAll(".calendar-chip")].find((chip) => chip.title === "Open today's tasks");
 
-    for (const chip of cell.querySelectorAll(".calendar-chip")) {
-      if (chip === todaySummary) continue;
-      if (!chip.dataset.itemId) {
-        const candidate = items.find((item) => {
-          if (isEvent(item)) return dateKey(item.start) === key && chip.title === item.title;
-          if (!isTask(item)) return false;
-          return chip.title === item.title || chip.title?.startsWith(`${item.title}:`) || chip.textContent.includes(item.title || "Untitled task");
-        });
-        if (candidate) chip.dataset.itemId = candidate.id;
+      if (todaySummary && day) {
+        const pending = items.filter((item) => isTask(item) && isPendingOnDate(item, day));
+        const matching = query ? pending.filter((item) => textMatches(item, query)) : pending;
+        const nextText = summaryText(matching, query);
+        if (todaySummary.textContent !== nextText) todaySummary.textContent = nextText;
+        todaySummary.classList.toggle("search-dimmed", !!query && matching.length === 0);
       }
-      const item = byId.get(chip.dataset.itemId);
-      const matches = !query || (item ? textMatches(item, query) : chip.textContent.toLowerCase().includes(query.toLowerCase()));
-      chip.classList.toggle("search-dimmed", !matches);
-    }
-  });
+
+      for (const chip of cell.querySelectorAll(".calendar-chip")) {
+        if (chip === todaySummary) continue;
+        if (!chip.dataset.itemId) {
+          const candidate = items.find((item) => {
+            if (isEvent(item)) return dateKey(item.start) === key && chip.title === item.title;
+            if (!isTask(item)) return false;
+            return chip.title === item.title || chip.title?.startsWith(`${item.title}:`) || chip.textContent.includes(item.title || "Untitled task");
+          });
+          if (candidate) chip.dataset.itemId = candidate.id;
+        }
+        const item = byId.get(chip.dataset.itemId);
+        const matches = !query || (item ? textMatches(item, query) : chip.textContent.toLowerCase().includes(query.toLowerCase()));
+        chip.classList.toggle("search-dimmed", !matches);
+      }
+    });
+  } finally {
+    gridObserver?.observe(grid, { childList: true, subtree: true });
+  }
 }
 
 function scheduleFilter() {
@@ -136,6 +148,9 @@ document.addEventListener(
 document.querySelector('[data-view="tasks"]')?.addEventListener("click", () => {
   setTimeout(() => search?.dispatchEvent(new Event("input", { bubbles: true })), 0);
 });
-if (grid) new MutationObserver(scheduleFilter).observe(grid, { childList: true, subtree: true });
+if (grid) {
+  gridObserver = new MutationObserver(scheduleFilter);
+  gridObserver.observe(grid, { childList: true, subtree: true });
+}
 window.addEventListener("calendar:history-applied", scheduleFilter);
 scheduleFilter();
