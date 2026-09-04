@@ -325,15 +325,15 @@ function TaskCard(props: {
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      moveTaskFocus(event.key === "ArrowUp" ? -1 : 1, event.currentTarget as HTMLElement);
+      return;
+    }
     if (event.target !== event.currentTarget) return;
     if (event.key === "Enter") {
       event.preventDefault();
       props.onEdit(props.row.task);
-      return;
-    }
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      event.preventDefault();
-      moveTaskFocus(event.key === "ArrowUp" ? -1 : 1, event.currentTarget as HTMLElement);
       return;
     }
     if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
