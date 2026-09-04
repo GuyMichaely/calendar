@@ -1,7 +1,9 @@
 import {
   addAttachmentMetadata,
+  addHistoryEntry,
   addTag,
   createCalendarDocument,
+  deleteItemField,
   getItemFieldConflicts,
   itemForSync,
   loadCalendarDocument,
@@ -10,6 +12,8 @@ import {
   mergeCalendarDocuments,
   patchItem,
   putItem as putDocumentItem,
+  removeAttachmentMetadata,
+  removeHistoryEntry,
   removeTag,
   restoreItem,
   saveCalendarDocument,
@@ -68,6 +72,26 @@ function sameValue(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function fingerprint(value) {
+  return JSON.stringify(value);
+}
+
+function listDifference(left = [], right = []) {
+  const remaining = new Map();
+  for (const value of right) {
+    const key = fingerprint(value);
+    remaining.set(key, (remaining.get(key) || 0) + 1);
+  }
+  const result = [];
+  for (const value of left) {
+    const key = fingerprint(value);
+    const count = remaining.get(key) || 0;
+    if (count > 0) remaining.set(key, count - 1);
+    else result.push(value);
+  }
+  return result;
+}
+
 function reconcileItem(doc, item) {
   const next = itemForSync(item);
   let current = materializeItem(doc, next.id, { includeDeleted: true });
@@ -104,13 +128,87 @@ function reconcileItem(doc, item) {
   }
   current = materializeItem(doc, next.id, { includeDeleted: true });
 
-  const specialFields = new Set(["id", "title", "notes", "tags", "attachments", "deletedAt"]);
+  const currentHistory = current.history || [];
+  for (const entry of listDifference(next.history || [], currentHistory)) {
+    doc = addHistoryEntry(doc, next.id, entry);
+  }
+  current = materializeItem(doc, next.id, { includeDeleted: true });
+
+  const specialFields = new Set(["id", "title", "notes", "tags", "attachments", "history", "deletedAt"]);
   for (const [field, value] of Object.entries(next)) {
     if (specialFields.has(field)) continue;
     if (!sameValue(current[field], value)) {
       doc = patchItem(doc, next.id, { [field]: value });
       current = materializeItem(doc, next.id, { includeDeleted: true });
     }
+  }
+
+  return doc;
+}
+
+function applyHistoryDelta(doc, before, after, side) {
+  const source = side === "before" ? after : before;
+  const target = side === "before" ? before : after;
+  const id = target?.id || source?.id;
+  let current = materializeItem(doc, id, { includeDeleted: true });
+
+  if (!source && target) {
+    if (!current) return putDocumentItem(doc, target, `Redo create ${id}`);
+    if (current.deletedAt) return restoreItem(doc, id, `Restore ${id}`);
+    return doc;
+  }
+  if (source && !target) {
+    if (!current || current.deletedAt) return doc;
+    return tombstoneItem(doc, id, new Date().toISOString(), `Undo create/delete ${id}`);
+  }
+  if (!source || !target || !current) return doc;
+
+  for (const field of ["title", "notes"]) {
+    if (sameValue(source[field], target[field])) continue;
+    current = materializeItem(doc, id, { includeDeleted: true });
+    if (sameValue(current?.[field], source[field])) {
+      doc = updateItemText(doc, id, field, String(target[field] ?? ""), `History ${field} for ${id}`);
+    }
+  }
+
+  for (const tag of listDifference(source.tags || [], target.tags || [])) {
+    doc = removeTag(doc, id, tag, `History remove tag for ${id}`);
+  }
+  for (const tag of listDifference(target.tags || [], source.tags || [])) {
+    doc = addTag(doc, id, tag, `History add tag for ${id}`);
+  }
+
+  const sourceAttachments = new Map((source.attachments || []).map((attachment) => [attachment.id, attachment]));
+  const targetAttachments = new Map((target.attachments || []).map((attachment) => [attachment.id, attachment]));
+  for (const [attachmentId] of sourceAttachments) {
+    if (!targetAttachments.has(attachmentId)) {
+      doc = removeAttachmentMetadata(doc, id, attachmentId, `History remove attachment for ${id}`);
+    }
+  }
+  for (const [attachmentId, attachment] of targetAttachments) {
+    const sourceAttachment = sourceAttachments.get(attachmentId);
+    current = materializeItem(doc, id, { includeDeleted: true });
+    const currentAttachment = (current?.attachments || []).find((candidate) => candidate.id === attachmentId);
+    if (!sourceAttachment || (sameValue(currentAttachment, sourceAttachment) && !sameValue(sourceAttachment, attachment))) {
+      doc = addAttachmentMetadata(doc, id, attachment, `History attachment for ${id}`);
+    }
+  }
+
+  for (const entry of listDifference(source.history || [], target.history || [])) {
+    doc = removeHistoryEntry(doc, id, entry, `History remove audit entry for ${id}`);
+  }
+  for (const entry of listDifference(target.history || [], source.history || [])) {
+    doc = addHistoryEntry(doc, id, entry, `History add audit entry for ${id}`);
+  }
+
+  const specialFields = new Set(["id", "title", "notes", "tags", "attachments", "history", "deletedAt"]);
+  const fields = new Set([...Object.keys(source), ...Object.keys(target)]);
+  for (const field of fields) {
+    if (specialFields.has(field) || sameValue(source[field], target[field])) continue;
+    current = materializeItem(doc, id, { includeDeleted: true });
+    if (!sameValue(current?.[field], source[field])) continue;
+    if (target[field] === undefined) doc = deleteItemField(doc, id, field, `History clear ${field} for ${id}`);
+    else doc = patchItem(doc, id, { [field]: target[field] }, `History ${field} for ${id}`);
   }
 
   return doc;
@@ -239,18 +337,12 @@ export function deleteLocalItem(id, deletedAt = new Date().toISOString()) {
   });
 }
 
-export function applyLocalSnapshot(id, snapshot) {
-  const attachments = Array.isArray(snapshot?.attachments) ? snapshot.attachments : [];
+export function applyLocalHistoryChange(change, side) {
+  const target = side === "before" ? change.before : change.after;
+  const attachments = Array.isArray(target?.attachments) ? target.attachments : [];
   return writeState((doc, localAttachments) => {
-    const current = materializeItem(doc, id, { includeDeleted: true });
-    let nextDoc = doc;
-    if (snapshot == null) {
-      if (current && !current.deletedAt) nextDoc = tombstoneItem(doc, id, new Date().toISOString());
-    } else {
-      if (current?.deletedAt) nextDoc = restoreItem(nextDoc, id);
-      nextDoc = reconcileItem(nextDoc, snapshot);
-    }
-    const after = hydrateItem(materializeItem(nextDoc, id), localAttachments);
+    const nextDoc = applyHistoryDelta(doc, change.before, change.after, side);
+    const after = hydrateItem(materializeItem(nextDoc, change.id), localAttachments);
     return { doc: nextDoc, result: after };
   }, attachments);
 }
