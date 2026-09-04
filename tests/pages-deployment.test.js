@@ -75,6 +75,16 @@ test("shared service worker runtime isolates root and preview scopes", () => {
   assert.doesNotMatch(sw, /caches\.match\(event\.request\)/);
 });
 
+test("service worker fails closed when neither network nor exact cache has a response", () => {
+  const sw = fs.readFileSync(path.join(root, "site", "sw.js"), "utf8");
+  assert.match(sw, /if \(response\.ok\) cache\.put\(event\.request, response\.clone\(\)\)/);
+  assert.match(sw, /const cached = await cache\.match\(event\.request\)/);
+  assert.match(sw, /if \(cached\) return cached/);
+  assert.match(sw, /status: 503/);
+  assert.match(sw, /Service Unavailable/);
+  assert.doesNotMatch(sw, /cache\.match\("\.\/index\.html"\)/);
+});
+
 test("service-worker shell manifests are deployment artifacts, not branch-owned source", () => {
   assert.equal(fs.existsSync(path.join(root, "site", "sw-shell.js")), false);
   const assembler = fs.readFileSync(path.join(root, "scripts", "assemble-pages.mjs"), "utf8");
