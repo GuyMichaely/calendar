@@ -1,12 +1,12 @@
 import { writeFileSync } from "node:fs";
 import process from "node:process";
 
-const UNITS = new Set(["root", "vanilla", "solid"]);
+const UNITS = new Set(["root", "old", "vanilla"]);
 const [unit, rawSha, outputFile] = process.argv.slice(2);
 const sha = String(rawSha || "").toLowerCase();
 
 if (!UNITS.has(unit) || !/^[0-9a-f]{40}$/.test(sha) || !outputFile) {
-  throw new Error("Usage: node scripts/find-verification.mjs <root|vanilla|solid> <40-char-sha> <output-json>");
+  throw new Error("Usage: node scripts/find-verification.mjs <root|old|vanilla> <40-char-sha> <output-json>");
 }
 
 const repository = process.env.GITHUB_REPOSITORY;

@@ -10,8 +10,8 @@ on:
         type: choice
         options:
           - root
+          - old
           - vanilla
-          - solid
       commit:
         description: Exact verified 40-character commit SHA
         required: true

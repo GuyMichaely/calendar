@@ -117,7 +117,7 @@ function rebuildUnit(unit, entry, target) {
   }
 }
 
-for (const unit of ["root", "vanilla", "solid"]) {
+for (const unit of ["root", "old", "vanilla"]) {
   const entry = manifest.units[unit];
   if (
     !entry ||

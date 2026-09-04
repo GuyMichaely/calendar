@@ -1,16 +1,16 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-const [rootSite, vanillaSite, solidSite, outputDir] = process.argv
+const [rootSite, oldSite, vanillaSite, outputDir] = process.argv
   .slice(2)
   .map((value) => value && path.resolve(value));
 
-if (![rootSite, vanillaSite, solidSite, outputDir].every(Boolean)) {
-  throw new Error("Usage: node scripts/assemble-pages.mjs <root-site> <vanilla-site> <solid-site> <output-dir>");
+if (![rootSite, oldSite, vanillaSite, outputDir].every(Boolean)) {
+  throw new Error("Usage: node scripts/assemble-pages.mjs <root-site> <old-site> <vanilla-site> <output-dir>");
 }
 
-const previewDirectories = ["vanilla", "solid", "framework", "preact", "svelte"];
+const nestedDeployDirectories = ["old", "vanilla", "solid", "framework", "preact", "svelte"];
 
 function collectShellAssets(sourceDir, relativeDir = "") {
   const assets = [];
@@ -18,7 +18,7 @@ function collectShellAssets(sourceDir, relativeDir = "") {
 
   for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (entry.name.startsWith(".")) continue;
-    if (!relativeDir && entry.isDirectory() && previewDirectories.includes(entry.name)) continue;
+    if (!relativeDir && entry.isDirectory() && nestedDeployDirectories.includes(entry.name)) continue;
 
     const relativePath = path.join(relativeDir, entry.name);
     if (entry.isDirectory()) {
@@ -41,21 +41,32 @@ function writeShellManifest(sourceDir, deployedDir) {
   );
 }
 
+function normalizeRootIndex(deployedDir) {
+  const indexFile = path.join(deployedDir, "index.html");
+  if (!existsSync(indexFile)) return;
+  const current = readFileSync(indexFile, "utf8");
+  const normalized = current
+    .replaceAll("/calendar/solid/", "/calendar/")
+    .replace("<title>Calendar · Solid preview</title>", "<title>Calendar</title>");
+  if (normalized !== current) writeFileSync(indexFile, normalized);
+}
+
 rmSync(outputDir, { recursive: true, force: true });
 mkdirSync(outputDir, { recursive: true });
 cpSync(rootSite, outputDir, { recursive: true });
 
-for (const preview of previewDirectories) {
-  rmSync(path.join(outputDir, preview), { recursive: true, force: true });
+for (const nested of nestedDeployDirectories) {
+  rmSync(path.join(outputDir, nested), { recursive: true, force: true });
 }
+normalizeRootIndex(outputDir);
 
+const oldOutput = path.join(outputDir, "old");
 const vanillaOutput = path.join(outputDir, "vanilla");
-const solidOutput = path.join(outputDir, "solid");
+cpSync(oldSite, oldOutput, { recursive: true });
 cpSync(vanillaSite, vanillaOutput, { recursive: true });
-cpSync(solidSite, solidOutput, { recursive: true });
 
 writeShellManifest(rootSite, outputDir);
+writeShellManifest(oldSite, oldOutput);
 writeShellManifest(vanillaSite, vanillaOutput);
-writeShellManifest(solidSite, solidOutput);
 
 console.log(`Assembled Pages artifact at ${outputDir}`);
