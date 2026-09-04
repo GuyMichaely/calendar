@@ -1,29 +1,15 @@
+importScripts("./sw-shell.js");
+
 const CACHE_VERSION = "v12";
-const CACHE_NAMESPACE = `calendar-shell:${new URL(self.registration.scope).pathname}`;
+const SCOPE_PATH = new URL(self.registration.scope).pathname;
+const CACHE_NAMESPACE = `calendar-shell:${SCOPE_PATH}`;
 const CACHE = `${CACHE_NAMESPACE}:${CACHE_VERSION}`;
-const LEGACY_CACHES = new Set(["calendar-shell-v11"]);
-const PREVIEW_PATHS = ["vanilla/", "framework/"].map((segment) => new URL(segment, self.registration.scope).pathname);
-const SHELL = [
-  "./",
-  "./index.html",
-  "./styles.css",
-  "./editor-fixes.css",
-  "./task-view.css",
-  "./sleep-view.css",
-  "./keyboard.css",
-  "./interactions.css",
-  "./app.js",
-  "./editor-behavior.js",
-  "./keyboard.js",
-  "./calendar-projection.js",
-  "./toast-history.js",
-  "./modal-events.js",
-  "./calendar-ui.js",
-  "./task-enhancements.js",
-  "./domain.js",
-  "./storage.js",
-  "./manifest.webmanifest",
-];
+const IS_PREVIEW_SCOPE = /\/(?:vanilla|framework)\/$/.test(SCOPE_PATH);
+const LEGACY_CACHES = IS_PREVIEW_SCOPE ? new Set() : new Set(["calendar-shell-v11"]);
+const PREVIEW_PATHS = IS_PREVIEW_SCOPE
+  ? []
+  : ["vanilla/", "framework/"].map((segment) => new URL(segment, self.registration.scope).pathname);
+const SHELL = Array.isArray(self.CALENDAR_SHELL) ? self.CALENDAR_SHELL : [];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
