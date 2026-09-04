@@ -1,4 +1,6 @@
-const CACHE = "calendar-shell-v12";
+const CACHE_VERSION = "v12";
+const CACHE_NAMESPACE = `calendar-shell:${new URL(self.registration.scope).pathname}`;
+const CACHE = `${CACHE_NAMESPACE}:${CACHE_VERSION}`;
 const SHELL = [
   "./",
   "./index.html",
@@ -26,7 +28,15 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))),
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith(`${CACHE_NAMESPACE}:`) && key !== CACHE)
+            .map((key) => caches.delete(key)),
+        ),
+      ),
   );
   self.clients.claim();
 });
