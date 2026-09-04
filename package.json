@@ -3,6 +3,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "dev:solid": "vite --config solid/vite.config.ts",
+    "test:solid": "vitest run --config solid/vite.config.ts",
+    "typecheck:solid": "tsc -p solid/tsconfig.json --noEmit",
+    "build:solid": "vite build --config solid/vite.config.ts"
+  },
+  "dependencies": {
+    "solid-js": "1.9.15"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vite": "8.2.2",
+    "vite-plugin-solid": "2.11.14",
+    "vitest": "4.1.11"
   }
 }
