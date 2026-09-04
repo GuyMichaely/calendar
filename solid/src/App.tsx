@@ -417,6 +417,7 @@ export function App() {
               await refresh();
               showToast(created ? `${item.kind === "task" ? "Task" : "Event"} created` : "Saved");
             }}
+            onError={showToast}
           />
         )}</Show>
 
