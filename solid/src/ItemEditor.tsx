@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import {
   isoToLocalInput,
   localInputToIso,
@@ -40,11 +40,26 @@ function eventDefaults(request: EditorRequest) {
   return { start: localDateInput(start), end: localDateInput(end) };
 }
 
+function serializeForm(form: HTMLFormElement, files: File[]) {
+  return JSON.stringify({
+    controls: [...form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select")].map((control, index) => ({
+      key: control.name || control.id || String(index),
+      type: control instanceof HTMLInputElement ? control.type : control.tagName.toLowerCase(),
+      value: control instanceof HTMLInputElement && control.type === "file"
+        ? [...(control.files || [])].map((file) => [file.name, file.size, file.lastModified])
+        : control.value,
+      checked: control instanceof HTMLInputElement ? control.checked : undefined,
+    })),
+    pendingFiles: files.map((file) => [file.name, file.size, file.lastModified]),
+  });
+}
+
 export function ItemEditor(props: {
   request: EditorRequest;
   onClose: () => void;
   onDelete: (item: Item) => Promise<void>;
   onSave: (item: Item, created: boolean) => Promise<void>;
+  onError: (message: string) => void;
 }) {
   const existing = props.request.item;
   const task = existing?.kind === "task" ? existing : null;
@@ -62,6 +77,18 @@ export function ItemEditor(props: {
   const [draggingAttachments, setDraggingAttachments] = createSignal(false);
   const [dirty, setDirty] = createSignal(false);
   let formRef!: HTMLFormElement;
+  let baseline = "";
+
+  const syncDirty = () => {
+    queueMicrotask(() => setDirty(!!baseline && serializeForm(formRef, pendingFiles()) !== baseline));
+  };
+
+  onMount(() => {
+    requestAnimationFrame(() => {
+      baseline = serializeForm(formRef, pendingFiles());
+      setDirty(false);
+    });
+  });
 
   const close = () => {
     if (dirty() && !window.confirm("Discard your unsaved changes?")) return;
@@ -73,7 +100,7 @@ export function ItemEditor(props: {
       const seen = new Set(current.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
       return [...current, ...files.filter((file) => !seen.has(`${file.name}:${file.size}:${file.lastModified}`))];
     });
-    setDirty(true);
+    syncDirty();
   };
 
   const deriveEnd = (value: string) => {
@@ -172,8 +199,14 @@ export function ItemEditor(props: {
         updatedAt: now,
       };
     }
-    setDirty(false);
-    await props.onSave(item, !existing);
+
+    try {
+      await props.onSave(item, !existing);
+      setDirty(false);
+    } catch (error) {
+      console.error(error);
+      props.onError("Could not save item");
+    }
   };
 
   const schedule = task?.availabilitySchedule;
@@ -181,13 +214,6 @@ export function ItemEditor(props: {
   const sleepUntil = initialSleep?.sleeping && !initialSleep.indefinite
     ? isoToLocalInput(initialSleep.until)
     : isoToLocalInput(tomorrowMidnight(new Date()));
-  const defaultAvailableFrom = !existing && props.request.date
-    ? (() => {
-        const date = new Date(props.request.date);
-        date.setHours(9, 0, 0, 0);
-        return localDateInput(date);
-      })()
-    : "";
   const attachedNames = createMemo(() => existing?.attachments?.map((attachment) => attachment.name).join(", ") || "");
   const attachmentHint = createMemo(() => attachedNames()
     ? `Attached: ${attachedNames()}. New files are added to these.`
@@ -197,15 +223,15 @@ export function ItemEditor(props: {
 
   return (
     <DialogShell labelledBy="editor-title" onClose={close}>
-      <form ref={(element) => { formRef = element; }} onSubmit={save} onInput={() => setDirty(true)}>
+      <form ref={(element) => { formRef = element; }} onSubmit={save} onInput={syncDirty}>
         <div class="dialog-header">
           <h2 id="editor-title">{existing ? "Edit item" : "New item"}</h2>
           <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
         </div>
 
         <div class="segmented kind-switch">
-          <label><input type="radio" name="kind" value="task" checked={kind() === "task"} onChange={() => { setKind("task"); setDirty(true); }} /><span>Task</span></label>
-          <label><input type="radio" name="kind" value="event" checked={kind() === "event"} onChange={() => { setKind("event"); setDirty(true); }} /><span>Event</span></label>
+          <label><input type="radio" name="kind" value="task" checked={kind() === "task"} onChange={() => { setKind("task"); syncDirty(); }} /><span>Task</span></label>
+          <label><input type="radio" name="kind" value="event" checked={kind() === "event"} onChange={() => { setKind("event"); syncDirty(); }} /><span>Event</span></label>
         </div>
 
         <label class="field full"><span>Title</span><input name="title" required maxLength={240} value={existing?.title || ""} autofocus /></label>
@@ -235,22 +261,22 @@ export function ItemEditor(props: {
 
         <Show when={kind() === "task"} fallback={
           <div class="form-grid">
-            <label class="field"><span>Starts</span><input name="eventStart" type="datetime-local" required value={eventStart()} onInput={(event) => { setDirty(true); deriveEnd(event.currentTarget.value); }} /></label>
-            <label class="field"><span>Ends</span><input name="eventEnd" type="datetime-local" value={eventEnd()} onInput={(event) => { setDirty(true); deriveStart(event.currentTarget.value); }} /></label>
+            <label class="field"><span>Starts</span><input name="eventStart" type="datetime-local" required value={eventStart()} onInput={(event) => { deriveEnd(event.currentTarget.value); syncDirty(); }} /></label>
+            <label class="field"><span>Ends</span><input name="eventEnd" type="datetime-local" value={eventEnd()} onInput={(event) => { deriveStart(event.currentTarget.value); syncDirty(); }} /></label>
           </div>
         }>
           <div>
             <div class="form-grid">
               <label class="field"><span>State</span><select name="taskState" value={task?.state || "open"}><option value="open">Open</option><option value="completed">Completed</option><option value="canceled">Canceled</option></select></label>
-              <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" value={isoToLocalInput(task?.availableFrom) || defaultAvailableFrom} /></label>
+              <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" value={isoToLocalInput(task?.availableFrom)} /></label>
               <label class="field"><span>Due</span><input name="deadline" type="datetime-local" value={isoToLocalInput(task?.deadline)} /></label>
               <label class="field"><span>Latest start</span><input name="latestStart" type="datetime-local" value={isoToLocalInput(task?.latestStart)} /></label>
-              <label class="field"><span>Sleep</span><select name="sleepMode" value={sleepMode()} onChange={(event) => { setSleepMode(event.currentTarget.value as ReturnType<typeof sleepMode>); setDirty(true); }}><option value="awake">Awake</option><option value="until">Until a date</option><option value="indefinite">Indefinitely</option></select></label>
+              <label class="field"><span>Sleep</span><select name="sleepMode" value={sleepMode()} onChange={(event) => { setSleepMode(event.currentTarget.value as ReturnType<typeof sleepMode>); syncDirty(); }}><option value="awake">Awake</option><option value="until">Until a date</option><option value="indefinite">Indefinitely</option></select></label>
               <label class={`field ${sleepMode() !== "until" ? "disabled" : ""}`}><span>Sleep until</span><input name="sleepUntil" type="datetime-local" value={sleepUntil} disabled={sleepMode() !== "until"} /></label>
             </div>
             <div class="schedule-box">
               <label class="toggle-row">
-                <input type="checkbox" name="scheduleEnabled" checked={scheduleEnabled()} onChange={(event) => { setScheduleEnabled(event.currentTarget.checked); setDirty(true); }} />
+                <input type="checkbox" name="scheduleEnabled" checked={scheduleEnabled()} onChange={(event) => { setScheduleEnabled(event.currentTarget.checked); syncDirty(); }} />
                 <span><strong>Recurring action window</strong><small>The same task becomes actionable during these times until you close it.</small></span>
               </label>
               <div class={`schedule-options ${scheduleEnabled() ? "" : "disabled"}`}>
