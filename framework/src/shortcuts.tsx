@@ -1,4 +1,5 @@
 import { useState } from "preact/hooks";
+import { DialogShell } from "./DialogShell";
 
 export type ShortcutAction = "complete" | "sleepTomorrow" | "sleepIndefinite" | "customSleep";
 export type Shortcuts = Record<ShortcutAction, string>;
@@ -66,6 +67,12 @@ export function KeyboardShortcutsDialog(props: {
 }) {
   const [draft, setDraft] = useState<Shortcuts>({ ...props.shortcuts });
   const [error, setError] = useState("");
+  const dirty = (Object.keys(draft) as ShortcutAction[]).some((action) => draft[action] !== props.shortcuts[action]);
+
+  const close = () => {
+    if (dirty && !window.confirm("Discard your unsaved changes?")) return;
+    props.onClose();
+  };
 
   const capture = (action: ShortcutAction, event: KeyboardEvent) => {
     if (event.key === "Tab" || event.key === "Escape") return;
@@ -100,39 +107,36 @@ export function KeyboardShortcutsDialog(props: {
   };
 
   return (
-    <div class="framework-dialog-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) props.onClose();
-    }}>
-      <div class="editor-dialog shortcut-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcut-title">
-        <div class="dialog-header">
-          <h2 id="shortcut-title">Keyboard shortcuts</h2>
-          <button type="button" class="icon-button" aria-label="Close" onClick={props.onClose}>×</button>
-        </div>
-        <p class="shortcut-help">Task hotkeys apply when the task card itself is focused. ↑/↓ moves between visible tasks; Tab moves through the focused card's controls.</p>
-        <div class="shortcut-grid">
-          {(Object.keys(labels) as ShortcutAction[]).map((action) => (
-            <label class="shortcut-row">
-              <span>{labels[action]}</span>
-              <input
-                class="shortcut-key-input"
-                readOnly
-                aria-label={`${labels[action]} shortcut`}
-                value={keyLabel(draft[action])}
-                onKeyDown={(event) => capture(action, event as unknown as KeyboardEvent)}
-              />
-            </label>
-          ))}
-        </div>
-        <p class="shortcut-help">Press a printable key or Space while a shortcut field is focused. Backspace or Delete clears it.</p>
-        <p class="shortcut-error" role="alert">{error}</p>
-        <div class="dialog-actions">
-          <button type="button" class="secondary-button" onClick={() => { setDraft({ ...DEFAULT_SHORTCUTS }); setError(""); }}>Restore defaults</button>
-          <div class="spacer" />
-          <button type="button" class="secondary-button" onClick={props.onClose}>Cancel</button>
-          <button type="button" class="primary-button" onClick={save}>Save</button>
-        </div>
+    <DialogShell labelledBy="shortcut-title" className="shortcut-dialog" onClose={close}>
+      <div class="dialog-header">
+        <h2 id="shortcut-title">Keyboard shortcuts</h2>
+        <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
       </div>
-    </div>
+      <p class="shortcut-help">Task hotkeys apply when the task card itself is focused. ↑/↓ moves between visible tasks; Tab moves through the focused card's controls.</p>
+      <div class="shortcut-grid">
+        {(Object.keys(labels) as ShortcutAction[]).map((action) => (
+          <label class="shortcut-row" key={action}>
+            <span>{labels[action]}</span>
+            <input
+              class="shortcut-key-input"
+              readOnly
+              autoFocus={action === "complete"}
+              aria-label={`${labels[action]} shortcut`}
+              value={keyLabel(draft[action])}
+              onKeyDown={(event) => capture(action, event as unknown as KeyboardEvent)}
+            />
+          </label>
+        ))}
+      </div>
+      <p class="shortcut-help">Press a printable key or Space while a shortcut field is focused. Backspace or Delete clears it.</p>
+      <p class="shortcut-error" role="alert">{error}</p>
+      <div class="dialog-actions">
+        <button type="button" class="secondary-button" onClick={() => { setDraft({ ...DEFAULT_SHORTCUTS }); setError(""); }}>Restore defaults</button>
+        <div class="spacer" />
+        <button type="button" class="secondary-button" onClick={close}>Cancel</button>
+        <button type="button" class="primary-button" onClick={save}>Save</button>
+      </div>
+    </DialogShell>
   );
 }
 
