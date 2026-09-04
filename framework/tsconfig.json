@@ -6,7 +6,6 @@
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
     "strict": true,
-    "strictNullChecks": false,
     "allowJs": true,
     "checkJs": false,
     "noEmit": true,
