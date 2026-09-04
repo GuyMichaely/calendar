@@ -51,9 +51,17 @@ export function FrameworkApp() {
   const [shortcuts, setShortcuts] = useState<Shortcuts>(loadShortcuts);
   const [showShortcutDialog, setShowShortcutDialog] = useState(false);
   const [menuTarget, setMenuTarget] = useState<Element | null>(null);
+  const [, setClockTick] = useState(0);
 
   useEffect(() => {
     setMenuTarget(document.querySelector(".framework-menu-panel"));
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (!document.querySelector(".framework-dialog-backdrop")) setClockTick((value) => value + 1);
+    }, 30_000);
+    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
