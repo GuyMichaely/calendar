@@ -8,18 +8,6 @@ const DEFAULT_SHORTCUTS = {
   customSleep: "c",
 };
 
-let shortcuts = loadShortcuts();
-let rememberedTaskId = null;
-let rememberedTaskIndex = 0;
-let taskFocusActive = false;
-let enhanceScheduled = false;
-
-const styleLink = document.createElement("link");
-styleLink.rel = "stylesheet";
-styleLink.href = new URL("./keyboard.css", import.meta.url).href;
-styleLink.dataset.keyboardStyles = "true";
-if (!document.querySelector('link[data-keyboard-styles="true"]')) document.head.append(styleLink);
-
 const ICONS = {
   sleepTomorrow: `
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -48,6 +36,21 @@ const ICONS = {
     </svg>`,
 };
 
+function ensureStyles() {
+  if (document.querySelector('link[data-keyboard-styles="true"]')) return;
+  const styleLink = document.createElement("link");
+  styleLink.rel = "stylesheet";
+  styleLink.href = new URL("./keyboard.css", import.meta.url).href;
+  styleLink.dataset.keyboardStyles = "true";
+  document.head.append(styleLink);
+}
+
+function normalizeStoredKey(value, fallback) {
+  if (value === "") return "";
+  if (value === " " || (typeof value === "string" && value.length === 1)) return value.toLowerCase();
+  return fallback;
+}
+
 function loadShortcuts() {
   try {
     const stored = JSON.parse(localStorage.getItem(SHORTCUT_STORAGE_KEY) || "null");
@@ -62,12 +65,6 @@ function loadShortcuts() {
   }
 }
 
-function normalizeStoredKey(value, fallback) {
-  if (value === "") return "";
-  if (value === " " || (typeof value === "string" && value.length === 1)) return value.toLowerCase();
-  return fallback;
-}
-
 function normalizeEventKey(event) {
   if (event.key === " ") return " ";
   return event.key.length === 1 ? event.key.toLowerCase() : event.key;
@@ -77,36 +74,6 @@ function keyLabel(key) {
   if (!key) return "Unassigned";
   if (key === " ") return "Space";
   return key.length === 1 ? key.toUpperCase() : key;
-}
-
-function visibleTaskCards() {
-  return [...document.querySelectorAll("#tasks-panel .task-card")].filter((card) => {
-    if (card.closest("details:not([open])")) return false;
-    return card.getClientRects().length > 0;
-  });
-}
-
-function rememberCard(card) {
-  const cards = visibleTaskCards();
-  const index = cards.indexOf(card);
-  if (index >= 0) rememberedTaskIndex = index;
-  rememberedTaskId = card.dataset.id || rememberedTaskId;
-  cards.forEach((candidate) => (candidate.tabIndex = candidate === card ? 0 : -1));
-}
-
-function focusCard(card, { scroll = true } = {}) {
-  if (!card) return;
-  rememberCard(card);
-  card.focus({ preventScroll: !scroll });
-  if (scroll) card.scrollIntoView({ block: "nearest" });
-}
-
-function restoreRememberedCard() {
-  if (document.querySelector("dialog[open]")) return;
-  const cards = visibleTaskCards();
-  if (!cards.length) return;
-  const matching = rememberedTaskId ? cards.find((card) => card.dataset.id === rememberedTaskId) : null;
-  focusCard(matching || cards[Math.min(rememberedTaskIndex, cards.length - 1)], { scroll: false });
 }
 
 function isEditableTarget(target) {
@@ -131,305 +98,347 @@ function tomorrowMidnight() {
   return result;
 }
 
-function openCustomSleep(card) {
-  const button = card.querySelector('[data-action="sleep-custom"]');
-  if (!button) return false;
-  button.click();
-  return true;
-}
+export function createKeyboardController({ taskSections, showToast, onHistoryApplied }) {
+  ensureStyles();
 
-function triggerSleepTomorrow(card) {
-  const directButton = card.querySelector('[data-action="sleep-tomorrow"]');
-  if (directButton) {
-    directButton.click();
-    return;
+  let shortcuts = loadShortcuts();
+  let rememberedTaskId = null;
+  let rememberedTaskIndex = 0;
+  let taskFocusActive = false;
+  let enhanceScheduled = false;
+  let undoMenuButton = null;
+  let redoMenuButton = null;
+
+  function visibleTaskCards() {
+    return [...taskSections.querySelectorAll(".task-card")].filter((card) => {
+      if (card.closest("details:not([open])")) return false;
+      return card.getClientRects().length > 0;
+    });
   }
-  if (!openCustomSleep(card)) return;
-  requestAnimationFrame(() => {
-    const input = document.querySelector("#quick-sleep-until");
-    const form = document.querySelector("#sleep-form");
-    if (!input || !form) return;
-    input.value = formatLocalInput(tomorrowMidnight());
-    form.requestSubmit();
-  });
-}
 
-function triggerSleepIndefinitely(card) {
-  if (!openCustomSleep(card)) return;
-  requestAnimationFrame(() => document.querySelector("#sleep-indefinite")?.click());
-}
-
-function triggerTaskAction(card, action) {
-  if (action === "complete") {
-    card.querySelector('[data-action="complete"]')?.click();
-    return;
+  function rememberCard(card) {
+    const cards = visibleTaskCards();
+    const index = cards.indexOf(card);
+    if (index >= 0) rememberedTaskIndex = index;
+    rememberedTaskId = card.dataset.id || rememberedTaskId;
+    cards.forEach((candidate) => {
+      candidate.tabIndex = candidate === card ? 0 : -1;
+    });
   }
-  if (action === "sleepTomorrow") {
-    triggerSleepTomorrow(card);
-    return;
+
+  function focusCard(card, { scroll = true } = {}) {
+    if (!card) return;
+    rememberCard(card);
+    card.focus({ preventScroll: !scroll });
+    if (scroll) card.scrollIntoView({ block: "nearest" });
   }
-  if (action === "sleepIndefinite") {
-    triggerSleepIndefinitely(card);
-    return;
+
+  function restoreRememberedCard() {
+    if (document.querySelector("dialog[open]")) return;
+    const cards = visibleTaskCards();
+    if (!cards.length) return;
+    const matching = rememberedTaskId ? cards.find((card) => card.dataset.id === rememberedTaskId) : null;
+    focusCard(matching || cards[Math.min(rememberedTaskIndex, cards.length - 1)], { scroll: false });
   }
-  if (action === "customSleep") openCustomSleep(card);
-}
 
-function tooltip(action, label) {
-  const key = shortcuts[action];
-  return `${label}${key ? ` (${keyLabel(key)})` : ""}`;
-}
-
-function turnIntoIconButton(button, action, label, svg) {
-  button.classList.remove("text-button");
-  button.classList.add("task-action-icon");
-  if (button.dataset.keyboardIcon !== action) {
-    button.innerHTML = svg;
-    button.dataset.keyboardIcon = action;
+  function openCustomSleep(card) {
+    const button = card.querySelector('[data-action="sleep-custom"]');
+    if (!button) return false;
+    button.click();
+    return true;
   }
-  const text = tooltip(action, label);
-  button.title = text;
-  button.setAttribute("aria-label", text);
-}
 
-function enhanceCard(card) {
-  if (!card.hasAttribute("tabindex")) card.tabIndex = -1;
-  if (card.classList.contains("sleeping-task")) return;
-
-  const tomorrow = card.querySelector('[data-action="sleep-tomorrow"]');
-  const custom = card.querySelector('[data-action="sleep-custom"]');
-  if (!tomorrow || !custom) return;
-
-  turnIntoIconButton(tomorrow, "sleepTomorrow", "Sleep until tomorrow", ICONS.sleepTomorrow);
-  turnIntoIconButton(custom, "customSleep", "Custom sleep", ICONS.customSleep);
-
-  let indefinite = card.querySelector('[data-keyboard-action="sleep-indefinite"]');
-  if (!indefinite) {
-    indefinite = document.createElement("button");
-    indefinite.type = "button";
-    indefinite.className = "task-action-icon";
-    indefinite.dataset.keyboardAction = "sleep-indefinite";
-    indefinite.addEventListener("click", () => triggerSleepIndefinitely(card));
-    tomorrow.after(indefinite);
-  }
-  if (indefinite.dataset.keyboardIcon !== "sleepIndefinite") {
-    indefinite.innerHTML = ICONS.sleepIndefinite;
-    indefinite.dataset.keyboardIcon = "sleepIndefinite";
-  }
-  const text = tooltip("sleepIndefinite", "Sleep indefinitely");
-  indefinite.title = text;
-  indefinite.setAttribute("aria-label", text);
-}
-
-function enhanceCards() {
-  enhanceScheduled = false;
-  const cards = visibleTaskCards();
-  cards.forEach(enhanceCard);
-
-  if (!cards.length) return;
-  const current = rememberedTaskId ? cards.find((card) => card.dataset.id === rememberedTaskId) : null;
-  const roving = current || cards[0];
-  cards.forEach((card) => (card.tabIndex = card === roving ? 0 : -1));
-
-  if (taskFocusActive && document.activeElement === document.body) restoreRememberedCard();
-}
-
-function scheduleEnhance() {
-  if (enhanceScheduled) return;
-  enhanceScheduled = true;
-  requestAnimationFrame(enhanceCards);
-}
-
-function moveTaskFocus(direction, activeCard = null) {
-  const cards = visibleTaskCards();
-  if (!cards.length) return;
-  if (!activeCard) {
-    focusCard(direction > 0 ? cards[0] : cards[cards.length - 1]);
-    return;
-  }
-  const index = cards.indexOf(activeCard);
-  if (index < 0) return;
-  const nextIndex = Math.max(0, Math.min(cards.length - 1, index + direction));
-  focusCard(cards[nextIndex]);
-}
-
-async function runHistoryCommand(direction) {
-  const changed = direction === "undo" ? await undo() : await redo();
-  if (!changed) return;
-  updateHistoryMenu();
-  document.querySelector(".primary-nav .nav-button.active")?.click();
-}
-
-function handleGlobalKeydown(event) {
-  if (document.querySelector("dialog[open]")) return;
-  if (isEditableTarget(event.target)) return;
-
-  const commandKey = event.ctrlKey || event.metaKey;
-  if (commandKey && !event.altKey) {
-    const key = event.key.toLowerCase();
-    if (key === "z" || key === "y") {
-      const direction = key === "y" || event.shiftKey ? "redo" : "undo";
-      event.preventDefault();
-      runHistoryCommand(direction).catch(console.error);
+  function triggerSleepTomorrow(card) {
+    const directButton = card.querySelector('[data-action="sleep-tomorrow"]');
+    if (directButton) {
+      directButton.click();
       return;
+    }
+    if (!openCustomSleep(card)) return;
+    requestAnimationFrame(() => {
+      const input = document.querySelector("#quick-sleep-until");
+      const form = document.querySelector("#sleep-form");
+      if (!input || !form) return;
+      input.value = formatLocalInput(tomorrowMidnight());
+      form.requestSubmit();
+    });
+  }
+
+  function triggerSleepIndefinitely(card) {
+    if (!openCustomSleep(card)) return;
+    requestAnimationFrame(() => document.querySelector("#sleep-indefinite")?.click());
+  }
+
+  function triggerTaskAction(card, action) {
+    if (action === "complete") {
+      card.querySelector('[data-action="complete"]')?.click();
+      return;
+    }
+    if (action === "sleepTomorrow") {
+      triggerSleepTomorrow(card);
+      return;
+    }
+    if (action === "sleepIndefinite") {
+      triggerSleepIndefinitely(card);
+      return;
+    }
+    if (action === "customSleep") openCustomSleep(card);
+  }
+
+  function tooltip(action, label) {
+    const key = shortcuts[action];
+    return `${label}${key ? ` (${keyLabel(key)})` : ""}`;
+  }
+
+  function turnIntoIconButton(button, action, label, svg) {
+    button.classList.remove("text-button");
+    button.classList.add("task-action-icon");
+    if (button.dataset.keyboardIcon !== action) {
+      button.innerHTML = svg;
+      button.dataset.keyboardIcon = action;
+    }
+    const text = tooltip(action, label);
+    button.title = text;
+    button.setAttribute("aria-label", text);
+  }
+
+  function enhanceCard(card) {
+    if (!card.hasAttribute("tabindex")) card.tabIndex = -1;
+    if (card.classList.contains("sleeping-task")) return;
+
+    const tomorrow = card.querySelector('[data-action="sleep-tomorrow"]');
+    const custom = card.querySelector('[data-action="sleep-custom"]');
+    if (!tomorrow || !custom) return;
+
+    turnIntoIconButton(tomorrow, "sleepTomorrow", "Sleep until tomorrow", ICONS.sleepTomorrow);
+    turnIntoIconButton(custom, "customSleep", "Custom sleep", ICONS.customSleep);
+
+    let indefinite = card.querySelector('[data-keyboard-action="sleep-indefinite"]');
+    if (!indefinite) {
+      indefinite = document.createElement("button");
+      indefinite.type = "button";
+      indefinite.className = "task-action-icon";
+      indefinite.dataset.keyboardAction = "sleep-indefinite";
+      indefinite.addEventListener("click", () => triggerSleepIndefinitely(card));
+      tomorrow.after(indefinite);
+    }
+    if (indefinite.dataset.keyboardIcon !== "sleepIndefinite") {
+      indefinite.innerHTML = ICONS.sleepIndefinite;
+      indefinite.dataset.keyboardIcon = "sleepIndefinite";
+    }
+    const text = tooltip("sleepIndefinite", "Sleep indefinitely");
+    indefinite.title = text;
+    indefinite.setAttribute("aria-label", text);
+  }
+
+  function enhanceCards() {
+    enhanceScheduled = false;
+    const cards = visibleTaskCards();
+    cards.forEach(enhanceCard);
+    if (!cards.length) return;
+
+    const current = rememberedTaskId ? cards.find((card) => card.dataset.id === rememberedTaskId) : null;
+    const roving = current || cards[0];
+    cards.forEach((card) => {
+      card.tabIndex = card === roving ? 0 : -1;
+    });
+
+    if (taskFocusActive && document.activeElement === document.body) restoreRememberedCard();
+  }
+
+  function scheduleEnhance() {
+    if (enhanceScheduled) return;
+    enhanceScheduled = true;
+    requestAnimationFrame(enhanceCards);
+  }
+
+  function moveTaskFocus(direction, activeCard = null) {
+    const cards = visibleTaskCards();
+    if (!cards.length) return;
+    if (!activeCard) {
+      focusCard(direction > 0 ? cards[0] : cards[cards.length - 1]);
+      return;
+    }
+    const index = cards.indexOf(activeCard);
+    if (index < 0) return;
+    const nextIndex = Math.max(0, Math.min(cards.length - 1, index + direction));
+    focusCard(cards[nextIndex]);
+  }
+
+  function updateHistoryMenu() {
+    if (undoMenuButton) {
+      undoMenuButton.disabled = !canUndo();
+      undoMenuButton.textContent = canUndo() ? `Undo ${undoLabel()}` : "Undo";
+    }
+    if (redoMenuButton) {
+      redoMenuButton.disabled = !canRedo();
+      redoMenuButton.textContent = canRedo() ? `Redo ${redoLabel()}` : "Redo";
     }
   }
 
-  if (event.ctrlKey || event.metaKey || event.altKey) return;
-
-  const active = document.activeElement;
-  const activeCard = active instanceof Element ? active.closest(".task-card") : null;
-
-  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-    if (!activeCard && active !== document.body && active !== document.documentElement) return;
-    event.preventDefault();
-    moveTaskFocus(event.key === "ArrowDown" ? 1 : -1, activeCard);
-    return;
+  async function runHistoryCommand(direction) {
+    const label = direction === "undo" ? undoLabel() : redoLabel();
+    const changed = direction === "undo" ? await undo() : await redo();
+    if (!changed) return;
+    updateHistoryMenu();
+    await onHistoryApplied?.();
+    showToast?.(`${direction === "undo" ? "Undo" : "Redo"}${label ? ` ${label}` : ""}`);
+    requestAnimationFrame(restoreRememberedCard);
   }
 
-  if (!activeCard || active !== activeCard || event.repeat) return;
-  const key = normalizeEventKey(event);
-  const action = Object.keys(shortcuts).find((name) => shortcuts[name] && shortcuts[name] === key);
-  if (!action) return;
+  function handleGlobalKeydown(event) {
+    if (document.querySelector("dialog[open]")) return;
+    if (isEditableTarget(event.target)) return;
 
-  event.preventDefault();
-  triggerTaskAction(activeCard, action);
-}
+    const commandKey = event.ctrlKey || event.metaKey;
+    if (commandKey && !event.altKey) {
+      const key = event.key.toLowerCase();
+      if (key === "z" || key === "y") {
+        event.preventDefault();
+        runHistoryCommand(key === "y" || event.shiftKey ? "redo" : "undo").catch(console.error);
+        return;
+      }
+    }
 
-function createShortcutDialog() {
-  const dialog = document.createElement("dialog");
-  dialog.id = "keyboard-shortcuts-dialog";
-  dialog.className = "editor-dialog shortcut-dialog";
-  dialog.innerHTML = `
-    <form id="keyboard-shortcuts-form" method="dialog">
-      <div class="dialog-header">
-        <h2>Keyboard shortcuts</h2>
-        <button type="button" class="icon-button" data-shortcut-close aria-label="Close">×</button>
-      </div>
-      <p class="shortcut-help">Task hotkeys apply when the task card itself is focused. ↑/↓ moves between visible tasks; Tab moves through the focused card's controls.</p>
-      <div class="shortcut-grid">
-        ${shortcutRow("complete", "Complete task")}
-        ${shortcutRow("sleepTomorrow", "Sleep until tomorrow")}
-        ${shortcutRow("sleepIndefinite", "Sleep indefinitely")}
-        ${shortcutRow("customSleep", "Custom sleep")}
-      </div>
-      <p class="shortcut-help">Press a printable key or Space while a shortcut field is focused. Backspace or Delete clears it.</p>
-      <p class="shortcut-error" id="shortcut-error" role="alert"></p>
-      <div class="dialog-actions">
-        <button type="button" class="secondary-button" data-shortcut-defaults>Restore defaults</button>
-        <div class="spacer"></div>
-        <button type="button" class="secondary-button" data-shortcut-close>Cancel</button>
-        <button type="submit" class="primary-button">Save</button>
-      </div>
-    </form>`;
-  document.body.append(dialog);
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
 
-  dialog.querySelectorAll("[data-shortcut-close]").forEach((button) => {
-    button.addEventListener("click", () => dialog.close());
-  });
-  dialog.querySelector("[data-shortcut-defaults]").addEventListener("click", () => fillShortcutInputs(dialog, DEFAULT_SHORTCUTS));
-  dialog.querySelectorAll("[data-shortcut]").forEach((input) => input.addEventListener("keydown", captureShortcut));
-  dialog.querySelector("form").addEventListener("submit", (event) => saveShortcutSettings(event, dialog));
-  dialog.addEventListener("close", () => {
-    document.querySelector("#shortcut-error").textContent = "";
-    if (rememberedTaskId) requestAnimationFrame(restoreRememberedCard);
-  });
-  return dialog;
-}
+    const active = document.activeElement;
+    const activeCard = active instanceof Element ? active.closest(".task-card") : null;
 
-function shortcutRow(name, label) {
-  return `<label class="shortcut-row"><span>${label}</span><input class="shortcut-key-input" data-shortcut="${name}" readonly aria-label="${label} shortcut" /></label>`;
-}
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!activeCard && active !== document.body && active !== document.documentElement) return;
+      event.preventDefault();
+      moveTaskFocus(event.key === "ArrowDown" ? 1 : -1, activeCard);
+      return;
+    }
 
-function fillShortcutInputs(dialog, values = shortcuts) {
-  dialog.querySelectorAll("[data-shortcut]").forEach((input) => {
-    const key = values[input.dataset.shortcut] ?? "";
+    if (!activeCard || active !== activeCard || event.repeat) return;
+    const key = normalizeEventKey(event);
+    const action = Object.keys(shortcuts).find((name) => shortcuts[name] && shortcuts[name] === key);
+    if (!action) return;
+
+    event.preventDefault();
+    triggerTaskAction(activeCard, action);
+  }
+
+  function shortcutRow(name, label) {
+    return `<label class="shortcut-row"><span>${label}</span><input class="shortcut-key-input" data-shortcut="${name}" readonly aria-label="${label} shortcut" /></label>`;
+  }
+
+  function fillShortcutInputs(dialog, values = shortcuts) {
+    dialog.querySelectorAll("[data-shortcut]").forEach((input) => {
+      const key = values[input.dataset.shortcut] ?? "";
+      input.dataset.key = key;
+      input.value = keyLabel(key);
+    });
+  }
+
+  function captureShortcut(event) {
+    if (event.key === "Tab" || event.key === "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const input = event.currentTarget;
+    const error = document.querySelector("#shortcut-error");
+    error.textContent = "";
+
+    if (event.key === "Backspace" || event.key === "Delete") {
+      input.dataset.key = "";
+      input.value = keyLabel("");
+      return;
+    }
+
+    if (event.ctrlKey || event.metaKey || event.altKey || (event.key !== " " && event.key.length !== 1)) {
+      error.textContent = "Use a single printable key or Space.";
+      return;
+    }
+
+    const key = normalizeEventKey(event);
     input.dataset.key = key;
     input.value = keyLabel(key);
-  });
-}
-
-function captureShortcut(event) {
-  if (event.key === "Tab") return;
-  if (event.key === "Escape") return;
-  event.preventDefault();
-  event.stopPropagation();
-
-  const input = event.currentTarget;
-  const error = document.querySelector("#shortcut-error");
-  error.textContent = "";
-
-  if (event.key === "Backspace" || event.key === "Delete") {
-    input.dataset.key = "";
-    input.value = keyLabel("");
-    return;
   }
 
-  if (event.ctrlKey || event.metaKey || event.altKey || (event.key !== " " && event.key.length !== 1)) {
-    error.textContent = "Use a single printable key or Space.";
-    return;
-  }
+  function saveShortcutSettings(event, dialog) {
+    event.preventDefault();
+    const next = {};
+    const used = new Map();
+    const error = dialog.querySelector("#shortcut-error");
 
-  const key = normalizeEventKey(event);
-  input.dataset.key = key;
-  input.value = keyLabel(key);
-}
-
-function saveShortcutSettings(event, dialog) {
-  event.preventDefault();
-  const next = {};
-  const used = new Map();
-  const error = dialog.querySelector("#shortcut-error");
-
-  for (const input of dialog.querySelectorAll("[data-shortcut]")) {
-    const action = input.dataset.shortcut;
-    const key = input.dataset.key ?? "";
-    if (key && used.has(key)) {
-      error.textContent = `${keyLabel(key)} is assigned to more than one action.`;
-      return;
+    for (const input of dialog.querySelectorAll("[data-shortcut]")) {
+      const action = input.dataset.shortcut;
+      const key = input.dataset.key ?? "";
+      if (key && used.has(key)) {
+        error.textContent = `${keyLabel(key)} is assigned to more than one action.`;
+        return;
+      }
+      if (key) used.set(key, action);
+      next[action] = key;
     }
-    if (key) used.set(key, action);
-    next[action] = key;
+
+    shortcuts = next;
+    localStorage.setItem(SHORTCUT_STORAGE_KEY, JSON.stringify(shortcuts));
+    dialog.close();
+    scheduleEnhance();
   }
 
-  shortcuts = next;
-  localStorage.setItem(SHORTCUT_STORAGE_KEY, JSON.stringify(shortcuts));
-  dialog.close();
-  scheduleEnhance();
-}
+  function createShortcutDialog() {
+    const dialog = document.createElement("dialog");
+    dialog.id = "keyboard-shortcuts-dialog";
+    dialog.className = "editor-dialog shortcut-dialog";
+    dialog.innerHTML = `
+      <form id="keyboard-shortcuts-form" method="dialog">
+        <div class="dialog-header">
+          <h2>Keyboard shortcuts</h2>
+          <button type="button" class="icon-button" data-shortcut-close aria-label="Close">×</button>
+        </div>
+        <p class="shortcut-help">Task hotkeys apply when the task card itself is focused. ↑/↓ moves between visible tasks; Tab moves through the focused card's controls.</p>
+        <div class="shortcut-grid">
+          ${shortcutRow("complete", "Complete task")}
+          ${shortcutRow("sleepTomorrow", "Sleep until tomorrow")}
+          ${shortcutRow("sleepIndefinite", "Sleep indefinitely")}
+          ${shortcutRow("customSleep", "Custom sleep")}
+        </div>
+        <p class="shortcut-help">Press a printable key or Space while a shortcut field is focused. Backspace or Delete clears it.</p>
+        <p class="shortcut-error" id="shortcut-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" class="secondary-button" data-shortcut-defaults>Restore defaults</button>
+          <div class="spacer"></div>
+          <button type="button" class="secondary-button" data-shortcut-close>Cancel</button>
+          <button type="submit" class="primary-button">Save</button>
+        </div>
+      </form>`;
+    document.body.append(dialog);
 
-let undoMenuButton = null;
-let redoMenuButton = null;
-
-function updateHistoryMenu() {
-  if (undoMenuButton) {
-    undoMenuButton.disabled = !canUndo();
-    undoMenuButton.textContent = canUndo() ? `Undo ${undoLabel()}` : "Undo";
+    dialog.querySelectorAll("[data-shortcut-close]").forEach((button) => {
+      button.addEventListener("click", () => dialog.close());
+    });
+    dialog.querySelector("[data-shortcut-defaults]").addEventListener("click", () => fillShortcutInputs(dialog, DEFAULT_SHORTCUTS));
+    dialog.querySelectorAll("[data-shortcut]").forEach((input) => input.addEventListener("keydown", captureShortcut));
+    dialog.querySelector("form").addEventListener("submit", (event) => saveShortcutSettings(event, dialog));
+    dialog.addEventListener("close", () => {
+      dialog.querySelector("#shortcut-error").textContent = "";
+      if (rememberedTaskId) requestAnimationFrame(restoreRememberedCard);
+    });
+    return dialog;
   }
-  if (redoMenuButton) {
-    redoMenuButton.disabled = !canRedo();
-    redoMenuButton.textContent = canRedo() ? `Redo ${redoLabel()}` : "Redo";
+
+  function positionDataMenu() {
+    const menu = document.querySelector("#data-menu");
+    const trigger = document.querySelector("#menu-button");
+    if (!menu || !trigger || !menu.matches(":popover-open")) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const gap = 6;
+    const width = menu.offsetWidth;
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    menu.style.left = `${left}px`;
+    menu.style.top = `${rect.bottom + gap}px`;
   }
-}
 
-function positionDataMenu() {
-  const menu = document.querySelector("#data-menu");
-  const trigger = document.querySelector("#menu-button");
-  if (!menu || !trigger || !menu.matches(":popover-open")) return;
+  function setupDataMenu() {
+    const menu = document.querySelector("#data-menu");
+    if (!menu) return;
 
-  const rect = trigger.getBoundingClientRect();
-  const gap = 6;
-  const width = menu.offsetWidth;
-  const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
-  menu.style.left = `${left}px`;
-  menu.style.top = `${rect.bottom + gap}px`;
-}
-
-function setupDataMenu() {
-  const menu = document.querySelector("#data-menu");
-  if (!menu) return;
-
-  if (!document.querySelector("#undo-button")) {
     undoMenuButton = document.createElement("button");
     undoMenuButton.id = "undo-button";
     undoMenuButton.type = "button";
@@ -448,13 +457,8 @@ function setupDataMenu() {
 
     menu.prepend(redoMenuButton);
     menu.prepend(undoMenuButton);
-  } else {
-    undoMenuButton = document.querySelector("#undo-button");
-    redoMenuButton = document.querySelector("#redo-button");
-  }
 
-  if (!document.querySelector("#keyboard-shortcuts-button")) {
-    const dialog = document.querySelector("#keyboard-shortcuts-dialog") || createShortcutDialog();
+    const dialog = createShortcutDialog();
     const button = document.createElement("button");
     button.id = "keyboard-shortcuts-button";
     button.type = "button";
@@ -466,41 +470,39 @@ function setupDataMenu() {
       requestAnimationFrame(() => dialog.querySelector("[data-shortcut]")?.focus());
     });
     menu.append(button);
+
+    menu.addEventListener("toggle", (event) => {
+      if (event.newState === "open") requestAnimationFrame(positionDataMenu);
+    });
+    window.addEventListener("resize", positionDataMenu);
+    window.addEventListener("calendar:history-state", updateHistoryMenu);
+    updateHistoryMenu();
   }
 
-  menu.addEventListener("toggle", (event) => {
-    if (event.newState === "open") requestAnimationFrame(positionDataMenu);
+  taskSections.addEventListener("pointerdown", (event) => {
+    const card = event.target instanceof Element ? event.target.closest(".task-card") : null;
+    if (!card || isInteractiveTarget(event.target)) return;
+    taskFocusActive = true;
+    focusCard(card, { scroll: false });
   });
-  window.addEventListener("resize", positionDataMenu);
-  window.addEventListener("calendar:history-state", updateHistoryMenu);
-  updateHistoryMenu();
-}
 
-document.addEventListener("pointerdown", (event) => {
-  const card = event.target instanceof Element ? event.target.closest(".task-card") : null;
-  if (!card || isInteractiveTarget(event.target)) return;
-  taskFocusActive = true;
-  focusCard(card, { scroll: false });
-});
-
-document.addEventListener("focusin", (event) => {
-  const card = event.target instanceof Element ? event.target.closest(".task-card") : null;
-  taskFocusActive = !!card;
-  if (card) rememberCard(card);
-});
-
-document.addEventListener("keydown", handleGlobalKeydown);
-
-new MutationObserver(scheduleEnhance).observe(document.querySelector("#task-sections"), {
-  childList: true,
-  subtree: true,
-});
-
-for (const dialog of document.querySelectorAll("dialog")) {
-  dialog.addEventListener("close", () => {
-    if (rememberedTaskId) requestAnimationFrame(restoreRememberedCard);
+  taskSections.addEventListener("focusin", (event) => {
+    const card = event.target instanceof Element ? event.target.closest(".task-card") : null;
+    taskFocusActive = !!card;
+    if (card) rememberCard(card);
   });
-}
 
-setupDataMenu();
-scheduleEnhance();
+  taskSections.addEventListener("toggle", scheduleEnhance, true);
+  document.addEventListener("keydown", handleGlobalKeydown);
+  for (const dialog of document.querySelectorAll("dialog")) {
+    dialog.addEventListener("close", () => {
+      if (rememberedTaskId) requestAnimationFrame(restoreRememberedCard);
+    });
+  }
+
+  setupDataMenu();
+
+  return {
+    enhance: scheduleEnhance,
+  };
+}
