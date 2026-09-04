@@ -32,13 +32,21 @@ test("framework calendar omits the live UI's removed sleep-end markers", () => {
   assert.doesNotMatch(calendar, /legend-dot sleep/);
 });
 
-test("framework editor keeps attachment drag feedback and guarded shortcut dismissal", () => {
+test("framework dialogs keep attachment feedback and unsaved-change guards", () => {
   const editor = source("framework/src/ItemEditor.tsx");
   const shortcuts = source("framework/src/shortcuts.tsx");
 
   assert.match(editor, /draggingAttachments \? "dragging"/);
   assert.match(editor, /onDragEnter=/);
   assert.match(editor, /onDragLeave=/);
+  assert.match(editor, /value !== initialValue && !window\.confirm\("Discard your unsaved changes\?"\)/);
+  assert.match(editor, /<DialogShell labelledBy="sleep-title" className="sleep-dialog" onClose=\{close\}/);
   assert.match(shortcuts, /Discard your unsaved changes\?/);
   assert.match(shortcuts, /<DialogShell labelledBy="shortcut-title"/);
+});
+
+test("framework queued toasts animate out before removal", () => {
+  const toasts = source("framework/src/ToastStack.tsx");
+  assert.match(toasts, /leaving \? " leaving"/);
+  assert.match(toasts, /window\.setTimeout\(\(\) => props\.onDismiss\(props\.toast\.id\), 140\)/);
 });
