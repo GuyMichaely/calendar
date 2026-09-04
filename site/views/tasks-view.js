@@ -119,13 +119,14 @@ function taskCard(task, now, upcomingAt = null, showAvailability = false) {
   const canConvertWaitToSleep = !sleep.sleeping && futureAvailable && futureAvailable > now;
   const summary = showAvailability ? availabilitySummary(task, now, upcomingAt) : "";
   const title = displayTitle(task);
+  const editLabel = `Edit ${title}`;
 
   article.innerHTML = `
     <div class="task-main">
       ${closed ? '<span class="complete-indicator" aria-hidden="true">✓</span>' : '<button class="complete-button" data-action="complete" aria-label="Mark complete" title="Mark complete"></button>'}
       <div class="task-copy">
         <div class="task-title-row">
-          <h3><a href="#" class="task-title-link" data-action="edit">${escapeHtml(title)}</a></h3>
+          <h3><a href="#" class="task-title-link" data-action="edit" aria-label="${escapeHtml(editLabel)}" title="${escapeHtml(editLabel)}">${escapeHtml(title)}</a></h3>
           <span class="status-pill ${result.actionable && !sleep.sleeping ? "ready" : sleep.sleeping ? "sleeping" : "quiet"}">${escapeHtml(statusText)}</span>
         </div>
         ${summary ? `<div class="availability-summary">${escapeHtml(summary)}</div>` : ""}
