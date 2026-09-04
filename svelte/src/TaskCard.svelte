@@ -16,6 +16,7 @@
     row: TaskRow;
     now: Date;
     shortcuts: Shortcuts;
+    showAvailability?: boolean;
     onEdit: (task: Task) => void;
     onComplete: (task: Task) => Promise<void>;
     onWake: (task: Task) => Promise<void>;
@@ -30,6 +31,7 @@
     row,
     now,
     shortcuts,
+    showAvailability = false,
     onEdit,
     onComplete,
     onWake,
@@ -49,25 +51,31 @@
   let canConvertWaitToSleep = $derived(!sleep.sleeping && !!futureAvailable && futureAvailable > now);
   let timing = $derived.by(() => {
     const values: string[] = [];
+    if (!showAvailability && task.availableFrom) values.push(`Starts ${formatDateTime(task.availableFrom)}`);
     if (task.deadline) values.push(`Due ${formatDateTime(task.deadline)}`);
     if (task.latestStart) values.push(`Latest start ${formatDateTime(task.latestStart)}`);
+    if (!showAvailability && sleep.sleeping) {
+      values.push(sleep.indefinite ? "Sleeping indefinitely" : `Sleeping until ${formatDateTime(sleep.until)}`);
+    }
     const schedule = task.availabilitySchedule;
     if (schedule?.enabled) {
       const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-      values.push(`${schedule.days.map((day) => names[day]).join(", ") || "No days"} ${schedule.start}-${schedule.end}`);
+      const days = (schedule.days || []).map((day) => names[day]).join(", ");
+      values.push(`${days || "No days"} ${schedule.start || ""}-${schedule.end || ""}`);
     }
     return values;
   });
-  let next = $derived(nextActionableStart(task, now, { respectSleep: sleep.sleeping }));
-  let summary = $derived(
-    sleep.sleeping && sleep.indefinite
-      ? "Sleeping indefinitely"
-      : sleep.sleeping
-        ? next && Math.abs(next.getTime() - sleep.until.getTime()) >= 60000
-          ? `Sleeping until ${friendlyWhen(sleep.until, now)} · available ${friendlyWhen(next, now)}`
-          : `Sleeping until ${friendlyWhen(sleep.until, now)}`
-        : upcomingAt ? `Available ${friendlyWhen(upcomingAt, now)}` : "",
-  );
+  let summary = $derived.by(() => {
+    if (!showAvailability) return "";
+    const next = upcomingAt || nextActionableStart(task, now, { respectSleep: sleep.sleeping });
+    if (sleep.sleeping && sleep.indefinite) return "Sleeping indefinitely";
+    if (sleep.sleeping) {
+      const sameMoment = next && Math.abs(next.getTime() - sleep.until.getTime()) < 60000;
+      if (sameMoment || !next) return `Sleeping until ${friendlyWhen(sleep.until, now)}`;
+      return `Sleeping until ${friendlyWhen(sleep.until, now)} · available ${friendlyWhen(next, now)}`;
+    }
+    return next ? `Available ${friendlyWhen(next, now)}` : "";
+  });
   let statusText = $derived(
     sleep.sleeping
       ? sleep.indefinite ? "Sleeping indefinitely" : `Sleeping until ${formatDateTime(sleep.until)}`

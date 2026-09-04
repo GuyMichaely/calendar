@@ -1,5 +1,6 @@
 import { formatDateTime, sleepInfo, toDate, tomorrowMidnight } from "../../site/domain.js";
 import { putItem } from "../../site/storage.js";
+import { toStorageValue } from "./persistence";
 import type { Task } from "./types";
 
 type Refresh = () => Promise<void>;
@@ -14,26 +15,26 @@ async function mutateTask(
   toast: Toast,
 ) {
   const updatedAt = new Date().toISOString();
-  await putItem({
+  await putItem(toStorageValue({
     ...task,
     ...patch,
     updatedAt,
     history: [...(task.history || []), { at: updatedAt, ...historyEntry }],
-  });
+  }));
   await refresh();
   toast(message);
 }
 
 export async function completeTask(task: Task, refresh: Refresh, toast: Toast) {
   const updatedAt = new Date().toISOString();
-  await putItem({
+  await putItem(toStorageValue({
     ...task,
     state: "completed",
     completedAt: updatedAt,
     sleep: null,
     updatedAt,
     history: [...(task.history || []), { at: updatedAt, type: "completed" }],
-  });
+  }));
   await refresh();
   toast("Task completed");
 }

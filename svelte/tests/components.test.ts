@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import CalendarView from "../src/CalendarView.svelte";
 import ItemEditor from "../src/ItemEditor.svelte";
 import TasksView from "../src/TasksView.svelte";
+import { toStorageValue } from "../src/persistence";
 import { DEFAULT_SHORTCUTS } from "../src/shortcuts";
 import type { Item, Task } from "../src/types";
 
@@ -23,6 +24,16 @@ function task(overrides: Partial<Task> = {}): Task {
     createdAt: overrides.createdAt || "2026-09-01T12:00:00.000Z",
     updatedAt: overrides.updatedAt || "2026-09-01T12:00:00.000Z",
     ...overrides,
+  };
+}
+
+function taskViewProps(items: Item[], now = new Date("2026-09-04T12:00:00.000Z")) {
+  return {
+    items, query: "", compact: false, horizonDays: 7, horizonMode: "rolling" as const, now, shortcuts: DEFAULT_SHORTCUTS,
+    onCompactChange: vi.fn(), onHorizonChange: vi.fn(), onHorizonModeChange: vi.fn(), onEdit: vi.fn(),
+    onComplete: vi.fn(async () => undefined), onWake: vi.fn(async () => undefined), onSleepTomorrow: vi.fn(async () => undefined),
+    onSleepIndefinite: vi.fn(async () => undefined), onSleepCustom: vi.fn(), onSleepToWait: vi.fn(async () => undefined),
+    onWaitToSleep: vi.fn(async () => undefined),
   };
 }
 
@@ -49,14 +60,7 @@ describe("task interactions", () => {
     const onSleepTomorrow = vi.fn(async (_task: Task) => undefined);
     const component = mount(TasksView, {
       target: target(),
-      props: {
-        items: [task()], query: "", compact: false, horizonDays: 7, horizonMode: "rolling",
-        now: new Date("2026-09-04T12:00:00.000Z"), shortcuts: DEFAULT_SHORTCUTS,
-        onCompactChange: vi.fn(), onHorizonChange: vi.fn(), onHorizonModeChange: vi.fn(), onEdit: vi.fn(),
-        onComplete: vi.fn(async () => undefined), onWake: vi.fn(async () => undefined), onSleepTomorrow,
-        onSleepIndefinite: vi.fn(async () => undefined), onSleepCustom: vi.fn(),
-        onSleepToWait: vi.fn(async () => undefined), onWaitToSleep: vi.fn(async () => undefined),
-      },
+      props: { ...taskViewProps([task()]), onSleepTomorrow },
     });
     mounted.push(component);
     flushSync();
@@ -68,22 +72,50 @@ describe("task interactions", () => {
 
   test("sleeping tasks expose a direct wake action", () => {
     const onWake = vi.fn(async () => undefined);
+    const sleeping = task({ sleep: { startedAt: "2026-09-03T12:00:00.000Z", until: "2026-09-06T12:00:00.000Z" } });
     const component = mount(TasksView, {
       target: target(),
-      props: {
-        items: [task({ sleep: { startedAt: "2026-09-03T12:00:00.000Z", until: "2026-09-06T12:00:00.000Z" } })],
-        query: "", compact: false, horizonDays: 7, horizonMode: "rolling", now: new Date("2026-09-04T12:00:00.000Z"),
-        shortcuts: DEFAULT_SHORTCUTS, onCompactChange: vi.fn(), onHorizonChange: vi.fn(), onHorizonModeChange: vi.fn(),
-        onEdit: vi.fn(), onComplete: vi.fn(async () => undefined), onWake,
-        onSleepTomorrow: vi.fn(async () => undefined), onSleepIndefinite: vi.fn(async () => undefined),
-        onSleepCustom: vi.fn(), onSleepToWait: vi.fn(async () => undefined), onWaitToSleep: vi.fn(async () => undefined),
-      },
+      props: { ...taskViewProps([sleeping]), onWake },
     });
     mounted.push(component);
     flushSync();
     const wake = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Wake")!;
     wake.click();
     expect(onWake).toHaveBeenCalledOnce();
+  });
+
+  test("upcoming availability formatting matches the vanilla task view", () => {
+    const host = target();
+    const future = task({ availableFrom: "2026-09-05T09:00:00.000Z" });
+    const component = mount(TasksView, { target: host, props: taskViewProps([future]) });
+    mounted.push(component);
+    flushSync();
+
+    const upcoming = host.querySelector<HTMLElement>('details[data-section="upcoming"] [data-id="task-1"]')!;
+    expect(upcoming.querySelector(".availability-summary")?.textContent).toContain("Available tomorrow ·");
+    expect(upcoming.querySelector(".timing")?.textContent || "").not.toContain("Starts ");
+
+    const all = host.querySelector<HTMLElement>('details[data-section="all"] [data-id="task-1"]')!;
+    expect(all.querySelector(".availability-summary")).toBeNull();
+    expect(all.querySelector(".timing")?.textContent).toContain("Starts ");
+  });
+});
+
+describe("storage boundary", () => {
+  test("de-proxies nested task values before IndexedDB structured cloning", () => {
+    const historyEntry = new Proxy({ at: "2026-09-04T12:00:00.000Z", type: "completed" }, {});
+    const proxied = new Proxy(task({ history: [historyEntry] }), {});
+    expect(() => structuredClone(proxied)).toThrow();
+    const stored = toStorageValue(proxied);
+    expect(() => structuredClone(stored)).not.toThrow();
+    expect(stored).not.toBe(proxied);
+    expect(stored.history?.[0]).not.toBe(historyEntry);
+  });
+
+  test("storage conversion preserves attachment blobs", () => {
+    const blob = new Blob(["hello"], { type: "text/plain" });
+    const value = toStorageValue({ attachment: new Proxy({ blob }, {}) });
+    expect(value.attachment.blob).toBe(blob);
   });
 });
 

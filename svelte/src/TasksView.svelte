@@ -155,7 +155,7 @@
           <div class="task-list section-task-list">
             {#if sectionRows.length}
               {#each sectionRows as row (row.task.id)}
-                <TaskCard {row} {now} {shortcuts} {onEdit} {onComplete} {onWake} {onSleepTomorrow} {onSleepIndefinite} {onSleepCustom} {onSleepToWait} {onWaitToSleep} />
+                <TaskCard {row} {now} {shortcuts} showAvailability={section.id === "upcoming"} {onEdit} {onComplete} {onWake} {onSleepTomorrow} {onSleepIndefinite} {onSleepCustom} {onSleepToWait} {onWaitToSleep} />
               {/each}
             {:else}
               <div class="section-empty">{emptyMessage(section.id)}</div>
@@ -167,7 +167,7 @@
               <div class="sleeping-heading"><span>Sleeping</span><span>{sleepingRows.length}</span></div>
               <div class="task-list section-task-list sleeping-task-list">
                 {#each sleepingRows as row (row.task.id)}
-                  <TaskCard {row} {now} {shortcuts} {onEdit} {onComplete} {onWake} {onSleepTomorrow} {onSleepIndefinite} {onSleepCustom} {onSleepToWait} {onWaitToSleep} />
+                  <TaskCard {row} {now} {shortcuts} showAvailability {onEdit} {onComplete} {onWake} {onSleepTomorrow} {onSleepIndefinite} {onSleepCustom} {onSleepToWait} {onWaitToSleep} />
                 {/each}
               </div>
             </div>
