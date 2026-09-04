@@ -1,10 +1,8 @@
 import {
   calendarGridStart,
   dateKey,
-  formatDateTime,
   isPendingOnDate,
   isSleeping,
-  sleepInfo,
   textMatches,
   toDate,
 } from "../../site/domain.js";
@@ -87,17 +85,6 @@ export function CalendarView(props: {
         });
       }
 
-      const sleep = sleepInfo(item, now);
-      if (sleep.sleeping && !sleep.indefinite && dateKey(sleep.until) === key) {
-        entries.push({
-          item,
-          className: "task sleep",
-          label: `Sleep ends: ${item.title}`,
-          title: `${item.title}: sleep ends ${formatDateTime(sleep.until)}`,
-          sort: sleep.until.getTime(),
-        });
-      }
-
       for (const [field, role, prefix] of [
         ["latestStart", "latest", "Latest:"],
         ["deadline", "due", "Due:"],
@@ -170,7 +157,7 @@ export function CalendarView(props: {
                     props.onOpenTodayTasks();
                   }}
                 >
-                  {matchingPending.length} {matchingPending.length === 1 ? "task" : "tasks"}{sleepingCount ? ` · ${sleepingCount} sleeping` : ""}
+                  {matchingPending.length} {matchingPending.length === 1 ? "task" : "tasks"}{sleepingCount ? ` - ${sleepingCount} sleeping` : ""}
                 </button>
               ) : null}
               {entries.slice(0, itemLimit).map((entry, index) => (
@@ -194,7 +181,6 @@ export function CalendarView(props: {
       <div class="calendar-legend">
         <span><i class="legend-dot event" />Event</span>
         <span><i class="legend-dot start" />Task start</span>
-        <span><i class="legend-dot sleep" />Sleep ends</span>
         <span><i class="legend-dot latest" />Latest start</span>
         <span><i class="legend-dot due" />Due</span>
       </div>
