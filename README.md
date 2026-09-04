@@ -21,11 +21,13 @@ The app is a static web app that runs entirely in the browser:
 - keyboard task navigation: click or arrow-focus task cards, use Up/Down between visible tasks, and Tab through a focused card's controls;
 - configurable task hotkeys for completion, sleep until tomorrow, indefinite sleep, and custom sleep;
 - icon sleep actions with accessible labels/tooltips;
-- month calendar rendering task timing markers, events, and sleep wake times;
-- a calendar-only toggle that either respects sleep when projecting task opportunities or ignores it while marking sleep-bypassed projections;
+- month calendar rendering one projected start marker per task, plus distinct latest-start, due, and sleep-wake markers;
+- a calendar-only toggle that moves each projected task start according to whether sleep is respected or ignored;
 - text/tag/attachment-name search;
 - local file attachments stored in IndexedDB;
 - JSON backup/export and import, including attachment contents;
+- session undo/redo for item mutations, available from the menu and via Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, or Ctrl+Y;
+- a top-left hamburger menu anchored to its trigger;
 - a dark interface with responsive desktop and Android-sized layouts;
 - service-worker shell caching for basic offline use.
 

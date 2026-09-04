@@ -133,3 +133,7 @@
   .tasks-panel.compact .task-card { align-items: stretch; }
   .sleep-dialog { width: 100vw; max-width: 100vw; }
 }
+
+.task-section[data-section="now"] .status-pill.ready {
+  display: none;
+}

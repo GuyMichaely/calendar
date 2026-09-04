@@ -15,7 +15,11 @@
     <div id="app" class="app-shell">
       <header class="topbar">
         <div class="brand-row">
-          <button class="brand" data-view="tasks" aria-label="Open tasks">Calendar</button>
+          <button id="menu-button" class="icon-button menu-trigger" popovertarget="data-menu" aria-label="Menu" title="Menu">☰</button>
+          <div id="data-menu" popover class="data-menu">
+            <button id="export-data">Export backup</button>
+            <button id="import-data">Import backup</button>
+          </div>
           <nav class="primary-nav" aria-label="Primary">
             <button class="nav-button active" data-view="tasks">Tasks</button>
             <button class="nav-button" data-view="calendar">Calendar</button>
@@ -27,11 +31,6 @@
             <input id="search" type="search" placeholder="Search tasks" autocomplete="off" />
           </label>
           <button id="new-item" class="primary-button">New</button>
-          <button id="menu-button" class="icon-button" popovertarget="data-menu" aria-label="Data menu">⋮</button>
-          <div id="data-menu" popover class="data-menu">
-            <button id="export-data">Export backup</button>
-            <button id="import-data">Import backup</button>
-          </div>
           <input id="import-input" type="file" accept="application/json,.json" hidden />
         </div>
       </header>

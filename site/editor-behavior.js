@@ -1,4 +1,5 @@
 import "./keyboard.js";
+import "./calendar-projection.js";
 
 const eventFields = document.querySelector("#event-fields");
 const eventStart = document.querySelector("[name='eventStart']");

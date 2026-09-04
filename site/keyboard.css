@@ -101,3 +101,24 @@ dialog::backdrop {
     height: 36px;
   }
 }
+
+.menu-trigger {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.brand-row {
+  gap: 8px;
+}
+
+.data-menu:popover-open {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  min-width: 220px;
+}
+
+.data-menu button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
