@@ -10,7 +10,6 @@ on:
       - "scripts/assemble-pages.mjs"
       - "tests/pages-deployment.test.js"
       - "site/sw.js"
-      - "site/sw-shell.js"
   workflow_dispatch:
   workflow_run:
     workflows: ["Calendar CI"]
