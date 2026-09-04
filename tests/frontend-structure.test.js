@@ -38,11 +38,14 @@ test("service-worker shell only references files that exist", () => {
   }
 });
 
-test("service-worker cache cleanup is isolated to its deployment scope", () => {
+test("service-worker cache ownership and lookups are isolated to its deployment scope", () => {
   const sw = fs.readFileSync(path.join(site, "sw.js"), "utf8");
   assert.match(sw, /new URL\(self\.registration\.scope\)\.pathname/);
   assert.match(sw, /key\.startsWith\(`\$\{CACHE_NAMESPACE\}:`\)/);
+  assert.match(sw, /caches\.open\(CACHE\)/);
+  assert.match(sw, /cache\.match\(event\.request\)/);
   assert.doesNotMatch(sw, /keys\.filter\(\(key\) => key !== CACHE\)/);
+  assert.doesNotMatch(sw, /caches\.match\(event\.request\)/);
 });
 
 test("removed DOM patch modules stay out of the runtime", () => {
