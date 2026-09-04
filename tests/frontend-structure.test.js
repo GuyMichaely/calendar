@@ -28,9 +28,9 @@ test("index has one application module entry point", () => {
 });
 
 test("service-worker shell only references files that exist", () => {
-  const sw = fs.readFileSync(path.join(site, "sw.js"), "utf8");
-  const shellMatch = sw.match(/const SHELL = \[([\s\S]*?)\];/);
-  assert.ok(shellMatch, "service worker should define SHELL");
+  const shell = fs.readFileSync(path.join(site, "sw-shell.js"), "utf8");
+  const shellMatch = shell.match(/self\.CALENDAR_SHELL = \[([\s\S]*?)\];/);
+  assert.ok(shellMatch, "service-worker shell manifest should define CALENDAR_SHELL");
   const entries = [...shellMatch[1].matchAll(/"(\.\/[^\"]*)"/g)].map((match) => match[1]);
   for (const entry of entries) {
     if (entry === "./") continue;
@@ -38,8 +38,9 @@ test("service-worker shell only references files that exist", () => {
   }
 });
 
-test("service-worker cache ownership and lookups are isolated to its deployment scope", () => {
+test("service-worker runtime is shared and cache ownership is scope-isolated", () => {
   const sw = fs.readFileSync(path.join(site, "sw.js"), "utf8");
+  assert.match(sw, /importScripts\("\.\/sw-shell\.js"\)/);
   assert.match(sw, /new URL\(self\.registration\.scope\)\.pathname/);
   assert.match(sw, /key\.startsWith\(`\$\{CACHE_NAMESPACE\}:`\)/);
   assert.match(sw, /caches\.open\(CACHE\)/);

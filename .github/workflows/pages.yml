@@ -1,19 +1,16 @@
-name: Deploy Calendar to Pages
+name: Calendar CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - agent/vanilla-refactor
+      - agent/framework-preact-refactor
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   test:
@@ -25,19 +22,15 @@ jobs:
           node-version: 22
       - run: npm test
 
-  deploy:
-    if: github.event_name != 'pull_request'
+  framework:
+    if: github.head_ref == 'agent/framework-preact-refactor' || github.ref_name == 'agent/framework-preact-refactor'
     needs: test
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/setup-node@v4
         with:
-          path: site
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck:framework
+      - run: npm run build:framework

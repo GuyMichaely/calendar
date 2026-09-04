@@ -1,0 +1,111 @@
+name: Deploy Calendar Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - ".github/workflows/deploy-pages.yml"
+      - ".github/workflows/pages.yml"
+      - "scripts/assemble-pages.mjs"
+      - "tests/pages-deployment.test.js"
+      - "site/sw.js"
+      - "site/sw-shell.js"
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Calendar CI"]
+    types: [completed]
+    branches:
+      - agent/vanilla-refactor
+      - agent/framework-preact-refactor
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.event.pull_request.number) || 'pages-deploy' }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out deployment tooling
+        uses: actions/checkout@v4
+
+      - name: Check out main app
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: .sources/main
+
+      - name: Check out vanilla preview
+        uses: actions/checkout@v4
+        with:
+          ref: agent/vanilla-refactor
+          path: .sources/vanilla
+
+      - name: Check out framework preview
+        uses: actions/checkout@v4
+        with:
+          ref: agent/framework-preact-refactor
+          path: .sources/framework
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test main app
+        run: npm test
+        working-directory: .sources/main
+
+      - name: Test vanilla preview
+        run: npm test
+        working-directory: .sources/vanilla
+
+      - name: Install framework dependencies
+        run: npm install --no-audit --no-fund
+        working-directory: .sources/framework
+
+      - name: Test framework preview
+        run: npm test
+        working-directory: .sources/framework
+
+      - name: Typecheck framework preview
+        run: npm run typecheck:framework
+        working-directory: .sources/framework
+
+      - name: Build framework preview
+        run: npm run build:framework
+        working-directory: .sources/framework
+
+      - name: Assemble Pages artifact
+        run: >-
+          node scripts/assemble-pages.mjs
+          .sources/main/site
+          .sources/vanilla/site
+          .sources/framework/site/framework
+          .pages-dist
+
+      - name: Configure Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .pages-dist
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
