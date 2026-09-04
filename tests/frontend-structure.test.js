@@ -38,6 +38,13 @@ test("service-worker shell only references files that exist", () => {
   }
 });
 
+test("service-worker cache cleanup is isolated to its deployment scope", () => {
+  const sw = fs.readFileSync(path.join(site, "sw.js"), "utf8");
+  assert.match(sw, /new URL\(self\.registration\.scope\)\.pathname/);
+  assert.match(sw, /key\.startsWith\(`\$\{CACHE_NAMESPACE\}:`\)/);
+  assert.doesNotMatch(sw, /keys\.filter\(\(key\) => key !== CACHE\)/);
+});
+
 test("removed DOM patch modules stay out of the runtime", () => {
   const removed = [
     "editor-behavior.js",
