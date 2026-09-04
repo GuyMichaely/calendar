@@ -8,7 +8,7 @@ export type {
   Task,
   TaskState,
 } from "../../site/model";
+export type { HorizonMode } from "../../site/domain";
 
 export type View = "tasks" | "calendar";
-export type HorizonMode = "rolling" | "boundary";
 export type CalendarSleepMode = "respect" | "ignore";
