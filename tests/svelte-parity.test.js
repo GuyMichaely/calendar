@@ -30,10 +30,13 @@ test("Svelte task cards retain live icon actions and roving focus behavior", () 
 test("Svelte task availability presentation follows the vanilla view contract", () => {
   const card = source("svelte/src/TaskCard.svelte");
   const tasks = source("svelte/src/TasksView.svelte");
+  const css = source("svelte/src/svelte.css");
   assert.match(card, /showAvailability/);
   assert.match(card, /Available \$\{friendlyWhen\(next, now\)\}/);
   assert.match(card, /!showAvailability && task\.availableFrom/);
   assert.match(tasks, /showAvailability=\{section\.id === "upcoming"\}/);
+  assert.match(css, /\.availability-summary \{[\s\S]*color: var\(--accent-strong\);[\s\S]*font-size: 12px;[\s\S]*font-weight: 620;/);
+  assert.match(css, /\.sleeping-task \.availability-summary \{ color: #c3b5e2; \}/);
 });
 
 test("Svelte calendar preserves vanilla projection and search-summary behavior", () => {
@@ -46,11 +49,20 @@ test("Svelte calendar preserves vanilla projection and search-summary behavior",
   assert.doesNotMatch(calendar, /legend-dot sleep/);
 });
 
-test("Svelte shell follows vanilla navigation wording and today-task behavior", () => {
+test("Svelte shell follows vanilla navigation, menu geometry, and history wording", () => {
   const app = source("svelte/src/App.svelte");
+  const io = source("svelte/src/app-io.ts");
+  const css = source("svelte/src/svelte.css");
   assert.match(app, /Search calendar/);
   assert.match(app, /scrollIntoView\(\{ block: "start" \}\)/);
   assert.doesNotMatch(app, /Svelte preview/);
+  assert.match(css, /\.svelte-menu > summary \{[\s\S]*display: grid;[\s\S]*place-items: center;/);
+  assert.match(app, />Undo\{historyState\.undoLabel \? ` \$\{historyState\.undoLabel\}` : ""\}<\/button>/);
+  assert.match(app, />Redo\{historyState\.redoLabel \? ` \$\{historyState\.redoLabel\}` : ""\}<\/button>/);
+  assert.doesNotMatch(app, /Undo\{historyState\.undoLabel \? ` ·/);
+  assert.match(io, /toast\(`Undo\$\{label \? ` \$\{label\}` : ""\}`\)/);
+  assert.match(io, /toast\(`Redo\$\{label \? ` \$\{label\}` : ""\}`\)/);
+  assert.doesNotMatch(io, /Undid|Redid/);
 });
 
 test("Svelte dialogs preserve dirty guards, attachment feedback, and toast exits", () => {
