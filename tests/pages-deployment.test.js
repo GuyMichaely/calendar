@@ -41,12 +41,36 @@ test("Pages assembly nests preview apps without replacing the root app", () => {
   fs.rmSync(temp, { recursive: true, force: true });
 });
 
-test("root service worker leaves nested previews alone and owns only its cache namespace", () => {
+test("shared service worker runtime isolates root and preview scopes", () => {
   const sw = fs.readFileSync(path.join(root, "site", "sw.js"), "utf8");
+  assert.match(sw, /importScripts\("\.\/sw-shell\.js"\)/);
   assert.match(sw, /new URL\(self\.registration\.scope\)\.pathname/);
+  assert.match(sw, /IS_PREVIEW_SCOPE/);
   assert.match(sw, /PREVIEW_PATHS/);
   assert.match(sw, /url\.pathname\.startsWith\(path\)/);
   assert.match(sw, /key\.startsWith\(`\$\{CACHE_NAMESPACE\}:`\)/);
   assert.match(sw, /cache\.match\(event\.request\)/);
   assert.doesNotMatch(sw, /caches\.match\(event\.request\)/);
+});
+
+test("root service worker shell manifest is separate from shared runtime", () => {
+  const shell = fs.readFileSync(path.join(root, "site", "sw-shell.js"), "utf8");
+  assert.match(shell, /self\.CALENDAR_SHELL/);
+  assert.match(shell, /"\.\/app\.js"/);
+  assert.match(shell, /"\.\/sw-shell\.js"/);
+});
+
+test("shared CI owns both frontend branch triggers", () => {
+  const ci = fs.readFileSync(path.join(root, ".github", "workflows", "pages.yml"), "utf8");
+  assert.match(ci, /agent\/vanilla-refactor/);
+  assert.match(ci, /agent\/framework-preact-refactor/);
+  assert.match(ci, /name: Calendar CI/);
+});
+
+test("Pages deployment follows successful shared CI for preview branches", () => {
+  const deploy = fs.readFileSync(path.join(root, ".github", "workflows", "deploy-pages.yml"), "utf8");
+  assert.match(deploy, /workflows: \["Calendar CI"\]/);
+  assert.match(deploy, /agent\/vanilla-refactor/);
+  assert.match(deploy, /agent\/framework-preact-refactor/);
+  assert.doesNotMatch(deploy, /Deploy Calendar to Pages/);
 });

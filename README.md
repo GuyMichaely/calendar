@@ -74,6 +74,10 @@ GitHub Pages publishes one artifact for this repository. The deployment workflow
 
 `scripts/assemble-pages.mjs` creates the final artifact without changing any source tree. The root app is copied first, then each preview replaces only its own subdirectory. The deployment workflow runs the tests for all three sources and the framework typecheck/build before publishing.
 
-The Pages deployment runs after `main` changes, can be dispatched manually, and is also refreshed after successful CI runs on either preview branch. Browser assets use relative URLs, so the same frontend source can operate at its assigned subpath without hard-coding `/calendar/`.
+The Pages deployment runs after `main` changes, can be dispatched manually, and is also refreshed after successful `Calendar CI` runs on either preview branch. Browser assets use relative URLs, so the same frontend source can operate at its assigned subpath without hard-coding `/calendar/`.
 
-The root service worker does not intercept the `vanilla/` or `framework/` preview paths. Service-worker caches are scoped by registration path so independently deployed app versions cannot delete or read each other's shell caches.
+Frontend branches do not own Pages deployment configuration. `.github/workflows/pages.yml`, `.github/workflows/deploy-pages.yml`, `scripts/assemble-pages.mjs`, and the shared service-worker runtime in `site/sw.js` are maintained on `main` and should remain identical in both frontend branches. Each frontend may change `site/sw-shell.js` when its static module graph differs from the root app. This keeps preview-specific shell contents separate from shared cache/scope behavior.
+
+A frontend change is deployed by pushing to its existing preview branch. The shared `Calendar CI` workflow validates the branch. A successful run triggers the `main` deployment workflow, which rebuilds and tests the combined artifact before publishing. Frontend agents should not add branch-specific Pages jobs or modify the deployment aggregator to publish their own preview.
+
+When shared deployment infrastructure changes, change and validate it on `main` first, then copy the shared files unchanged into the frontend branches. Changes to backend, sync, authentication, or other non-frontend branches are outside this protocol.
