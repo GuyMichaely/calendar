@@ -18,6 +18,9 @@ The app is a static web app that runs entirely in the browser:
 - sleeping tasks folded into the bottom of the combined Upcoming/Waiting section;
 - optional upcoming horizons: rolling 1/7/30 days or calendar-boundary Today/This week/This month;
 - turning the horizon off shows all tasks with a known future opportunity, i.e. Waiting;
+- keyboard task navigation: click or arrow-focus task cards, use Up/Down between visible tasks, and Tab through a focused card's controls;
+- configurable task hotkeys for completion, sleep until tomorrow, indefinite sleep, and custom sleep;
+- icon sleep actions with accessible labels/tooltips;
 - month calendar rendering task timing markers, events, and sleep wake times;
 - a calendar-only toggle that either respects sleep when projecting task opportunities or ignores it while marking sleep-bypassed projections;
 - text/tag/attachment-name search;

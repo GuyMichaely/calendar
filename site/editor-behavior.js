@@ -1,3 +1,5 @@
+import "./keyboard.js";
+
 const eventFields = document.querySelector("#event-fields");
 const eventStart = document.querySelector("[name='eventStart']");
 
