@@ -1,4 +1,4 @@
-import { useEffect } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 
 export type ToastMessage = {
   id: number;
@@ -6,17 +6,25 @@ export type ToastMessage = {
 };
 
 function ToastItem(props: { toast: ToastMessage; onDismiss: (id: number) => void }) {
+  const [leaving, setLeaving] = useState(false);
+
+  const dismiss = () => {
+    if (leaving) return;
+    setLeaving(true);
+    window.setTimeout(() => props.onDismiss(props.toast.id), 140);
+  };
+
   useEffect(() => {
-    const timer = window.setTimeout(() => props.onDismiss(props.toast.id), 2600);
+    const timer = window.setTimeout(dismiss, 2600);
     return () => window.clearTimeout(timer);
-  }, [props.toast.id, props.onDismiss]);
+  }, [props.toast.id]);
 
   return (
     <button
       type="button"
-      class="queued-toast show"
+      class={`queued-toast show${leaving ? " leaving" : ""}`}
       title="Dismiss"
-      onClick={() => props.onDismiss(props.toast.id)}
+      onClick={dismiss}
     >
       {props.toast.message}
     </button>
