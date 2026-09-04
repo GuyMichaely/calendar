@@ -44,10 +44,18 @@ self.addEventListener("fetch", (event) => {
     caches.open(CACHE).then((cache) =>
       fetch(event.request)
         .then((response) => {
-          cache.put(event.request, response.clone());
+          if (response.ok) cache.put(event.request, response.clone());
           return response;
         })
-        .catch(() => cache.match(event.request).then((cached) => cached || cache.match("./index.html"))),
+        .catch(async () => {
+          const cached = await cache.match(event.request);
+          if (cached) return cached;
+          return new Response("Network unavailable and resource not cached.", {
+            status: 503,
+            statusText: "Service Unavailable",
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          });
+        }),
     ),
   );
 });
