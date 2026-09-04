@@ -3,7 +3,7 @@ import solid from "vite-plugin-solid";
 
 export default defineConfig({
   root: "solid",
-  base: "/calendar/solid/",
+  base: "/calendar/",
   plugins: [solid()],
   build: {
     outDir: "../site/solid",
