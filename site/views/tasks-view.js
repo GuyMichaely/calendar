@@ -95,8 +95,12 @@ function taskCard(task, now, upcomingAt = null, showAvailability = false) {
 
   const tags = (task.tags || []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
   const timing = [];
+  if (!showAvailability && task.availableFrom) timing.push(`Starts ${formatDateTime(task.availableFrom)}`);
   if (task.deadline) timing.push(`Due ${formatDateTime(task.deadline)}`);
   if (task.latestStart) timing.push(`Latest start ${formatDateTime(task.latestStart)}`);
+  if (!showAvailability && sleep.sleeping) {
+    timing.push(sleep.indefinite ? "Sleeping indefinitely" : `Sleeping until ${formatDateTime(sleep.until)}`);
+  }
 
   const schedule = task.availabilitySchedule;
   if (schedule?.enabled) {
