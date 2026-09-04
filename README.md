@@ -4,10 +4,11 @@ A personal calendar and task planner built around the distinction between an ope
 
 ## Current implementation
 
-The app is a static web app that runs entirely in the browser:
+The selected frontend is SolidJS + TypeScript + Vite. `agent/solid-refactor` is the primary application development stream and its verified `root` candidates are published at `/calendar/`.
+
+The app supports:
 
 - task and event creation/editing;
-- IndexedDB persistence;
 - task states: open, completed, canceled;
 - available-from, due, and latest-start times;
 - recurring action windows for persistent tasks, such as office hours;
@@ -17,67 +18,83 @@ The app is a static web app that runs entirely in the browser:
 - task sections for Can do now, a combined Upcoming/Waiting view, All open, and Completed;
 - sleeping tasks folded into the bottom of the combined Upcoming/Waiting section;
 - optional upcoming horizons: rolling 1/7/30 days or calendar-boundary Today/This week/This month;
-- turning the horizon off shows all tasks with a known future opportunity, i.e. Waiting;
-- keyboard task navigation: click or arrow-focus task cards, use Up/Down between visible tasks, Enter to open details, and Tab through a focused card's controls;
-- configurable task hotkeys for completion, sleep until tomorrow, indefinite sleep, and custom sleep;
-- icon sleep actions with accessible labels/tooltips;
-- month calendar rendering one projected start marker per task, plus distinct latest-start, due, and sleep-wake markers;
-- a calendar-only toggle that moves each projected task start according to whether sleep is respected or ignored;
-- calendar-day creation flow for events or tasks with the selected day prefilled;
-- calendar search that dims nonmatching items without leaving the calendar view;
+- keyboard task navigation and configurable task shortcuts;
+- month calendar projection with sleep-aware task starts;
+- calendar search that dims nonmatching items;
 - tags and local file attachments on tasks and events, with file-picker and drag/drop attachment input;
-- compact task cards that retain a two-line notes preview;
+- compact task cards with a notes preview;
 - queued, click-to-dismiss toast notifications;
-- text/tag/attachment-name search;
-- local file attachments stored in IndexedDB;
 - JSON backup/export and import, including attachment contents;
-- session undo/redo for item mutations, available from the menu and via Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, or Ctrl+Y;
-- a top-left hamburger menu anchored to its trigger;
-- a dark interface with responsive desktop and Android-sized layouts;
-- service-worker shell caching for basic offline use.
+- local session undo/redo;
+- a dark responsive interface.
 
-Waiting is derived from real availability constraints. Sleep does not change a task's underlying actionability. It only controls whether the task is surfaced to the user and, when enabled in the calendar, whether sleep is treated as an additional delay while projecting the next work opportunity.
+Waiting is derived from real availability constraints. Sleep does not change a task's underlying actionability. It controls whether the task is surfaced and, in the calendar, whether sleep is treated as an additional delay when projecting a work opportunity.
 
-There is deliberately no cloud backend yet. Data is local to each browser/device. The storage boundary is isolated so a cloud-backed implementation can replace or supplement IndexedDB later.
+## Local data and Automerge
 
-Undo/redo history is deliberately stored in the separate `calendar-history` IndexedDB database and is session-scoped. A future cloud-sync implementation should sync calendar items and attachments, not the undo-history database.
+The Solid development stream uses one Automerge document as the canonical local calendar/task state. The document is stored in the `calendar-automerge` IndexedDB database and is designed to be the unit exchanged by the future remote `/sync` endpoint.
+
+Calendar item updates are represented as fine-grained Automerge changes where practical. Title and notes use Automerge collaborative text operations; tags, attachment metadata, task fields, and tombstones have separate operations. Deletion is represented by an application-level `deletedAt` tombstone so an offline edit cannot accidentally resurrect a deleted item.
+
+Attachment bytes are deliberately not placed in the Automerge document. Attachment metadata participates in the CRDT; local `Blob` contents are stored separately in the `attachments` object store and will use a separate content-addressed remote blob path when cloud synchronization is added.
+
+`readSyncSnapshot()` and `mergeSyncSnapshot()` in `site/storage.js` expose the current serialized Automerge document boundary for the later request/response sync client. There is no remote service configured in the Solid application yet.
+
+Undo/redo history remains in the separate `calendar-history` IndexedDB database and is session-scoped. It is never part of the Automerge document and must never be synchronized between devices. Undo/redo is applied as new local CRDT changes rather than restoring the entire remote-sync document wholesale, so unrelated merged list/history changes are retained.
 
 ## Data migrations
 
-The application code under `site/` assumes the current data schema. It should not contain runtime compatibility or automatic migration paths for older schemas.
+Application code assumes the current storage/schema format. It does not contain runtime compatibility or automatic migration paths for older data.
 
-When a schema change requires existing local data to be converted, put the conversion in a one-off script under `migrations/` and run it explicitly before using the new application version.
+The switch from the old `calendar-app/items` store to the Automerge-backed store therefore has a one-off migration:
+
+```text
+migrations/2026-09-automerge-storage.js
+```
+
+Run it explicitly in DevTools on the calendar origin before using an Automerge-backed deployed candidate with existing data. Back up first. The migration:
+
+- reads the existing `calendar-app/items` records;
+- writes one versioned Automerge document to `calendar-automerge`;
+- moves attachment blobs into the separate local attachment store while keeping only metadata in the CRDT;
+- leaves the old `calendar-app` database untouched for `/calendar/old/` rollback/reference use;
+- starts a new local undo-history session rather than migrating undo state;
+- refuses to overwrite a non-empty Automerge database unless the script is deliberately edited to force replacement.
+
+After migration, changes made in `/calendar/old/` and the new Solid app are independent because they use different local data stores.
 
 ## Local development
 
-No build step is required.
+Install dependencies and run the Solid dev server:
 
 ```bash
-python3 -m http.server 8000 -d site
+npm install
+npm run dev:solid
 ```
 
-Then open `http://localhost:8000`.
-
-Run domain tests with:
+Validation commands used for a Solid root candidate are:
 
 ```bash
 npm test
+npm run test:solid
+npm run typecheck:solid
+npm run build:solid
 ```
+
+The production Vite base is `/calendar/` and the build output is `site/solid/`.
 
 ## Deployment
 
-GitHub Pages publishes one aggregate artifact with three active frontends:
+Deployment infrastructure lives on the separate default branch `deployment-control`; that branch is control-plane only and is not application source.
 
-- `main` is published at `/calendar/`;
-- `agent/vanilla-refactor` is published at `/calendar/vanilla/`;
-- `agent/solid-refactor` is built and published at `/calendar/solid/`.
+Current public deploy units are:
 
-Preact and Svelte are retired from the deployment. Their old preview directories are explicitly removed during artifact assembly so `/calendar/framework/`, `/calendar/preact/`, and `/calendar/svelte/` are not published.
+- `root`: Solid, published at `/calendar/`;
+- `old`: the pre-refactor application, published at `/calendar/old/`;
+- `vanilla`: the vanilla refactor retained for reference at `/calendar/vanilla/`.
 
-`scripts/assemble-pages.mjs` copies the root app first, removes any stale preview directories, and then installs fresh vanilla and Solid previews. Service-worker shell manifests are generated from each active source during assembly rather than stored as branch-owned deployment files.
+The old `/calendar/solid/` deployment is retired.
 
-Deployment is branch-driven. `Calendar CI` runs on pushes to `main`, `agent/vanilla-refactor`, and `agent/solid-refactor`. A successful push CI run on vanilla or Solid triggers a complete aggregate Pages rebuild; a push to `main` deploys directly. The Pages workflow can also be dispatched manually. Pull requests do not trigger CI or Pages deployment.
+Pushing development commits does not verify or deploy them. To publish a Solid commit, run **Verify Candidate** from `deployment-control` with unit `root` and the exact Solid commit SHA. A successful verification runs the repository tests, Solid behavior tests, strict TypeScript checking, and the Vite build and records the resulting artifact. Then run **Promote Deployment** with the same unit/SHA. Promotion updates only the `root` entry in `deployment.json`; deployment assembles the pinned already-verified `root`, `old`, and `vanilla` artifacts.
 
-The aggregate build retests `main` and vanilla and tests, typechecks, and builds Solid before publishing. All real deployments share one concurrency group, so a newer real deployment supersedes an older one.
-
-Shared deployment infrastructure is owned by `main`: `.github/workflows/pages.yml`, `.github/workflows/deploy-pages.yml`, `scripts/assemble-pages.mjs`, `tests/pages-deployment.test.js`, and `site/sw.js`. The archival branch `reference/pre-preview-deployment-main` preserves the last feature-complete `main` commit from before the aggregate-preview deployment work and does not participate in CI or deployment.
+See the `deployment-control` branch README for the authoritative deployment protocol.
