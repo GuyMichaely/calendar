@@ -17,6 +17,7 @@ on:
     branches:
       - agent/vanilla-refactor
       - agent/framework-preact-refactor
+      - agent/svelte-refactor
 
 permissions:
   contents: read
@@ -53,6 +54,12 @@ jobs:
           ref: agent/framework-preact-refactor
           path: .sources/framework
 
+      - name: Check out Svelte preview
+        uses: actions/checkout@v4
+        with:
+          ref: agent/svelte-refactor
+          path: .sources/svelte
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -81,12 +88,29 @@ jobs:
         run: npm run build:framework
         working-directory: .sources/framework
 
+      - name: Install Svelte dependencies
+        run: npm install --no-audit --no-fund
+        working-directory: .sources/svelte
+
+      - name: Test Svelte preview
+        run: npm test && npm run test:svelte
+        working-directory: .sources/svelte
+
+      - name: Check Svelte preview
+        run: npm run check:svelte
+        working-directory: .sources/svelte
+
+      - name: Build Svelte preview
+        run: npm run build:svelte
+        working-directory: .sources/svelte
+
       - name: Assemble Pages artifact
         run: >-
           node scripts/assemble-pages.mjs
           .sources/main/site
           .sources/vanilla/site
           .sources/framework/site/framework
+          .sources/svelte/site/svelte
           .pages-dist
 
       - name: Configure Pages

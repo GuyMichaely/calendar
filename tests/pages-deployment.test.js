@@ -19,12 +19,14 @@ test("Pages assembly nests preview apps and generates per-source service-worker 
   const rootSite = path.join(temp, "root");
   const vanillaSite = path.join(temp, "vanilla-source");
   const frameworkSite = path.join(temp, "framework-source");
+  const svelteSite = path.join(temp, "svelte-source");
   const output = path.join(temp, "output");
 
   for (const [directory, label, withServiceWorker] of [
     [rootSite, "root", true],
     [vanillaSite, "vanilla", true],
     [frameworkSite, "framework", false],
+    [svelteSite, "svelte", false],
   ]) {
     fs.mkdirSync(directory, { recursive: true });
     fs.writeFileSync(path.join(directory, "index.html"), label);
@@ -36,29 +38,35 @@ test("Pages assembly nests preview apps and generates per-source service-worker 
   fs.writeFileSync(path.join(vanillaSite, "views", "tasks-view.js"), "export {};\n");
   fs.mkdirSync(path.join(rootSite, "vanilla"), { recursive: true });
   fs.writeFileSync(path.join(rootSite, "vanilla", "stale.txt"), "stale");
+  fs.mkdirSync(path.join(rootSite, "svelte"), { recursive: true });
+  fs.writeFileSync(path.join(rootSite, "svelte", "stale.txt"), "stale");
 
   execFileSync(
     process.execPath,
-    [path.join(root, "scripts", "assemble-pages.mjs"), rootSite, vanillaSite, frameworkSite, output],
+    [path.join(root, "scripts", "assemble-pages.mjs"), rootSite, vanillaSite, frameworkSite, svelteSite, output],
     { stdio: "pipe" },
   );
 
   assert.equal(fs.readFileSync(path.join(output, "index.html"), "utf8"), "root");
   assert.equal(fs.readFileSync(path.join(output, "vanilla", "index.html"), "utf8"), "vanilla");
   assert.equal(fs.readFileSync(path.join(output, "framework", "index.html"), "utf8"), "framework");
+  assert.equal(fs.readFileSync(path.join(output, "svelte", "index.html"), "utf8"), "svelte");
   assert.equal(fs.existsSync(path.join(output, "vanilla", "stale.txt")), false);
+  assert.equal(fs.existsSync(path.join(output, "svelte", "stale.txt")), false);
 
   const rootShell = readShell(path.join(output, "sw-shell.js"));
   assert.ok(rootShell.includes("./root.txt"));
   assert.ok(rootShell.includes("./sw.js"));
   assert.ok(rootShell.includes("./sw-shell.js"));
   assert.equal(rootShell.some((asset) => asset.includes("vanilla/stale.txt")), false);
+  assert.equal(rootShell.some((asset) => asset.includes("svelte/stale.txt")), false);
 
   const vanillaShell = readShell(path.join(output, "vanilla", "sw-shell.js"));
   assert.ok(vanillaShell.includes("./vanilla.txt"));
   assert.ok(vanillaShell.includes("./views/tasks-view.js"));
   assert.ok(vanillaShell.includes("./sw-shell.js"));
   assert.equal(fs.existsSync(path.join(output, "framework", "sw-shell.js")), false);
+  assert.equal(fs.existsSync(path.join(output, "svelte", "sw-shell.js")), false);
 
   fs.rmSync(temp, { recursive: true, force: true });
 });
@@ -69,6 +77,7 @@ test("shared service worker runtime isolates root and preview scopes", () => {
   assert.match(sw, /new URL\(self\.registration\.scope\)\.pathname/);
   assert.match(sw, /IS_PREVIEW_SCOPE/);
   assert.match(sw, /PREVIEW_PATHS/);
+  assert.match(sw, /svelte/);
   assert.match(sw, /url\.pathname\.startsWith\(path\)/);
   assert.match(sw, /key\.startsWith\(`\$\{CACHE_NAMESPACE\}:`\)/);
   assert.match(sw, /cache\.match\(event\.request\)/);
@@ -90,12 +99,17 @@ test("service-worker shell manifests are deployment artifacts, not branch-owned 
   const assembler = fs.readFileSync(path.join(root, "scripts", "assemble-pages.mjs"), "utf8");
   assert.match(assembler, /writeShellManifest\(rootSite, outputDir\)/);
   assert.match(assembler, /writeShellManifest\(vanillaSite, vanillaOutput\)/);
+  assert.match(assembler, /writeShellManifest\(svelteSite, svelteOutput\)/);
 });
 
-test("shared CI owns both frontend branch triggers", () => {
+test("shared CI owns frontend branch triggers including Svelte", () => {
   const ci = fs.readFileSync(path.join(root, ".github", "workflows", "pages.yml"), "utf8");
   assert.match(ci, /agent\/vanilla-refactor/);
   assert.match(ci, /agent\/framework-preact-refactor/);
+  assert.match(ci, /agent\/svelte-refactor/);
+  assert.match(ci, /npm run test:svelte/);
+  assert.match(ci, /npm run check:svelte/);
+  assert.match(ci, /npm run build:svelte/);
   assert.match(ci, /name: Calendar CI/);
 });
 
@@ -104,6 +118,11 @@ test("Pages deployment follows successful push CI for preview branches", () => {
   assert.match(deploy, /workflows: \["Calendar CI"\]/);
   assert.match(deploy, /agent\/vanilla-refactor/);
   assert.match(deploy, /agent\/framework-preact-refactor/);
+  assert.match(deploy, /agent\/svelte-refactor/);
+  assert.match(deploy, /npm run test:svelte/);
+  assert.match(deploy, /npm run check:svelte/);
+  assert.match(deploy, /npm run build:svelte/);
+  assert.match(deploy, /\.sources\/svelte\/site\/svelte/);
   assert.match(deploy, /github\.event\.workflow_run\.conclusion == 'success'/);
   assert.match(deploy, /github\.event\.workflow_run\.event == 'push'/);
   assert.doesNotMatch(deploy, /Deploy Calendar to Pages/);

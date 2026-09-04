@@ -2,16 +2,17 @@ import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } fro
 import path from "node:path";
 import process from "node:process";
 
-const [rootSite, vanillaSite, frameworkSite, outputDir] = process.argv.slice(2).map((value) => value && path.resolve(value));
+const [rootSite, vanillaSite, frameworkSite, svelteSite, outputDir] = process.argv.slice(2).map((value) => value && path.resolve(value));
 
-if (![rootSite, vanillaSite, frameworkSite, outputDir].every(Boolean)) {
-  throw new Error("Usage: node scripts/assemble-pages.mjs <root-site> <vanilla-site> <framework-site> <output-dir>");
+if (![rootSite, vanillaSite, frameworkSite, svelteSite, outputDir].every(Boolean)) {
+  throw new Error("Usage: node scripts/assemble-pages.mjs <root-site> <vanilla-site> <framework-site> <svelte-site> <output-dir>");
 }
 
 for (const [label, directory] of [
   ["root", rootSite],
   ["vanilla", vanillaSite],
   ["framework", frameworkSite],
+  ["svelte", svelteSite],
 ]) {
   if (!existsSync(path.join(directory, "index.html"))) {
     throw new Error(`${label} site is missing index.html: ${directory}`);
@@ -24,7 +25,7 @@ function collectShellAssets(sourceDir, relativeDir = "") {
 
   for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (entry.name.startsWith(".")) continue;
-    if (!relativeDir && entry.isDirectory() && ["vanilla", "framework"].includes(entry.name)) continue;
+    if (!relativeDir && entry.isDirectory() && ["vanilla", "framework", "svelte"].includes(entry.name)) continue;
 
     const relativePath = path.join(relativeDir, entry.name);
     if (entry.isDirectory()) {
@@ -51,17 +52,20 @@ rmSync(outputDir, { recursive: true, force: true });
 mkdirSync(outputDir, { recursive: true });
 cpSync(rootSite, outputDir, { recursive: true });
 
-for (const preview of ["vanilla", "framework"]) {
+for (const preview of ["vanilla", "framework", "svelte"]) {
   rmSync(path.join(outputDir, preview), { recursive: true, force: true });
 }
 
 const vanillaOutput = path.join(outputDir, "vanilla");
 const frameworkOutput = path.join(outputDir, "framework");
+const svelteOutput = path.join(outputDir, "svelte");
 cpSync(vanillaSite, vanillaOutput, { recursive: true });
 cpSync(frameworkSite, frameworkOutput, { recursive: true });
+cpSync(svelteSite, svelteOutput, { recursive: true });
 
 writeShellManifest(rootSite, outputDir);
 writeShellManifest(vanillaSite, vanillaOutput);
 writeShellManifest(frameworkSite, frameworkOutput);
+writeShellManifest(svelteSite, svelteOutput);
 
 console.log(`Assembled Pages artifact at ${outputDir}`);
