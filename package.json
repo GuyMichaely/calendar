@@ -6,6 +6,7 @@
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {
-    "@automerge/automerge": "3.4.1"
+    "@automerge/automerge": "3.4.1",
+    "openid-client": "6.8.7"
   }
 }
