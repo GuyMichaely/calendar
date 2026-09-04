@@ -50,6 +50,37 @@ function mediaType(request) {
   return (request.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
 }
 
+async function readRequestBytes(request, maxBytes) {
+  if (!request.body) return new Uint8Array();
+
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+      total += chunk.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel("Sync document is too large").catch(() => {});
+        return null;
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 export function createSyncHandler({
   authenticate,
   documentStore,
@@ -77,9 +108,9 @@ export function createSyncHandler({
       return new Response("Sync document is too large", { status: 413 });
     }
 
-    const incoming = new Uint8Array(await request.arrayBuffer());
+    const incoming = await readRequestBytes(request, maxSyncBytes);
+    if (incoming == null) return new Response("Sync document is too large", { status: 413 });
     if (!incoming.byteLength) return new Response("Sync document is empty", { status: 400 });
-    if (incoming.byteLength > maxSyncBytes) return new Response("Sync document is too large", { status: 413 });
 
     try {
       const responseBytes = await documentStore.update(documentKey, async (storedBytes) => {
