@@ -15,6 +15,12 @@ export type SleepInfo =
   | { sleeping: true; indefinite: true; until: null }
   | { sleeping: true; indefinite: false; until: Date };
 
+declare global {
+  interface Date {
+    toISOString(): IsoDateString;
+  }
+}
+
 export const TASK_STATES: readonly ["open", "completed", "canceled"];
 
 export function isTask(item: unknown): item is Task;
