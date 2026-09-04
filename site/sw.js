@@ -1,25 +1,15 @@
-const CACHE = "calendar-shell-v12";
-const SHELL = [
-  "./",
-  "./index.html",
-  "./styles.css",
-  "./editor-fixes.css",
-  "./task-view.css",
-  "./sleep-view.css",
-  "./keyboard.css",
-  "./interactions.css",
-  "./app.js",
-  "./editor-behavior.js",
-  "./keyboard.js",
-  "./calendar-projection.js",
-  "./toast-history.js",
-  "./modal-events.js",
-  "./calendar-ui.js",
-  "./task-enhancements.js",
-  "./domain.js",
-  "./storage.js",
-  "./manifest.webmanifest",
-];
+importScripts("./sw-shell.js");
+
+const CACHE_VERSION = "v12";
+const SCOPE_PATH = new URL(self.registration.scope).pathname;
+const CACHE_NAMESPACE = `calendar-shell:${SCOPE_PATH}`;
+const CACHE = `${CACHE_NAMESPACE}:${CACHE_VERSION}`;
+const IS_PREVIEW_SCOPE = /\/(?:vanilla|framework)\/$/.test(SCOPE_PATH);
+const LEGACY_CACHES = IS_PREVIEW_SCOPE ? new Set() : new Set(["calendar-shell-v11"]);
+const PREVIEW_PATHS = IS_PREVIEW_SCOPE
+  ? []
+  : ["vanilla/", "framework/"].map((segment) => new URL(segment, self.registration.scope).pathname);
+const SHELL = Array.isArray(self.CALENDAR_SHELL) ? self.CALENDAR_SHELL : [];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
@@ -28,31 +18,36 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))),
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter(
+              (key) =>
+                (key.startsWith(`${CACHE_NAMESPACE}:`) && key !== CACHE) || LEGACY_CACHES.has(key),
+            )
+            .map((key) => caches.delete(key)),
+        ),
+      ),
   );
   self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
-        return response;
-      })
-      .catch(async (error) => {
-        const cached = await caches.match(event.request);
-        if (cached) return cached;
 
-        const url = new URL(event.request.url);
-        const frameworkNavigation = url.pathname.includes("/framework/");
-        if (event.request.mode === "navigate" && !frameworkNavigation) {
-          const shell = await caches.match("./index.html");
-          if (shell) return shell;
-        }
-        throw error;
-      }),
+  const url = new URL(event.request.url);
+  if (url.origin === self.location.origin && PREVIEW_PATHS.some((path) => url.pathname.startsWith(path))) return;
+
+  event.respondWith(
+    caches.open(CACHE).then((cache) =>
+      fetch(event.request)
+        .then((response) => {
+          cache.put(event.request, response.clone());
+          return response;
+        })
+        .catch(() => cache.match(event.request).then((cached) => cached || cache.match("./index.html"))),
+    ),
   );
 });
