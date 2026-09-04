@@ -5,10 +5,7 @@ on:
     branches:
       - main
       - agent/vanilla-refactor
-      - agent/framework-preact-refactor
       - agent/solid-refactor
-      - agent/svelte-refactor
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -24,21 +21,8 @@ jobs:
           node-version: 22
       - run: npm test
 
-  framework:
-    if: github.head_ref == 'agent/framework-preact-refactor' || github.ref_name == 'agent/framework-preact-refactor'
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: npm install --no-audit --no-fund
-      - run: npm run typecheck:framework
-      - run: npm run build:framework
-
   solid:
-    if: github.head_ref == 'agent/solid-refactor' || github.ref_name == 'agent/solid-refactor'
+    if: github.ref_name == 'agent/solid-refactor'
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -50,17 +34,3 @@ jobs:
       - run: npm run test:solid
       - run: npm run typecheck:solid
       - run: npm run build:solid
-
-  svelte:
-    if: github.head_ref == 'agent/svelte-refactor' || github.ref_name == 'agent/svelte-refactor'
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: npm install --legacy-peer-deps --no-audit --no-fund
-      - run: npm run test:svelte
-      - run: npm run check:svelte
-      - run: npm run build:svelte
