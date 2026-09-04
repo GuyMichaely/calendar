@@ -486,7 +486,7 @@ export function createKeyboardController({ taskSections, showToast, onHistoryApp
     focusCard(card, { scroll: false });
   });
 
-  taskSections.addEventListener("focusin", (event) => {
+  document.addEventListener("focusin", (event) => {
     const card = event.target instanceof Element ? event.target.closest(".task-card") : null;
     taskFocusActive = !!card;
     if (card) rememberCard(card);
