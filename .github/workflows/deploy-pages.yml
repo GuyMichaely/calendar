@@ -3,6 +3,7 @@ name: Deploy Calendar Pages
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
   workflow_run:
     workflows: ["Deploy Calendar to Pages", "Calendar CI"]
@@ -17,15 +18,12 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out main app
@@ -80,12 +78,22 @@ jobs:
           .sources/framework/site/framework
           .pages-dist
 
-      - uses: actions/configure-pages@v5
+      - name: Configure Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .pages-dist
 
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
