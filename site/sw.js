@@ -1,14 +1,14 @@
 importScripts("./sw-shell.js");
 
-const CACHE_VERSION = "v12";
+const CACHE_VERSION = "v13";
 const SCOPE_PATH = new URL(self.registration.scope).pathname;
 const CACHE_NAMESPACE = `calendar-shell:${SCOPE_PATH}`;
 const CACHE = `${CACHE_NAMESPACE}:${CACHE_VERSION}`;
-const IS_PREVIEW_SCOPE = /\/(?:vanilla|framework)\/$/.test(SCOPE_PATH);
-const LEGACY_CACHES = IS_PREVIEW_SCOPE ? new Set() : new Set(["calendar-shell-v11"]);
+const IS_PREVIEW_SCOPE = /\/(?:vanilla|framework|solid)\/$/.test(SCOPE_PATH);
+const LEGACY_CACHES = IS_PREVIEW_SCOPE ? new Set() : new Set(["calendar-shell-v12"]);
 const PREVIEW_PATHS = IS_PREVIEW_SCOPE
   ? []
-  : ["vanilla/", "framework/"].map((segment) => new URL(segment, self.registration.scope).pathname);
+  : ["vanilla/", "framework/", "solid/"].map((segment) => new URL(segment, self.registration.scope).pathname);
 const SHELL = Array.isArray(self.CALENDAR_SHELL) ? self.CALENDAR_SHELL : [];
 
 self.addEventListener("install", (event) => {
