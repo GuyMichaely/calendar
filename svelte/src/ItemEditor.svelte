@@ -7,6 +7,7 @@
     tomorrowMidnight,
   } from "../../site/domain.js";
   import DialogShell from "./DialogShell.svelte";
+  import { toStorageValue } from "./persistence";
   import type { Attachment, Item, Task } from "./types";
   import type { EditorRequest } from "./editor-types";
 
@@ -174,7 +175,7 @@
       };
     }
     dirty = false;
-    await onSave(item, !existing);
+    await onSave(toStorageValue(item), !existing);
   }
 </script>
 
@@ -232,10 +233,10 @@
             <input type="checkbox" name="scheduleEnabled" bind:checked={scheduleEnabled} onchange={() => dirty = true} />
             <span><strong>Recurring action window</strong><small>The same task becomes actionable during these times until you close it.</small></span>
           </label>
-          <div class={`schedule-options ${scheduleEnabled ? "" : "disabled"}`}>
+          <div class={`schedule-options ${!scheduleEnabled ? "disabled" : ""}`}>
             <div class="weekday-picks" aria-label="Action days">
-              {#each ["S", "M", "T", "W", "T", "F", "S"] as name, day}
-                <label><input type="checkbox" name="scheduleDay" value={day} checked={selectedDays.includes(day)} disabled={!scheduleEnabled} /><span>{name}</span></label>
+              {#each [[0, "S"], [1, "M"], [2, "T"], [3, "W"], [4, "T"], [5, "F"], [6, "S"]] as [day, label]}
+                <label><input type="checkbox" name="scheduleDay" value={day} checked={selectedDays.includes(Number(day))} disabled={!scheduleEnabled} /><span>{label}</span></label>
               {/each}
             </div>
             <div class="time-pair">
@@ -247,8 +248,8 @@
       </div>
     {:else}
       <div class="form-grid">
-        <label class="field"><span>Starts</span><input name="eventStart" type="datetime-local" required bind:value={eventStart} oninput={(event) => { dirty = true; deriveEnd(event.currentTarget.value); }} /></label>
-        <label class="field"><span>Ends</span><input name="eventEnd" type="datetime-local" bind:value={eventEnd} oninput={(event) => { dirty = true; deriveStart(event.currentTarget.value); }} /></label>
+        <label class="field"><span>Starts</span><input name="eventStart" type="datetime-local" bind:value={eventStart} oninput={(event) => deriveEnd(event.currentTarget.value)} required /></label>
+        <label class="field"><span>Ends</span><input name="eventEnd" type="datetime-local" bind:value={eventEnd} oninput={(event) => deriveStart(event.currentTarget.value)} /></label>
       </div>
     {/if}
 
