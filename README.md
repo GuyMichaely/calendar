@@ -4,15 +4,11 @@ This branch contains deployment control only. Application code lives in separate
 
 ## Deploy units
 
-- `root`: the original application, currently sourced from `reference/pre-preview-deployment-main`.
-- `vanilla`: the vanilla refactor, currently developed on `agent/vanilla-refactor`.
-- `solid`: the Solid implementation, currently developed on `agent/solid-refactor`.
+- `root`: the selected Solid application, developed on `agent/solid-refactor` and published at `/calendar/`.
+- `old`: the pre-refactor application kept as a rollback/reference build and published at `/calendar/old/`.
+- `vanilla`: the vanilla refactor, published at `/calendar/vanilla/` for reference while it remains useful.
 
-The public mapping is:
-
-- `root` -> `/calendar/`
-- `vanilla` -> `/calendar/vanilla/`
-- `solid` -> `/calendar/solid/`
+The former `solid` deploy unit and `/calendar/solid/` application path are retired. Solid is now the primary application stream and `root` is its production/development deployment target.
 
 The control branch itself is not an application source.
 
@@ -22,28 +18,32 @@ The control branch itself is not an application source.
 
 A deployment always reads the exact control commit that triggered it. Later manifest changes cannot change an older queued deployment.
 
+The initial Solid-root topology cutover reuses artifacts that were already verified under the previous unit names. Future candidates are verified and promoted under the current `root`, `old`, and `vanilla` unit names.
+
 ## Development and verification
 
 Development branches may contain arbitrary intermediate commits. Pushing development commits does not run verification and does not deploy.
 
-When a commit is ready to verify, run **Verify Candidate** with the deploy unit and exact 40-character commit SHA. Verification runs that unit's complete checks, builds or packages the deployable output, and stores it as a 90-day Actions artifact.
+Solid development happens on `agent/solid-refactor`. When a Solid commit is ready to publish at `/calendar/`, run **Verify Candidate** with deploy unit `root` and its exact 40-character commit SHA. Root verification runs the repository tests, Solid behavior tests, strict TypeScript checking, and the Solid production build.
+
+When an old or vanilla candidate is ready, verify it with its corresponding deploy unit.
 
 From a shell with GitHub CLI authentication:
 
 ```bash
-gh workflow run verify-candidate.yml -f unit=solid -f commit="$(git rev-parse HEAD)"
+gh workflow run verify-candidate.yml -f unit=root -f commit="$(git rev-parse HEAD)"
 ```
 
 Or use **Actions -> Verify Candidate -> Run workflow** in GitHub.
 
-A successful Verify Candidate workflow is the canonical indication that all checks for that deploy unit and SHA passed.
+A successful Verify Candidate workflow is the canonical indication that all checks for that deploy unit and SHA passed. It stores the deployable output as a 90-day Actions artifact.
 
 ## Promotion
 
 After verification succeeds, run **Promote Deployment** with the same unit and SHA:
 
 ```bash
-gh workflow run promote-deployment.yml -f unit=solid -f commit="$(git rev-parse HEAD)"
+gh workflow run promote-deployment.yml -f unit=root -f commit="$(git rev-parse HEAD)"
 ```
 
 Or use **Actions -> Promote Deployment -> Run workflow**.
@@ -58,8 +58,12 @@ Direct human changes to `deployment.json` also trigger deployment automatically.
 
 Every manifest commit gets its own deployment attempt. Deployments share the `pages-deployments` concurrency group with `queue: max`; older valid deployments are not canceled when a newer promotion arrives.
 
-Deployment does not rerun unit tests or integration checks. It consumes the verified artifacts recorded in the manifest, assembles the three pinned outputs, and publishes one GitHub Pages artifact.
+Deployment does not rerun unit tests or integration checks. It consumes the verified artifacts recorded in the manifest, assembles the three pinned outputs, and publishes one GitHub Pages artifact:
+
+- `root` at `/calendar/`
+- `old` at `/calendar/old/`
+- `vanilla` at `/calendar/vanilla/`
 
 If a recorded artifact is explicitly expired, deployment rebuilds that exact historically verified application SHA without retesting it. If GitHub has already removed the artifact metadata and its recorded expiry time has passed, deployment treats that as normal expiry and rebuilds. If an artifact disappears before its recorded expiry, deployment fails instead of hiding the inconsistency.
 
-Retired preview directories `framework`, `preact`, and `svelte` are removed during Pages assembly.
+Retired directories `solid`, `framework`, `preact`, and `svelte` are removed during Pages assembly.
