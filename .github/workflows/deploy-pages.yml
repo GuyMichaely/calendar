@@ -4,9 +4,16 @@ on:
   push:
     branches: [main]
   pull_request:
+    paths:
+      - ".github/workflows/deploy-pages.yml"
+      - ".github/workflows/pages.yml"
+      - "scripts/assemble-pages.mjs"
+      - "tests/pages-deployment.test.js"
+      - "site/sw.js"
+      - "site/sw-shell.js"
   workflow_dispatch:
   workflow_run:
-    workflows: ["Deploy Calendar to Pages", "Calendar CI"]
+    workflows: ["Calendar CI"]
     types: [completed]
     branches:
       - agent/vanilla-refactor
@@ -60,7 +67,7 @@ jobs:
         working-directory: .sources/vanilla
 
       - name: Install framework dependencies
-        run: npm install
+        run: npm install --no-audit --no-fund
         working-directory: .sources/framework
 
       - name: Test framework preview
