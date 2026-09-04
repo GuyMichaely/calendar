@@ -28,12 +28,33 @@ test("Solid task cards retain icon actions, semantic hotkeys, and roving focus",
   assert.match(shortcuts, /function CustomSleepIcon/);
 });
 
-test("Solid dialogs protect dirty edits and preserve attachment drag feedback", () => {
+test("Solid task availability formatting follows vanilla section behavior", () => {
+  const tasks = source("solid/src/TasksView.tsx");
+  const display = source("solid/src/task-display.ts");
+  assert.match(tasks, /taskCard\(row, section\.id === "upcoming"\)/);
+  assert.match(tasks, /taskCard\(row, true\)/);
+  assert.match(display, /if \(!showAvailability && task\.availableFrom\) values\.push\(`Starts /);
+  assert.match(display, /if \(!showAvailability && sleep\.sleeping\)/);
+  assert.match(display, /return next \? `Available \$\{friendlyWhen\(next, now\)\}` : ""/);
+});
+
+test("Solid dialogs protect dirty edits and preserve vanilla attachment and sleep feedback", () => {
+  const app = source("solid/src/App.tsx");
   const editor = source("solid/src/ItemEditor.tsx");
   const shortcuts = source("solid/src/shortcuts.tsx");
   assert.match(editor, /draggingAttachments\(\) \? "dragging"/);
   assert.match(editor, /Discard your unsaved changes\?/);
+  assert.match(editor, /Files stay on this device until cloud sync is added\./);
+  assert.match(app, /Choose a future sleep time/);
   assert.match(shortcuts, /Discard your unsaved changes\?/);
+});
+
+test("Solid shell keeps vanilla calendar search, today navigation, and menu wording", () => {
+  const app = source("solid/src/App.tsx");
+  assert.match(app, /placeholder=\{view\(\) === "calendar" \? "Search calendar" : "Search tasks"\}/);
+  assert.match(app, /querySelector\('\[data-section="now"\]'\)\?\.scrollIntoView\(\{ block: "start" \}\)/);
+  assert.match(app, /Undo\{historyState\(\)\.undoLabel \? ` \$\{historyState\(\)\.undoLabel\}` : ""\}/);
+  assert.doesNotMatch(app, /solid-badge/);
 });
 
 test("Solid calendar omits sleep-end markers and Vite targets the Solid preview path", () => {
@@ -41,6 +62,9 @@ test("Solid calendar omits sleep-end markers and Vite targets the Solid preview 
   const vite = source("solid/vite.config.ts");
   assert.doesNotMatch(calendar, /Sleep ends:/);
   assert.doesNotMatch(calendar, /legend-dot sleep/);
+  assert.match(calendar, /\$\{count\} matching \$\{noun\}/);
+  assert.match(calendar, /Untitled event/);
+  assert.match(calendar, /Sleeping projections are shown differently\./);
   assert.match(vite, /base: "\/calendar\/solid\/"/);
   assert.match(vite, /outDir: "\.\.\/site\/solid"/);
 });
