@@ -45,7 +45,10 @@ self.addEventListener("fetch", (event) => {
       .catch(async (error) => {
         const cached = await caches.match(event.request);
         if (cached) return cached;
-        if (event.request.mode === "navigate") {
+
+        const url = new URL(event.request.url);
+        const frameworkNavigation = url.pathname.includes("/framework/");
+        if (event.request.mode === "navigate" && !frameworkNavigation) {
           const shell = await caches.match("./index.html");
           if (shell) return shell;
         }
