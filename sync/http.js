@@ -46,6 +46,10 @@ function contentLength(request) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function mediaType(request) {
+  return (request.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
+}
+
 export function createSyncHandler({
   authenticate,
   documentStore,
@@ -64,6 +68,9 @@ export function createSyncHandler({
 
     const session = await authenticate(request);
     if (!session) return new Response("Unauthorized", { status: 401 });
+    if (mediaType(request) !== AUTOMERGE_MEDIA_TYPE) {
+      return new Response(`Content-Type must be ${AUTOMERGE_MEDIA_TYPE}`, { status: 415 });
+    }
 
     const declaredLength = contentLength(request);
     if (declaredLength != null && declaredLength > maxSyncBytes) {
