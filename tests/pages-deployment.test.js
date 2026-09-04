@@ -147,3 +147,11 @@ test("Pages deployment follows successful push CI for preview branches", () => {
   assert.doesNotMatch(deploy, /Deploy Calendar to Pages/);
   assert.doesNotMatch(deploy, /site\/sw-shell\.js/);
 });
+
+test("non-push workflow completions cannot cancel a real Pages deployment", () => {
+  const deploy = fs.readFileSync(path.join(root, ".github", "workflows", "deploy-pages.yml"), "utf8");
+  assert.match(deploy, /github\.event_name == 'workflow_run' && github\.event\.workflow_run\.event != 'push'/);
+  assert.match(deploy, /format\('pages-noop-\{0\}', github\.event\.workflow_run\.id\)/);
+  assert.match(deploy, /\|\| 'pages-deploy'/);
+  assert.match(deploy, /cancel-in-progress: true/);
+});
