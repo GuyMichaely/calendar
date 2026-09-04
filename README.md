@@ -21,7 +21,7 @@ The app is a static web app that runs entirely in the browser:
 - keyboard task navigation: click or arrow-focus task cards, use Up/Down between visible tasks, Enter to open details, and Tab through a focused card's controls;
 - configurable task hotkeys for completion, sleep until tomorrow, indefinite sleep, and custom sleep;
 - icon sleep actions with accessible labels/tooltips;
-- month calendar rendering one projected start marker per task, plus distinct latest-start, due, and sleep-wake markers;
+- month calendar rendering one projected start marker per task plus latest-start and due markers;
 - a calendar-only toggle that moves each projected task start according to whether sleep is respected or ignored;
 - calendar-day creation flow for events or tasks with the selected day prefilled;
 - calendar search that dims nonmatching items without leaving the calendar view;
@@ -42,6 +42,22 @@ There is deliberately no cloud backend yet. Data is local to each browser/device
 
 Undo/redo history is deliberately stored in the separate `calendar-history` IndexedDB database and is session-scoped. A future cloud-sync implementation should sync calendar items and attachments, not the undo-history database.
 
+## Frontend structure
+
+The frontend uses browser-native ES modules. There is no component framework or build step.
+
+`site/app.js` owns application state and composes the frontend controllers. It does not render task cards, calendar cells, or editor fields itself.
+
+- `site/views/tasks-view.js` owns task-list rendering and task-view controls.
+- `site/views/calendar-view.js` owns calendar rendering, projection, and calendar search presentation.
+- `site/editor.js` owns the item editor and sleep dialog.
+- `site/keyboard.js` owns task focus, task hotkeys, shortcut configuration, and undo/redo controls.
+- `site/ui.js` contains small shared DOM-formatting utilities.
+- `site/domain.js` contains task/calendar rules that do not depend on the DOM.
+- `site/storage.js` is the persistence and undo/redo boundary.
+
+View modules render directly from passed application state. Do not add MutationObserver passes that rewrite another module's rendered DOM. If a view needs different output, change the view renderer or its input model instead.
+
 ## Data migrations
 
 The application code under `site/` assumes the current data schema. It should not contain runtime compatibility or automatic migration paths for older schemas.
@@ -58,12 +74,16 @@ python3 -m http.server 8000 -d site
 
 Then open `http://localhost:8000`.
 
-Run domain tests with:
+Run the test suite with:
 
 ```bash
 npm test
 ```
 
+The frontend structure tests also run `node --check` over every browser JavaScript file and verify the service-worker shell manifest.
+
 ## Deployment
 
 GitHub Actions deploys the `site/` directory to GitHub Pages. All browser assets use relative URLs, so the app works when GitHub serves the project under `/calendar/` and does not depend on that pathname being hard-coded in the application.
+
+Pull requests run the test job but do not deploy Pages. The Pages deploy job remains restricted to non-PR workflow runs.
