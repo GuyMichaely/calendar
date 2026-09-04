@@ -4,7 +4,6 @@ run-name: Deploy manifest ${{ inputs.control_sha || github.sha }}
 on:
   push:
     branches:
-      - main
       - deployment-control
     paths:
       - deployment.json
@@ -68,8 +67,8 @@ jobs:
         run: >-
           node scripts/assemble-pages.mjs
           .sources/root
+          .sources/old
           .sources/vanilla
-          .sources/solid
           .pages-dist
 
       - name: Configure Pages
