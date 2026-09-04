@@ -74,6 +74,7 @@ export function createEditor({ getItem, onChanged, showToast }) {
   let editingId = null;
   let sleepEditingId = null;
   let baseline = "";
+  let sleepBaseline = "";
 
   function setBaseline() {
     requestAnimationFrame(() => {
@@ -87,6 +88,14 @@ export function createEditor({ getItem, onChanged, showToast }) {
 
   function confirmClose() {
     return !isDirty() || window.confirm("Discard your unsaved changes?");
+  }
+
+  function sleepIsDirty() {
+    return !!sleepBaseline && quickSleepUntil.value !== sleepBaseline;
+  }
+
+  function confirmSleepClose() {
+    return !sleepIsDirty() || window.confirm("Discard your unsaved changes?");
   }
 
   function syncKindFields() {
@@ -142,11 +151,13 @@ export function createEditor({ getItem, onChanged, showToast }) {
     return null;
   }
 
-  function populateAttachments(item) {
+  function populateAttachments(item, kind) {
     const names = (item?.attachments || []).map((attachment) => attachment.name).filter(Boolean);
     existingAttachments.textContent = names.length
       ? `Attached: ${names.join(", ")}. New files are added to these.`
-      : "Drop files here or use Choose Files.";
+      : kind === "task"
+        ? "Files stay on this device until cloud sync is added."
+        : "Drop files here or use Choose Files.";
   }
 
   function open(item = null, defaultKind = "task", options = {}) {
@@ -163,7 +174,7 @@ export function createEditor({ getItem, onChanged, showToast }) {
     form.elements.title.value = item?.title || "";
     form.elements.notes.value = item?.notes || "";
     form.elements.tags.value = (item?.tags || []).join(", ");
-    populateAttachments(item);
+    populateAttachments(item, kind);
 
     if (kind === "task") {
       form.elements.taskState.value = ["completed", "canceled"].includes(item?.state) ? item.state : "open";
@@ -193,7 +204,7 @@ export function createEditor({ getItem, onChanged, showToast }) {
       if (options.eventDay) defaultStart.setHours(9, 0, 0, 0);
       form.elements.eventStart.value = isoToLocalInput(item?.start) || localDateInput(defaultStart);
       form.elements.eventEnd.value = isoToLocalInput(item?.end);
-      if (!item && options.eventDay) fillEventCounterpart("start");
+      fillEventCounterpart(form.elements.eventStart.value ? "start" : "end");
     }
 
     dialog.showModal();
@@ -292,7 +303,10 @@ export function createEditor({ getItem, onChanged, showToast }) {
       ? isoToLocalInput(sleep.until)
       : isoToLocalInput(tomorrowMidnight(new Date()));
     sleepDialog.showModal();
-    requestAnimationFrame(() => quickSleepUntil.focus());
+    requestAnimationFrame(() => {
+      sleepBaseline = quickSleepUntil.value;
+      quickSleepUntil.focus();
+    });
   }
 
   async function saveSleepMutation(item, patch, historyEntry, message) {
@@ -324,6 +338,7 @@ export function createEditor({ getItem, onChanged, showToast }) {
       `Sleeping until ${formatDateTime(until)}`,
     );
     sleepEditingId = null;
+    sleepBaseline = quickSleepUntil.value;
     sleepDialog.close();
   }
 
@@ -338,6 +353,7 @@ export function createEditor({ getItem, onChanged, showToast }) {
       "Sleeping indefinitely",
     );
     sleepEditingId = null;
+    sleepBaseline = quickSleepUntil.value;
     sleepDialog.close();
   }
 
@@ -393,8 +409,32 @@ export function createEditor({ getItem, onChanged, showToast }) {
   sleepForm.addEventListener("submit", (event) => saveCustomSleep(event).catch(console.error));
   sleepIndefiniteButton.addEventListener("click", () => sleepIndefinitely().catch(console.error));
   document.querySelector("#cancel-sleep")?.addEventListener("click", () => sleepDialog.close());
+
+  sleepDialog.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      const cancelButton = target.closest("button");
+      const isCancelButton = cancelButton && (cancelButton.id === "cancel-sleep" || cancelButton.textContent.trim() === "Cancel");
+      if (isCancelButton && !confirmSleepClose()) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (event.target === sleepDialog && outsideRect(sleepDialog, event)) {
+        event.preventDefault();
+        if (confirmSleepClose()) sleepDialog.close();
+      }
+    },
+    true,
+  );
+  sleepDialog.addEventListener("cancel", (event) => {
+    if (!confirmSleepClose()) event.preventDefault();
+  });
   sleepDialog.addEventListener("close", () => {
     sleepEditingId = null;
+    sleepBaseline = "";
   });
 
   return { open, openSleep };
