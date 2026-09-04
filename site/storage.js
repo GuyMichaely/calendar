@@ -1,5 +1,5 @@
 import {
-  applyLocalSnapshot,
+  applyLocalHistoryChange,
   deleteLocalItem,
   getLocalItem,
   listLocalItems,
@@ -209,8 +209,7 @@ export function redoLabel() {
 }
 
 async function applySnapshot(change, side) {
-  const snapshot = change[side];
-  const after = await applyLocalSnapshot(change.id, snapshot == null ? null : cloneValue(snapshot));
+  const after = await applyLocalHistoryChange(change, side);
   syncLiveItem(change.id, after);
 }
 
