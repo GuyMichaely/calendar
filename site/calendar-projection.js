@@ -7,7 +7,7 @@ import {
   sleepInfo,
   toDate,
 } from "./domain.js";
-import { listItems } from "./storage.js";
+import { listItemsSnapshot } from "./storage.js";
 
 const grid = document.querySelector("#calendar-grid");
 const monthLabel = document.querySelector("#month-label");
@@ -113,7 +113,7 @@ function insertProjectedStarts(entriesByDate, cellsByDate) {
 
 async function normalizeCalendarStarts() {
   scheduled = false;
-  if (!grid || !grid.children.length) return;
+  if (!grid || grid.closest("[hidden]") || !grid.children.length) return;
 
   const month = currentCalendarMonth();
   if (!month) return;
@@ -133,7 +133,7 @@ async function normalizeCalendarStarts() {
     const now = new Date();
     const respectSleep = localStorage.getItem("calendar.calendarSleepMode") !== "ignore";
     const entriesByDate = new Map();
-    const items = await listItems();
+    const items = await listItemsSnapshot();
 
     for (const task of items) {
       if (!isTask(task) || ["completed", "canceled"].includes(task.state)) continue;
