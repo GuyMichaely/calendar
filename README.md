@@ -80,7 +80,7 @@ Run the test suite with:
 npm test
 ```
 
-The frontend structure tests also run `node --check` over every browser JavaScript file and verify the service-worker shell manifest.
+The frontend structure tests also run `node --check` over every browser JavaScript file and verify the rendering/controller ownership boundaries.
 
 ## Deployment
 
@@ -94,8 +94,8 @@ GitHub Pages publishes one artifact for this repository. The deployment workflow
 
 The Pages deployment runs after `main` changes, can be dispatched manually, and is also refreshed after successful `Calendar CI` runs on either preview branch. Browser assets use relative URLs, so the same frontend source can operate at its assigned subpath without hard-coding `/calendar/`.
 
-Frontend branches do not own Pages deployment configuration. `.github/workflows/pages.yml`, `.github/workflows/deploy-pages.yml`, `scripts/assemble-pages.mjs`, and the shared service-worker runtime in `site/sw.js` are maintained on `main` and should remain identical in both frontend branches. Each frontend may change `site/sw-shell.js` when its static module graph differs from the root app. This keeps preview-specific shell contents separate from shared cache/scope behavior.
+Frontend branches do not own deployment files. `.github/workflows/pages.yml`, `.github/workflows/deploy-pages.yml`, `scripts/assemble-pages.mjs`, `tests/pages-deployment.test.js`, and `site/sw.js` are maintained on `main` and remain identical in both frontend branches. Service-worker shell manifests are generated only in the assembled Pages artifact from each frontend's actual static files, so the vanilla preview needs no branch-specific deployment manifest.
 
-A frontend change is deployed by pushing to its existing preview branch. The shared `Calendar CI` workflow validates the branch. A successful run triggers the `main` deployment workflow, which rebuilds and tests the combined artifact before publishing. Frontend agents should not add branch-specific Pages jobs or modify the deployment aggregator to publish their own preview.
+A frontend change is deployed by pushing to its existing preview branch. The shared `Calendar CI` workflow validates the branch. A successful run triggers the `main` deployment workflow, which rebuilds and tests the combined artifact before publishing. Frontend agents should not add branch-specific Pages jobs, service-worker deployment manifests, or modify the deployment aggregator to publish their own preview.
 
-When shared deployment infrastructure changes, change and validate it on `main` first, then copy the shared files unchanged into the frontend branches. Changes to backend, sync, authentication, or other non-frontend branches are outside this protocol.
+When shared deployment infrastructure changes, change and validate it on `main` first, then merge that `main` commit into both frontend branches before further frontend work. Shared deployment files should arrive through that merge unchanged. Changes to backend, sync, authentication, or other non-frontend branches are outside this protocol.
