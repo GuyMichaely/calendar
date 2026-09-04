@@ -59,7 +59,12 @@ function parseArgs(argv) {
   if (!args.unit || !args.source || !args.output) {
     throw new Error("Usage: node scripts/build-deploy-unit.mjs --unit <root|vanilla|solid> --source <dir> --output <dir> [--verify]");
   }
-  return args;
+  return {
+    unit: args.unit,
+    sourceDir: args.source,
+    outputDir: args.output,
+    verify: args.verify,
+  };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
