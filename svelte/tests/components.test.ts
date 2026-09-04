@@ -4,7 +4,7 @@ import CalendarView from "../src/CalendarView.svelte";
 import ItemEditor from "../src/ItemEditor.svelte";
 import TasksView from "../src/TasksView.svelte";
 import { DEFAULT_SHORTCUTS } from "../src/shortcuts";
-import type { Task } from "../src/types";
+import type { Item, Task } from "../src/types";
 
 const mounted: ReturnType<typeof mount>[] = [];
 
@@ -46,7 +46,7 @@ afterEach(async () => {
 
 describe("task interactions", () => {
   test("focused task hotkeys dispatch semantic sleep actions", () => {
-    const onSleepTomorrow = vi.fn(async () => undefined);
+    const onSleepTomorrow = vi.fn(async (_task: Task) => undefined);
     const component = mount(TasksView, {
       target: target(),
       props: {
@@ -89,7 +89,7 @@ describe("task interactions", () => {
 
 describe("editor behavior", () => {
   test("creates a task from the dialog", async () => {
-    const onSave = vi.fn(async () => undefined);
+    const onSave = vi.fn(async (_item: Item, _created: boolean) => undefined);
     const component = mount(ItemEditor, {
       target: target(),
       props: {
