@@ -1,5 +1,9 @@
 import "./keyboard.js";
 import "./calendar-projection.js";
+import "./toast-history.js";
+import "./modal-events.js";
+import "./calendar-ui.js";
+import "./task-enhancements.js";
 
 const eventFields = document.querySelector("#event-fields");
 const eventStart = document.querySelector("[name='eventStart']");

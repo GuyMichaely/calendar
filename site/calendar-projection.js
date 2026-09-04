@@ -75,6 +75,7 @@ function openTaskEditor(taskId) {
   requestAnimationFrame(() => {
     const card = document.querySelector(`.task-card[data-id="${CSS.escape(taskId)}"]`);
     card?.querySelector('[data-action="edit"]')?.click();
+    requestAnimationFrame(() => document.querySelector('[data-view="calendar"]')?.click());
   });
 }
 
@@ -97,6 +98,7 @@ function insertProjectedStarts(entriesByDate, cellsByDate) {
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = `calendar-chip task ${entry.bypassesSleep ? "start sleep-bypassed" : "start"}`;
+      chip.dataset.itemId = entry.id;
       chip.textContent = `${shortTime(entry.start)} ${entry.title}`;
       chip.title = entry.bypassesSleep
         ? `${entry.title}: projected start while sleep is ignored`
