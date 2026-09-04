@@ -146,8 +146,8 @@
         <details class="svelte-menu" bind:this={menu}>
           <summary class="icon-button menu-trigger" aria-label="Menu" title="Menu">☰</summary>
           <div class="svelte-menu-panel">
-            <button class="text-button" disabled={!historyState.canUndo} onclick={() => void applyUndo(refresh, showToast)}>Undo{historyState.undoLabel ? ` · ${historyState.undoLabel}` : ""}</button>
-            <button class="text-button" disabled={!historyState.canRedo} onclick={() => void applyRedo(refresh, showToast)}>Redo{historyState.redoLabel ? ` · ${historyState.redoLabel}` : ""}</button>
+            <button class="text-button" disabled={!historyState.canUndo} onclick={() => void applyUndo(refresh, showToast)}>Undo{historyState.undoLabel ? ` ${historyState.undoLabel}` : ""}</button>
+            <button class="text-button" disabled={!historyState.canRedo} onclick={() => void applyRedo(refresh, showToast)}>Redo{historyState.redoLabel ? ` ${historyState.redoLabel}` : ""}</button>
             <div class="menu-divider"></div>
             <button class="text-button" onclick={openShortcuts}>Keyboard shortcuts…</button>
             <button class="text-button" onclick={() => { if (menu) menu.open = false; void exportBackup(); }}>Export backup</button>
