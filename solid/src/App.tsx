@@ -147,7 +147,7 @@ export function App() {
     const until = tomorrowMidnight(now).toISOString();
     await mutateTask(
       task,
-      { sleep: { until, startedAt: task.sleep?.startedAt || now.toISOString() } },
+      { sleep: { until, startedAt: now.toISOString() } },
       { type: "slept", until },
       "Sleeping until tomorrow",
     );
@@ -157,7 +157,7 @@ export function App() {
     const now = new Date().toISOString();
     await mutateTask(
       task,
-      { sleep: { until: null, startedAt: task.sleep?.startedAt || now } },
+      { sleep: { until: null, startedAt: now } },
       { type: "slept", until: null },
       "Sleeping indefinitely",
     );
@@ -194,14 +194,14 @@ export function App() {
     const label = undoLabel();
     if (!(await undo())) return;
     await refresh();
-    showToast(label ? `Undid ${label}` : "Undid change");
+    showToast(`Undo${label ? ` ${label}` : ""}`);
   };
 
   const applyRedo = async () => {
     const label = redoLabel();
     if (!(await redo())) return;
     await refresh();
-    showToast(label ? `Redid ${label}` : "Redid change");
+    showToast(`Redo${label ? ` ${label}` : ""}`);
   };
 
   const exportBackup = async () => {
@@ -302,30 +302,28 @@ export function App() {
               <summary class="icon-button menu-trigger" aria-label="Menu" title="Menu">☰</summary>
               <div class="solid-menu-panel">
                 <button class="text-button" disabled={!historyState().canUndo} onClick={() => void applyUndo()}>
-                  Undo{historyState().undoLabel ? ` · ${historyState().undoLabel}` : ""}
+                  Undo{historyState().undoLabel ? ` ${historyState().undoLabel}` : ""}
                 </button>
                 <button class="text-button" disabled={!historyState().canRedo} onClick={() => void applyRedo()}>
-                  Redo{historyState().redoLabel ? ` · ${historyState().redoLabel}` : ""}
+                  Redo{historyState().redoLabel ? ` ${historyState().redoLabel}` : ""}
                 </button>
-                <div class="menu-divider" />
-                <button class="text-button" onClick={() => { menuRef.open = false; openShortcuts(); }}>Keyboard shortcuts…</button>
                 <button class="text-button" onClick={() => void exportBackup()}>Export backup</button>
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>
+                <button class="text-button" onClick={() => { menuRef.open = false; openShortcuts(); }}>Keyboard shortcuts…</button>
               </div>
             </details>
             <nav class="primary-nav" aria-label="Primary">
               <button class={`nav-button ${view() === "tasks" ? "active" : ""}`} aria-current={view() === "tasks" ? "page" : undefined} onClick={() => navigate("tasks")}>Tasks</button>
               <button class={`nav-button ${view() === "calendar" ? "active" : ""}`} aria-current={view() === "calendar" ? "page" : undefined} onClick={() => navigate("calendar")}>Calendar</button>
             </nav>
-            <span class="solid-badge">Solid preview</span>
           </div>
           <div class="top-actions">
             <label class="search-box">
               <span aria-hidden="true">⌕</span>
-              <span class="visually-hidden">{view() === "calendar" ? "Filter calendar" : "Search tasks"}</span>
+              <span class="visually-hidden">{view() === "calendar" ? "Search calendar" : "Search tasks"}</span>
               <input
                 type="search"
-                placeholder={view() === "calendar" ? "Filter calendar" : "Search tasks"}
+                placeholder={view() === "calendar" ? "Search calendar" : "Search tasks"}
                 value={query()}
                 onInput={(event) => setQuery(event.currentTarget.value)}
                 autocomplete="off"
@@ -367,6 +365,7 @@ export function App() {
                 localStorage.setItem("calendar.section.now", "open");
                 localStorage.setItem("calendar.section.upcoming", "open");
                 navigate("tasks");
+                requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" }));
               }}
             />
           }>
@@ -425,6 +424,7 @@ export function App() {
           <SleepDialog
             task={task}
             onClose={() => setSleepTask(null)}
+            onInvalid={() => showToast("Choose a future sleep time")}
             onSave={async (until) => {
               const now = new Date().toISOString();
               await mutateTask(
