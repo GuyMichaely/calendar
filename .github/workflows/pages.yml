@@ -6,7 +6,6 @@ on:
       - main
       - agent/vanilla-refactor
       - agent/solid-refactor
-      - agent/solid-finalize-deployment
   workflow_dispatch:
 
 permissions:
