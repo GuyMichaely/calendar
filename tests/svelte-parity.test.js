@@ -27,12 +27,30 @@ test("Svelte task cards retain live icon actions and roving focus behavior", () 
   assert.match(focus, /\[data-task-card="true"\]\[tabindex="0"\]/);
 });
 
-test("Svelte calendar preserves sleep projection contract without sleep-end markers", () => {
+test("Svelte task availability presentation follows the vanilla view contract", () => {
+  const card = source("svelte/src/TaskCard.svelte");
+  const tasks = source("svelte/src/TasksView.svelte");
+  assert.match(card, /showAvailability/);
+  assert.match(card, /Available \$\{friendlyWhen\(next, now\)\}/);
+  assert.match(card, /!showAvailability && task\.availableFrom/);
+  assert.match(tasks, /showAvailability=\{section\.id === "upcoming"\}/);
+});
+
+test("Svelte calendar preserves vanilla projection and search-summary behavior", () => {
   const calendar = source("svelte/src/CalendarView.svelte");
   assert.match(calendar, /projectedTaskStart/);
   assert.match(calendar, /projectedStartBypassesSleep/);
+  assert.match(calendar, /matching \$\{matchingPending\.length === 1 \? "task" : "tasks"\}/);
+  assert.match(calendar, /Sleeping projections are shown differently/);
   assert.doesNotMatch(calendar, /Sleep ends:/);
   assert.doesNotMatch(calendar, /legend-dot sleep/);
+});
+
+test("Svelte shell follows vanilla navigation wording and today-task behavior", () => {
+  const app = source("svelte/src/App.svelte");
+  assert.match(app, /Search calendar/);
+  assert.match(app, /scrollIntoView\(\{ block: "start" \}\)/);
+  assert.doesNotMatch(app, /Svelte preview/);
 });
 
 test("Svelte dialogs preserve dirty guards, attachment feedback, and toast exits", () => {

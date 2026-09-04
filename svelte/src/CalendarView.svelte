@@ -55,6 +55,10 @@
     return starts;
   });
 
+  function displayTitle(item: Item) {
+    return item.title || (item.kind === "event" ? "Untitled event" : "Untitled task");
+  }
+
   function shortTime(value: string | Date | null | undefined) {
     const date = value instanceof Date ? value : toDate(value);
     return date ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date) : "";
@@ -64,13 +68,14 @@
     const key = dateKey(day);
     const entries: CalendarEntry[] = [];
     for (const item of items) {
+      const title = displayTitle(item);
       if (item.kind === "event") {
         if (dateKey(item.start) !== key) continue;
         entries.push({
           item,
           className: "event event",
-          label: `${shortTime(item.start)} ${item.title}`,
-          title: item.title,
+          label: `${shortTime(item.start)} ${title}`,
+          title,
           sort: toDate(item.start)?.getTime() || 0,
         });
         continue;
@@ -82,10 +87,10 @@
         entries.push({
           item,
           className: `task start${projected.bypassesSleep ? " sleep-bypassed" : ""}`,
-          label: `${shortTime(projected.start)} ${item.title}`,
+          label: `${shortTime(projected.start)} ${title}`,
           title: projected.bypassesSleep
-            ? `${item.title}: projected start while sleep is ignored`
-            : `${item.title}: projected start`,
+            ? `${title}: projected start while sleep is ignored`
+            : `${title}: projected start`,
           sort: projected.start.getTime(),
         });
       }
@@ -98,8 +103,8 @@
           entries.push({
             item,
             className: `task ${role}`,
-            label: `${prefix} ${item.title}`,
-            title: `${item.title}: ${role}`,
+            label: `${prefix} ${title}`,
+            title: `${title}: ${role}`,
             sort: toDate(item[field])?.getTime() || 0,
           });
         }
@@ -124,7 +129,9 @@
         type="button"
         class={`secondary-button calendar-sleep-toggle ${sleepMode === "respect" ? "active" : ""}`}
         aria-pressed={sleepMode === "respect"}
-        title={sleepMode === "respect" ? "Sleeping tasks are treated as unavailable until they wake." : "Sleep is ignored when projecting task opportunities."}
+        title={sleepMode === "respect"
+          ? "Sleeping tasks are treated as unavailable until they wake."
+          : "Sleep is ignored when projecting task opportunities. Sleeping projections are shown differently."}
         onclick={() => onSleepModeChange(sleepMode === "respect" ? "ignore" : "respect")}
       >
         {sleepMode === "respect" ? "Respect sleep" : "Ignore sleep"}
@@ -157,7 +164,7 @@
             title="Open today's tasks"
             onclick={(event) => { event.stopPropagation(); onOpenTodayTasks(); }}
           >
-            {matchingPending.length} {matchingPending.length === 1 ? "task" : "tasks"}{sleepingCount ? ` - ${sleepingCount} sleeping` : ""}
+            {query ? `${matchingPending.length} matching ${matchingPending.length === 1 ? "task" : "tasks"}` : `${matchingPending.length} ${matchingPending.length === 1 ? "task" : "tasks"}`}{sleepingCount ? ` - ${sleepingCount} sleeping` : ""}
           </button>
         {/if}
         {#each entries.slice(0, itemLimit) as entry, index (`${entry.item.id}:${entry.className}:${entry.sort}:${index}`)}

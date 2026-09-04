@@ -158,13 +158,12 @@
           <button class={`nav-button ${view === "tasks" ? "active" : ""}`} aria-current={view === "tasks" ? "page" : undefined} onclick={() => navigate("tasks")}>Tasks</button>
           <button class={`nav-button ${view === "calendar" ? "active" : ""}`} aria-current={view === "calendar" ? "page" : undefined} onclick={() => navigate("calendar")}>Calendar</button>
         </nav>
-        <span class="svelte-badge">Svelte preview</span>
       </div>
       <div class="top-actions">
         <label class="search-box">
           <span aria-hidden="true">⌕</span>
-          <span class="visually-hidden">{view === "calendar" ? "Filter calendar" : "Search tasks"}</span>
-          <input type="search" placeholder={view === "calendar" ? "Filter calendar" : "Search tasks"} bind:value={query} autocomplete="off" />
+          <span class="visually-hidden">{view === "calendar" ? "Search calendar" : "Search tasks"}</span>
+          <input type="search" placeholder={view === "calendar" ? "Search calendar" : "Search tasks"} bind:value={query} autocomplete="off" />
         </label>
         <button class="primary-button" onclick={() => openEditor(null, view === "calendar" ? "event" : "task")}>New</button>
         <input bind:this={importInput} type="file" accept="application/json,.json" hidden onchange={(event) => {
@@ -204,6 +203,7 @@
             localStorage.setItem("calendar.section.now", "open");
             localStorage.setItem("calendar.section.upcoming", "open");
             navigate("tasks");
+            void tick().then(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" }));
           }}
         />
       {/if}
