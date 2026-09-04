@@ -256,7 +256,8 @@ function moveTaskFocus(direction, activeCard = null) {
 async function runHistoryCommand(direction) {
   const changed = direction === "undo" ? await undo() : await redo();
   if (!changed) return;
-  location.reload();
+  updateHistoryMenu();
+  document.querySelector(".primary-nav .nav-button.active")?.click();
 }
 
 function handleGlobalKeydown(event) {
