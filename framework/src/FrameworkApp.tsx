@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { App } from "./App";
 import { KeyboardShortcutsDialog, loadShortcuts, type Shortcuts } from "./shortcuts";
 
@@ -12,6 +12,7 @@ function visibleTaskCards() {
 export function FrameworkApp() {
   const [shortcuts, setShortcuts] = useState<Shortcuts>(loadShortcuts);
   const [showShortcutDialog, setShowShortcutDialog] = useState(false);
+  const shortcutReturnTask = useRef<HTMLElement | null>(null);
   const [, setClockTick] = useState(0);
 
   useEffect(() => {
@@ -37,16 +38,28 @@ export function FrameworkApp() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  const openShortcuts = () => {
+    shortcutReturnTask.current = document.querySelector<HTMLElement>('[data-task-card="true"][tabindex="0"]');
+    setShowShortcutDialog(true);
+  };
+
+  const closeShortcuts = () => {
+    setShowShortcutDialog(false);
+    const task = shortcutReturnTask.current;
+    shortcutReturnTask.current = null;
+    if (task?.isConnected) requestAnimationFrame(() => task.focus());
+  };
+
   return (
     <>
-      <App shortcuts={shortcuts} onOpenShortcuts={() => setShowShortcutDialog(true)} />
+      <App shortcuts={shortcuts} onOpenShortcuts={openShortcuts} />
       {showShortcutDialog ? (
         <KeyboardShortcutsDialog
           shortcuts={shortcuts}
-          onClose={() => setShowShortcutDialog(false)}
+          onClose={closeShortcuts}
           onSave={(next) => {
             setShortcuts(next);
-            setShowShortcutDialog(false);
+            closeShortcuts();
           }}
         />
       ) : null}
