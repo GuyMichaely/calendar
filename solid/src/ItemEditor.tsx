@@ -59,7 +59,7 @@ export function ItemEditor(props: {
   onClose: () => void;
   onDelete: (item: Item) => Promise<void>;
   onSave: (item: Item, created: boolean) => Promise<void>;
-  onError: (message: string) => void;
+  onError?: (message: string) => void;
 }) {
   const existing = props.request.item;
   const task = existing?.kind === "task" ? existing : null;
@@ -205,7 +205,7 @@ export function ItemEditor(props: {
       setDirty(false);
     } catch (error) {
       console.error(error);
-      props.onError("Could not save item");
+      props.onError?.("Could not save item");
     }
   };
 
