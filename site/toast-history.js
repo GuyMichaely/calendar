@@ -51,8 +51,11 @@ async function runHistory(direction) {
   const label = direction === "undo" ? undoLabel() : redoLabel();
   const changed = direction === "undo" ? await undo() : await redo();
   if (!changed) return;
-  showToast(`${direction === "undo" ? "Undid" : "Redid"}${label ? ` ${label}` : ""}`);
+  showToast(`${direction === "undo" ? "Undo" : "Redo"}${label ? ` ${label}` : ""}`);
   document.querySelector(".primary-nav .nav-button.active")?.click();
+  requestAnimationFrame(() => {
+    window.dispatchEvent(new CustomEvent("calendar:history-applied", { detail: { direction } }));
+  });
 }
 
 document.addEventListener(

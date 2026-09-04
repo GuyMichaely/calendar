@@ -1,4 +1,4 @@
-import { dateKey, isEvent, isTask, textMatches } from "./domain.js";
+import { dateKey, isEvent, isPendingOnDate, isSleeping, isTask, textMatches } from "./domain.js";
 import { listItemsSnapshot } from "./storage.js";
 
 const grid = document.querySelector("#calendar-grid");
@@ -38,48 +38,18 @@ function localDateInput(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function chooser() {
-  let dialog = document.querySelector("#day-create-dialog");
-  if (dialog) return dialog;
-  dialog = document.createElement("dialog");
-  dialog.id = "day-create-dialog";
-  dialog.className = "editor-dialog day-create-dialog";
-  dialog.innerHTML = `
-    <form method="dialog">
-      <div class="dialog-header">
-        <div><h2>Add item</h2><p class="muted" data-day-label></p></div>
-        <button type="button" class="icon-button" aria-label="Close" data-close>×</button>
-      </div>
-      <div class="day-create-actions">
-        <button type="button" class="primary-button" data-kind="event">Event</button>
-        <button type="button" class="secondary-button" data-kind="task">Task</button>
-      </div>
-    </form>`;
-  document.body.append(dialog);
-  dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
-  return dialog;
-}
-
-function openForDay(kind, day) {
+function openEventForDay(day) {
   if (editorDialog) editorDialog.dataset.itemId = "";
   document.querySelector("#new-item")?.click();
   requestAnimationFrame(() => {
     const date = new Date(day);
-    if (kind === "event") {
-      date.setHours(9, 0, 0, 0);
-      const radio = document.querySelector("#kind-event");
-      radio.checked = true;
-      radio.dispatchEvent(new Event("change", { bubbles: true }));
-      editorForm.elements.eventStart.value = localDateInput(date);
-      date.setDate(date.getDate() + 1);
-      editorForm.elements.eventEnd.value = localDateInput(date);
-    } else {
-      date.setHours(0, 0, 0, 0);
-      const radio = document.querySelector("#kind-task");
-      radio.checked = true;
-      radio.dispatchEvent(new Event("change", { bubbles: true }));
-      editorForm.elements.availableFrom.value = localDateInput(date);
-    }
+    date.setHours(9, 0, 0, 0);
+    const radio = document.querySelector("#kind-event");
+    radio.checked = true;
+    radio.dispatchEvent(new Event("change", { bubbles: true }));
+    editorForm.elements.eventStart.value = localDateInput(date);
+    date.setDate(date.getDate() + 1);
+    editorForm.elements.eventEnd.value = localDateInput(date);
     editorForm.elements.title.focus();
   });
 }
@@ -91,26 +61,26 @@ grid?.addEventListener("click", (event) => {
   if (!month) return;
   const cells = [...grid.querySelectorAll(".calendar-day")];
   const day = gridDates(month)[cells.indexOf(cell)];
-  if (!day) return;
-
-  const dialog = chooser();
-  dialog.querySelector("[data-day-label]").textContent = new Intl.DateTimeFormat(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  }).format(day);
-  dialog.querySelectorAll("[data-kind]").forEach((button) => {
-    button.onclick = () => {
-      dialog.close();
-      openForDay(button.dataset.kind, day);
-    };
-  });
-  dialog.showModal();
+  if (day) openEventForDay(day);
 });
+
+function removeSleepEndMarkers() {
+  grid?.querySelectorAll(".calendar-chip.task.sleep").forEach((chip) => chip.remove());
+  document.querySelector(".calendar-legend .legend-dot.sleep")?.closest("span")?.remove();
+}
+
+function summaryText(tasks, query) {
+  const sleeping = tasks.filter((item) => isSleeping(item, new Date())).length;
+  const noun = tasks.length === 1 ? "task" : "tasks";
+  const prefix = query ? `${tasks.length} matching ${noun}` : `${tasks.length} ${noun}`;
+  return `${prefix}${sleeping ? ` - ${sleeping} sleeping` : ""}`;
+}
 
 async function filterCalendar() {
   filterScheduled = false;
   if (!grid || calendarPanel?.hidden) return;
+  removeSleepEndMarkers();
+
   const query = search?.value?.trim() || "";
   const items = await listItemsSnapshot();
   const byId = new Map(items.map((item) => [item.id, item]));
@@ -119,9 +89,19 @@ async function filterCalendar() {
   const cells = [...grid.querySelectorAll(".calendar-day")];
 
   cells.forEach((cell, index) => {
-    const key = dates[index] ? dateKey(dates[index]) : "";
+    const day = dates[index];
+    const key = day ? dateKey(day) : "";
+    const todaySummary = [...cell.querySelectorAll(".calendar-chip")].find((chip) => chip.title === "Open today's tasks");
+
+    if (todaySummary && day) {
+      const pending = items.filter((item) => isTask(item) && isPendingOnDate(item, day));
+      const matching = query ? pending.filter((item) => textMatches(item, query)) : pending;
+      todaySummary.textContent = summaryText(matching, query);
+      todaySummary.classList.toggle("search-dimmed", !!query && matching.length === 0);
+    }
+
     for (const chip of cell.querySelectorAll(".calendar-chip")) {
-      if (chip.title === "Open today's tasks") continue;
+      if (chip === todaySummary) continue;
       if (!chip.dataset.itemId) {
         const candidate = items.find((item) => {
           if (isEvent(item)) return dateKey(item.start) === key && chip.title === item.title;
@@ -157,4 +137,5 @@ document.querySelector('[data-view="tasks"]')?.addEventListener("click", () => {
   setTimeout(() => search?.dispatchEvent(new Event("input", { bubbles: true })), 0);
 });
 if (grid) new MutationObserver(scheduleFilter).observe(grid, { childList: true, subtree: true });
+window.addEventListener("calendar:history-applied", scheduleFilter);
 scheduleFilter();
