@@ -89,7 +89,7 @@ jobs:
         working-directory: .sources/framework
 
       - name: Install Svelte dependencies
-        run: npm install --no-audit --no-fund
+        run: npm install --legacy-peer-deps --no-audit --no-fund
         working-directory: .sources/svelte
 
       - name: Test Svelte preview
