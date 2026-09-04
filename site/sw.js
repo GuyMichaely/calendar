@@ -1,4 +1,4 @@
-const CACHE = "calendar-shell-v11";
+const CACHE = "calendar-shell-v12";
 const SHELL = [
   "./",
   "./index.html",
@@ -9,13 +9,11 @@ const SHELL = [
   "./keyboard.css",
   "./interactions.css",
   "./app.js",
-  "./editor-behavior.js",
+  "./editor.js",
+  "./ui.js",
+  "./views/tasks-view.js",
+  "./views/calendar-view.js",
   "./keyboard.js",
-  "./calendar-projection.js",
-  "./toast-history.js",
-  "./modal-events.js",
-  "./calendar-ui.js",
-  "./task-enhancements.js",
   "./domain.js",
   "./storage.js",
   "./manifest.webmanifest",
