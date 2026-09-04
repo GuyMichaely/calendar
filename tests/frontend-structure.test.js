@@ -25,6 +25,7 @@ test("index has one application module entry point", () => {
   const html = fs.readFileSync(path.join(site, "index.html"), "utf8");
   const moduleScripts = [...html.matchAll(/<script\s+type="module"\s+src="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(moduleScripts, ["./app.js"]);
+  assert.match(html, /href="\.\/keyboard\.css"/);
 });
 
 test("service-worker shell only references files that exist", () => {
@@ -79,6 +80,28 @@ test("active frontend controllers do not depend on DOM mutation observers", () =
     const source = fs.readFileSync(path.join(site, name), "utf8");
     assert.doesNotMatch(source, /\bMutationObserver\b/, `${name} should use explicit render/init hooks`);
   }
+});
+
+test("task view owns task action markup while keyboard routes semantic actions", () => {
+  const app = fs.readFileSync(path.join(site, "app.js"), "utf8");
+  const keyboard = fs.readFileSync(path.join(site, "keyboard.js"), "utf8");
+  const tasks = fs.readFileSync(path.join(site, "views", "tasks-view.js"), "utf8");
+
+  assert.match(tasks, /class="task-action-icon"/);
+  assert.match(tasks, /data-action="sleep-indefinite"/);
+  assert.match(tasks, /ACTION_ICONS\.sleepTomorrow/);
+  assert.match(tasks, /ACTION_ICONS\.sleepIndefinite/);
+  assert.match(tasks, /ACTION_ICONS\.customSleep/);
+
+  assert.match(keyboard, /onTaskAction\?\.\(\{ action, id \}\)/);
+  assert.doesNotMatch(keyboard, /task-action-icon/);
+  assert.doesNotMatch(keyboard, /querySelector\([^\n]*data-action/);
+  assert.doesNotMatch(keyboard, /\.click\(\)/);
+
+  assert.match(app, /action === "sleep-indefinite"/);
+  assert.match(app, /shortcutHints: keyboard\.getShortcutHints\(\)/);
+  assert.match(app, /onRendered: keyboard\.syncTaskFocus/);
+  assert.doesNotMatch(app, /keyboard\.enhance/);
 });
 
 test("task title links expose their edit action", () => {

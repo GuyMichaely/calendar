@@ -85,6 +85,8 @@ const keyboard = createKeyboardController({
   taskSections: els.taskSections,
   showToast,
   onHistoryApplied: refresh,
+  onTaskAction: (detail) => handleTaskAction(detail).catch(console.error),
+  onShortcutsChanged: renderTasks,
 });
 
 async function handleTaskAction({ action, id, attachmentIndex }) {
@@ -133,6 +135,16 @@ async function handleTaskAction({ action, id, attachmentIndex }) {
       { sleep: { until: until.toISOString(), startedAt: now.toISOString() } },
       { type: "slept", until: until.toISOString() },
       "Sleeping until tomorrow",
+    );
+    return;
+  }
+  if (action === "sleep-indefinite") {
+    const startedAt = new Date().toISOString();
+    await saveTaskMutation(
+      item,
+      { sleep: { until: null, startedAt } },
+      { type: "slept", until: null },
+      "Sleeping indefinitely",
     );
     return;
   }
@@ -185,7 +197,7 @@ const tasksView = createTasksView({
   compactToggle: els.compactToggle,
   onAction: (detail) => handleTaskAction(detail).catch(console.error),
   onPreferencesChanged: updateTaskPreferences,
-  onRendered: keyboard.enhance,
+  onRendered: keyboard.syncTaskFocus,
 });
 
 const calendarView = createCalendarView({
@@ -219,6 +231,7 @@ function renderTasks() {
     compact: state.compact,
     horizonDays: state.horizonDays,
     horizonMode: state.horizonMode,
+    shortcutHints: keyboard.getShortcutHints(),
     now: new Date(),
   });
 }

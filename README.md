@@ -46,17 +46,17 @@ Undo/redo history is deliberately stored in the separate `calendar-history` Inde
 
 The frontend uses browser-native ES modules. There is no component framework or build step.
 
-`site/app.js` owns application state and composes the frontend controllers. It does not render task cards, calendar cells, or editor fields itself.
+`site/app.js` owns application state and task mutations and composes the frontend controllers. It does not render task cards, calendar cells, or editor fields itself.
 
-- `site/views/tasks-view.js` owns task-list rendering and task-view controls.
+- `site/views/tasks-view.js` owns task-list rendering, task-view controls, and all task-card action markup.
 - `site/views/calendar-view.js` owns calendar rendering, projection, and calendar search presentation.
 - `site/editor.js` owns the item editor and sleep dialog.
-- `site/keyboard.js` owns task focus, task hotkeys, shortcut configuration, and undo/redo controls.
+- `site/keyboard.js` owns task focus, shortcut interpretation/configuration, and undo/redo controls. It routes semantic task actions back to `app.js` and does not rewrite task-card markup.
 - `site/ui.js` contains small shared DOM-formatting utilities.
 - `site/domain.js` contains task/calendar rules that do not depend on the DOM.
 - `site/storage.js` is the persistence and undo/redo boundary.
 
-View modules render directly from passed application state. Do not add MutationObserver passes that rewrite another module's rendered DOM. If a view needs different output, change the view renderer or its input model instead.
+View modules render directly from passed application state. Do not add MutationObserver passes or post-render enhancement passes that rewrite another module's rendered DOM. If a view needs different output, change the view renderer or its input model instead.
 
 ## Data migrations
 
