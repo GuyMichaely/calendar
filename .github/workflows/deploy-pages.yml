@@ -18,6 +18,7 @@ on:
       - agent/vanilla-refactor
       - agent/framework-preact-refactor
       - agent/solid-refactor
+      - agent/svelte-refactor
 
 permissions:
   contents: read
@@ -25,7 +26,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.event.pull_request.number) || 'pages-deploy' }}
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.event.pull_request.number) || (github.event_name == 'workflow_run' && github.event.workflow_run.event != 'push' && format('pages-noop-{0}', github.event.workflow_run.id)) || 'pages-deploy' }}
   cancel-in-progress: true
 
 jobs:
@@ -59,6 +60,12 @@ jobs:
         with:
           ref: agent/solid-refactor
           path: .sources/solid
+
+      - name: Check out Svelte preview
+        uses: actions/checkout@v4
+        with:
+          ref: agent/svelte-refactor
+          path: .sources/svelte
 
       - uses: actions/setup-node@v4
         with:
@@ -104,6 +111,22 @@ jobs:
         run: npm run build:solid
         working-directory: .sources/solid
 
+      - name: Install Svelte dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+        working-directory: .sources/svelte
+
+      - name: Test Svelte preview
+        run: npm test && npm run test:svelte
+        working-directory: .sources/svelte
+
+      - name: Check Svelte preview
+        run: npm run check:svelte
+        working-directory: .sources/svelte
+
+      - name: Build Svelte preview
+        run: npm run build:svelte
+        working-directory: .sources/svelte
+
       - name: Assemble Pages artifact
         run: >-
           node scripts/assemble-pages.mjs
@@ -111,6 +134,7 @@ jobs:
           .sources/vanilla/site
           .sources/framework/site/framework
           .sources/solid/site/solid
+          .sources/svelte/site/svelte
           .pages-dist
 
       - name: Configure Pages
