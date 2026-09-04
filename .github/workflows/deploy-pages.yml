@@ -26,10 +26,14 @@ jobs:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
+      - name: Check out deployment tooling
+        uses: actions/checkout@v4
+
       - name: Check out main app
         uses: actions/checkout@v4
         with:
           ref: main
+          path: .sources/main
 
       - name: Check out vanilla preview
         uses: actions/checkout@v4
@@ -49,6 +53,7 @@ jobs:
 
       - name: Test main app
         run: npm test
+        working-directory: .sources/main
 
       - name: Test vanilla preview
         run: npm test
@@ -73,7 +78,7 @@ jobs:
       - name: Assemble Pages artifact
         run: >-
           node scripts/assemble-pages.mjs
-          site
+          .sources/main/site
           .sources/vanilla/site
           .sources/framework/site/framework
           .pages-dist
