@@ -12,6 +12,7 @@ const undoStack = [];
 const redoStack = [];
 let activeBatch = null;
 let applyingHistory = false;
+let liveItems = null;
 
 let historySessionId = sessionStorage.getItem(HISTORY_SESSION_KEY);
 if (!historySessionId) {
@@ -80,6 +81,18 @@ function transaction(mode, fn) {
 
 function cloneValue(value) {
   return value == null ? null : structuredClone(value);
+}
+
+function syncLiveItem(id, snapshot) {
+  if (!liveItems) return;
+  const index = liveItems.findIndex((item) => item.id === id);
+  if (snapshot == null) {
+    if (index >= 0) liveItems.splice(index, 1);
+    return;
+  }
+  const copy = cloneValue(snapshot);
+  if (index >= 0) liveItems[index] = copy;
+  else liveItems.push(copy);
 }
 
 async function getItem(id) {
@@ -166,6 +179,14 @@ async function persistHistory() {
   });
 }
 
+async function persistHistorySafely() {
+  try {
+    await persistHistory();
+  } catch (error) {
+    console.error("Could not save undo history", error);
+  }
+}
+
 const historyReady = (async () => {
   const saved = await readPersistedHistory();
   if (saved) {
@@ -191,13 +212,14 @@ async function pushHistory(entry) {
   undoStack.push(entry);
   if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
   redoStack.length = 0;
-  await persistHistory();
+  await persistHistorySafely();
   emitHistoryState();
 }
 
 async function recordMutation(id, after, operation) {
   const before = await getItem(id);
   await operation();
+  syncLiveItem(id, after);
   if (applyingHistory) return;
   await pushHistory({
     label: actionLabel(before, after),
@@ -205,7 +227,7 @@ async function recordMutation(id, after, operation) {
   });
 }
 
-export async function listItems() {
+async function readAllItems() {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readonly");
@@ -216,6 +238,15 @@ export async function listItems() {
   });
 }
 
+export async function listItems() {
+  liveItems = await readAllItems();
+  return liveItems;
+}
+
+export function listItemsSnapshot() {
+  return readAllItems();
+}
+
 export function putItem(item) {
   return recordMutation(item.id, item, () => rawPut(item));
 }
@@ -223,6 +254,7 @@ export function putItem(item) {
 export async function deleteItem(id) {
   const before = await getItem(id);
   await rawDelete(id);
+  syncLiveItem(id, null);
   if (applyingHistory || !before) return;
   await pushHistory({
     label: actionLabel(before, null),
@@ -250,6 +282,7 @@ async function applySnapshot(change, side) {
   const snapshot = change[side];
   if (snapshot == null) await rawDelete(change.id);
   else await rawPut(cloneValue(snapshot));
+  syncLiveItem(change.id, snapshot);
 }
 
 export async function undo() {
@@ -265,7 +298,7 @@ export async function undo() {
   }
 
   redoStack.push(entry);
-  await persistHistory();
+  await persistHistorySafely();
   emitHistoryState();
   return true;
 }
@@ -283,7 +316,7 @@ export async function redo() {
   }
 
   undoStack.push(entry);
-  await persistHistory();
+  await persistHistorySafely();
   emitHistoryState();
   return true;
 }
@@ -301,7 +334,7 @@ async function endBatch() {
   undoStack.push(batch);
   if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
   redoStack.length = 0;
-  await persistHistory();
+  await persistHistorySafely();
   emitHistoryState();
 }
 
@@ -324,7 +357,7 @@ function dataUrlToBlob(dataUrl) {
 }
 
 export async function exportData() {
-  const items = await listItems();
+  const items = await readAllItems();
   const portable = [];
   for (const item of items) {
     const copy = { ...item };
