@@ -1,5 +1,4 @@
 import {
-  isSleeping,
   nextActionableStart,
   nextAvailabilityStart,
   sleepInfo,
@@ -13,9 +12,9 @@ export function projectedTaskStart(task: Task, now: Date, respectSleep: boolean)
   if (task.availabilitySchedule?.enabled) {
     if (respectSleep && sleep.sleeping) {
       if (sleep.indefinite) return null;
-      return nextActionableStart(task, now, { respectSleep: true }) as Date | null;
+      return nextActionableStart(task, now, { respectSleep: true });
     }
-    return nextAvailabilityStart(task, now) as Date | null;
+    return nextAvailabilityStart(task, now);
   }
 
   const available = toDate(task.availableFrom);
@@ -35,5 +34,5 @@ export function projectedTaskStart(task: Task, now: Date, respectSleep: boolean)
 export function projectedStartBypassesSleep(task: Task, start: Date, now: Date, respectSleep: boolean) {
   if (respectSleep) return false;
   const sleep = sleepInfo(task, now);
-  return isSleeping(task, now) && (sleep.indefinite || start < sleep.until);
+  return sleep.sleeping && (sleep.indefinite || start < sleep.until);
 }
