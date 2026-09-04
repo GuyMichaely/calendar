@@ -69,3 +69,10 @@ test("active frontend controllers do not depend on DOM mutation observers", () =
     assert.doesNotMatch(source, /\bMutationObserver\b/, `${name} should use explicit render/init hooks`);
   }
 });
+
+test("task title links expose their edit action", () => {
+  const source = fs.readFileSync(path.join(site, "views/tasks-view.js"), "utf8");
+  assert.match(source, /const editLabel = `Edit \$\{title\}`/);
+  assert.match(source, /aria-label="\$\{escapeHtml\(editLabel\)\}"/);
+  assert.match(source, /title="\$\{escapeHtml\(editLabel\)\}"/);
+});
