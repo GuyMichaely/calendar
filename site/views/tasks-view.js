@@ -83,7 +83,7 @@ function availabilitySummary(task, now, upcomingAt) {
   return next ? `Available ${friendlyWhen(next, now)}` : "";
 }
 
-function taskCard(task, now, upcomingAt = null) {
+function taskCard(task, now, upcomingAt = null, showAvailability = false) {
   const article = document.createElement("article");
   article.className = "task-card";
   article.dataset.id = task.id;
@@ -113,7 +113,7 @@ function taskCard(task, now, upcomingAt = null) {
     : result.reason;
   const futureAvailable = toDate(task.availableFrom);
   const canConvertWaitToSleep = !sleep.sleeping && futureAvailable && futureAvailable > now;
-  const summary = availabilitySummary(task, now, upcomingAt);
+  const summary = showAvailability ? availabilitySummary(task, now, upcomingAt) : "";
   const title = displayTitle(task);
 
   article.innerHTML = `
@@ -205,7 +205,9 @@ function taskSection(definition, rows, sleepingRows, model, now) {
     empty.textContent = emptySectionText(definition.id, now, model.horizonDays, model.horizonMode);
     list.append(empty);
   } else {
-    for (const row of rows) list.append(taskCard(row.task, now, row.upcomingAt));
+    for (const row of rows) {
+      list.append(taskCard(row.task, now, row.upcomingAt, definition.id === "upcoming"));
+    }
   }
   body.append(list);
 
@@ -215,7 +217,7 @@ function taskSection(definition, rows, sleepingRows, model, now) {
     block.innerHTML = `<div class="sleeping-heading"><span>Sleeping</span><span>${sleepingRows.length}</span></div>`;
     const sleepingList = document.createElement("div");
     sleepingList.className = "task-list section-task-list sleeping-task-list";
-    for (const row of sleepingRows) sleepingList.append(taskCard(row.task, now, row.upcomingAt));
+    for (const row of sleepingRows) sleepingList.append(taskCard(row.task, now, row.upcomingAt, true));
     block.append(sleepingList);
     body.append(block);
   }
