@@ -26,7 +26,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.event.pull_request.number) || 'pages-deploy' }}
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.event.pull_request.number) || (github.event_name == 'workflow_run' && github.event.workflow_run.event != 'push' && format('pages-noop-{0}', github.event.workflow_run.id)) || 'pages-deploy' }}
   cancel-in-progress: true
 
 jobs:
