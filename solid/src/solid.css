@@ -1,9 +1,3 @@
-.solid-badge {
-  color: var(--muted);
-  font-size: 0.75rem;
-  white-space: nowrap;
-}
-
 .solid-menu {
   position: relative;
 }
@@ -23,24 +17,28 @@
   top: calc(100% + 8px);
   left: 0;
   min-width: 220px;
-  padding: 8px;
-  display: grid;
-  gap: 4px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
+  padding: 6px;
   background: var(--surface);
-  box-shadow: 0 14px 40px rgb(0 0 0 / 0.3);
+  color: var(--text);
+  box-shadow: var(--shadow);
 }
 
 .solid-menu-panel button {
+  display: block;
   width: 100%;
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 12px;
+  background: transparent;
+  color: inherit;
   text-align: left;
+  cursor: pointer;
 }
 
-.solid-menu-panel .menu-divider {
-  height: 1px;
-  margin: 4px 0;
-  background: var(--line);
+.solid-menu-panel button:hover:not(:disabled) {
+  background: var(--surface-2);
 }
 
 .visually-hidden {
@@ -66,20 +64,8 @@
   cursor: pointer;
 }
 
-.task-title-link:hover {
-  text-decoration: underline;
-}
-
 .calendar-day.clickable {
   cursor: pointer;
-}
-
-.calendar-day.clickable:hover {
-  background: color-mix(in srgb, var(--surface-raised, #1b211d) 85%, white 15%);
-}
-
-.editor-dialog[open] {
-  display: block;
 }
 
 .solid-dialog-backdrop {
@@ -90,6 +76,7 @@
   place-items: center;
   padding: 20px;
   background: rgb(0 0 0 / 0.62);
+  backdrop-filter: blur(2px);
 }
 
 .solid-dialog-backdrop .editor-dialog {
@@ -113,10 +100,6 @@
 }
 
 @media (max-width: 720px) {
-  .solid-badge {
-    display: none;
-  }
-
   .solid-dialog-backdrop {
     padding: 8px;
   }
