@@ -19,15 +19,56 @@ function friendlyWhen(date, now = new Date()) {
   return `${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date)} · ${time}`;
 }
 
-async function normalizeWaiting() {
+function displayTitle(task) {
+  const raw = String(task?.title || "");
+  const visible = raw.replace(/[\p{Cf}\p{Cc}\s]/gu, "");
+  return visible ? raw : "Untitled task";
+}
+
+function openCardEditor(card) {
+  if (!card) return;
+  if (editorDialog) editorDialog.dataset.itemId = card.dataset.id || "";
+  card.querySelector('[data-action="edit"]')?.click();
+}
+
+function enhanceTitle(card, task) {
+  const heading = card.querySelector(".task-title-row h3");
+  if (!heading) return;
+  const title = displayTitle(task);
+  let link = heading.querySelector(".task-title-link");
+  if (!link) {
+    link = document.createElement("a");
+    link.href = "#";
+    link.className = "task-title-link";
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openCardEditor(card);
+    });
+    heading.replaceChildren(link);
+  }
+  link.textContent = title;
+  link.setAttribute("aria-label", `Edit ${title}`);
+  link.title = `Edit ${title}`;
+}
+
+async function normalizeTasks() {
   scheduled = false;
-  const section = document.querySelector('[data-section="upcoming"]');
-  if (!section) return;
+  if (!taskSections) return;
+
+  const items = await listItemsSnapshot();
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const now = new Date();
+
   observer?.disconnect();
   try {
-    const items = await listItemsSnapshot();
-    const byId = new Map(items.map((item) => [item.id, item]));
-    const now = new Date();
+    for (const card of taskSections.querySelectorAll(".task-card")) {
+      const task = byId.get(card.dataset.id);
+      if (task && isTask(task)) enhanceTitle(card, task);
+    }
+
+    const section = taskSections.querySelector('[data-section="upcoming"]');
+    if (!section) return;
 
     for (const card of section.querySelectorAll(".task-card")) {
       const task = byId.get(card.dataset.id);
@@ -69,7 +110,7 @@ async function normalizeWaiting() {
 function scheduleNormalize() {
   if (scheduled) return;
   scheduled = true;
-  requestAnimationFrame(() => normalizeWaiting().catch(console.error));
+  requestAnimationFrame(() => normalizeTasks().catch(console.error));
 }
 
 if (taskSections) {
@@ -78,6 +119,8 @@ if (taskSections) {
   scheduleNormalize();
 }
 if (tasksPanel) new MutationObserver(scheduleNormalize).observe(tasksPanel, { attributes: true, attributeFilter: ["class"] });
+window.addEventListener("calendar:history-applied", scheduleNormalize);
+window.addEventListener("calendar:history-state", () => setTimeout(scheduleNormalize, 0));
 
 document.addEventListener(
   "keydown",
@@ -86,8 +129,7 @@ document.addEventListener(
     if (event.key !== "Enter" || !card || document.activeElement !== card || event.ctrlKey || event.metaKey || event.altKey) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (editorDialog) editorDialog.dataset.itemId = card.dataset.id || "";
-    card.querySelector('[data-action="edit"]')?.click();
+    openCardEditor(card);
   },
   true,
 );
