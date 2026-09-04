@@ -8,14 +8,14 @@ export async function applyUndo(refresh: Refresh, toast: Toast) {
   const label = undoLabel();
   if (!(await undo())) return;
   await refresh();
-  toast(label ? `Undid ${label}` : "Undid change");
+  toast(`Undo${label ? ` ${label}` : ""}`);
 }
 
 export async function applyRedo(refresh: Refresh, toast: Toast) {
   const label = redoLabel();
   if (!(await redo())) return;
   await refresh();
-  toast(label ? `Redid ${label}` : "Redid change");
+  toast(`Redo${label ? ` ${label}` : ""}`);
 }
 
 export async function exportBackup() {
