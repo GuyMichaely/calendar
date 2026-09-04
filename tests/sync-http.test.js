@@ -145,6 +145,35 @@ test("empty and oversized sync bodies are rejected", async () => {
   assert.equal(oversized.status, 413);
 });
 
+test("streamed sync bodies are stopped once the size limit is exceeded", async () => {
+  const store = createMemoryDocumentStore();
+  const handler = authorizedHandler(store, { maxSyncBytes: 32 });
+  let pulls = 0;
+  let cancelled = false;
+  const body = new ReadableStream({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(20));
+      if (pulls === 3) controller.close();
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const streamed = new Request("https://sync.example/sync", {
+    method: "POST",
+    headers: { "content-type": AUTOMERGE_MEDIA_TYPE },
+    body,
+    duplex: "half",
+  });
+
+  const response = await handler(streamed);
+  assert.equal(response.status, 413);
+  assert.equal(cancelled, true);
+  assert.equal(pulls, 2);
+  assert.equal(await store.get("calendar:primary"), null);
+});
+
 test("only POST /sync is accepted", async () => {
   const store = createMemoryDocumentStore();
   const handler = authorizedHandler(store);
