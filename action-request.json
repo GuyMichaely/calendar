@@ -1,6 +1,6 @@
 {
   "operation": "test",
   "unit": "prod",
-  "revision": "d83d32260a81f77cf5d87650db81c580c2c6df54",
-  "requestNonce": "2026-09-05T17:25:00-04:00"
+  "revision": "main",
+  "requestNonce": "2026-09-05T17:31:00-04:00"
 }
