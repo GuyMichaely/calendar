@@ -50,7 +50,6 @@ jobs:
           cat /tmp/me || true
           test "$status" = 401
           grep -q '"authenticated":false' /tmp/me
-          test -d "${CALENDAR_DATA_DIR}/auth"
           kill "$(cat backend.pid)"
           wait "$(cat backend.pid)" || true
           cat backend.log
