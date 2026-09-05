@@ -2,6 +2,16 @@ name: Test and Build Candidate
 run-name: Test and build ${{ inputs.unit }} @ ${{ inputs.commit }}
 
 on:
+  workflow_call:
+    inputs:
+      unit:
+        description: Deploy unit
+        required: true
+        type: string
+      commit:
+        description: Exact 40-character commit SHA
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       unit:
