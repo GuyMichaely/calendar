@@ -1,9 +1,7 @@
-import { cpSync, existsSync, rmSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
-
-const UNITS = new Set(["root", "old", "vanilla"]);
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
@@ -17,26 +15,45 @@ function run(command, args, cwd) {
   }
 }
 
+function packageScripts(source) {
+  const packageFile = path.join(source, "package.json");
+  if (!existsSync(packageFile)) return {};
+  const manifest = JSON.parse(readFileSync(packageFile, "utf8"));
+  return manifest.scripts || {};
+}
+
 export function buildDeployUnit({ unit, sourceDir, outputDir, verify = false }) {
-  if (!UNITS.has(unit)) throw new Error(`Unknown deploy unit: ${unit}`);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(unit || ""))) {
+    throw new Error(`Invalid deploy unit name: ${unit}`);
+  }
 
   const source = path.resolve(sourceDir);
   const output = path.resolve(outputDir);
+  const scripts = packageScripts(source);
+  const hasPackage = existsSync(path.join(source, "package.json"));
+  const hasSolidBuild = typeof scripts["build:solid"] === "string";
+
   rmSync(output, { recursive: true, force: true });
 
-  if (unit === "root") {
+  if (hasPackage) {
     run("npm", ["install", "--no-audit", "--no-fund"], source);
-    if (verify) {
-      run("npm", ["test"], source);
-      run("npm", ["run", "test:solid"], source);
-      run("npm", ["run", "typecheck:solid"], source);
-    }
-    run("npm", ["run", "build:solid"], source);
-  } else if (verify) {
+  }
+
+  if (verify && typeof scripts.test === "string") {
     run("npm", ["test"], source);
   }
 
-  const siteDir = unit === "root" ? path.join(source, "site", "solid") : path.join(source, "site");
+  if (hasSolidBuild) {
+    if (verify && typeof scripts["test:solid"] === "string") {
+      run("npm", ["run", "test:solid"], source);
+    }
+    if (verify && typeof scripts["typecheck:solid"] === "string") {
+      run("npm", ["run", "typecheck:solid"], source);
+    }
+    run("npm", ["run", "build:solid"], source);
+  }
+
+  const siteDir = hasSolidBuild ? path.join(source, "site", "solid") : path.join(source, "site");
   if (!existsSync(path.join(siteDir, "index.html"))) {
     throw new Error(`${unit} build output is missing index.html: ${siteDir}`);
   }
@@ -57,7 +74,7 @@ function parseArgs(argv) {
     args[value.slice(2)] = argv[++i];
   }
   if (!args.unit || !args.source || !args.output) {
-    throw new Error("Usage: node scripts/build-deploy-unit.mjs --unit <root|old|vanilla> --source <dir> --output <dir> [--verify]");
+    throw new Error("Usage: node scripts/build-deploy-unit.mjs --unit <name> --source <dir> --output <dir> [--verify]");
   }
   return {
     unit: args.unit,
