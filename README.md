@@ -4,13 +4,21 @@ This branch contains deployment control only. Application code lives on separate
 
 ## Deploy units
 
-- `root`: the production Solid application, developed on `main` and published at `/calendar/`.
-- `old`: the pre-refactor application, published at `/calendar/old/`.
-- `vanilla`: the vanilla refactor retained at `/calendar/vanilla/`.
+`deployment.json` defines each unit and its deployment path relative to the GitHub Pages site root. For this repository, `/` is published at `/calendar/`, `/old/` at `/calendar/old/`, and `/vanilla/` at `/calendar/vanilla/`.
 
 ## Deployment state
 
-`deployment.json` is authoritative. Each deploy unit records the deployed application commit plus the Actions artifact and candidate-build run that produced its deployable output.
+`deployment.json` is authoritative. Each deploy unit records:
+
+- `path`: deployment path relative to the Pages site root.
+- `sha`: exact application commit that is deployed.
+- `artifact`: GitHub Actions artifact ID for the verified build.
+
+Artifact IDs uniquely pin the build artifact in this repository. The manifest does not duplicate artifact name, verification run ID, expiry timestamp, or digest metadata.
+
+Candidate artifacts are still named `deploy-<unit>-<sha>`. Promotion starts with a requested unit and application revision, before it knows the artifact ID, so the unit and SHA in the artifact name provide the lookup key. Promotion verifies that the matching artifact came from a successful canonical candidate workflow, then records only its artifact ID in the manifest.
+
+If a pinned artifact has expired or is otherwise unavailable, Pages deployment rebuilds that unit from the manifest's exact `sha` without rerunning tests.
 
 ## Agent action requests
 
@@ -30,7 +38,7 @@ The request format is:
 
 ## Testing
 
-A `test` request runs `.github/workflows/test-and-build-candidate.yml` for the resolved application commit and stores deployable output as `deploy-<unit>-<sha>`
+A `test` request runs `.github/workflows/test-and-build-candidate.yml` for the resolved application commit and stores deployable output as `deploy-<unit>-<sha>`.
 
 ## Deploying
 
@@ -44,6 +52,4 @@ Successful promotion updates `deployment.json` on this branch. That control-stat
 
 Changes to `deployment.json` on `deployment-control` trigger deployment automatically. Normal operation should use promotion instead of editing the manifest directly.
 
-Deployment does not rerun unit tests or integration checks. It consumes the candidate-build artifacts recorded in the manifest, assembles the three pinned outputs, and publishes one GitHub Pages artifact.
-
-If a recorded artifact is explicitly expired, deployment rebuilds it by SHA without testing it. If GitHub has already removed the artifact metadata and its recorded expiry time has passed, deployment treats that as normal expiry and rebuilds. If an artifact disappears before its recorded expiry, deployment fails.
+Deployment does not rerun unit tests or integration checks. It materializes the pinned units, places each one at the `path` recorded in the manifest, assembles one GitHub Pages artifact, and publishes it.
