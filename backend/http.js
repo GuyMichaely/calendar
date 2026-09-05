@@ -58,7 +58,8 @@ export function createCalendarBackend({ authHandler, syncHandler, attachmentHand
     }
 
     let response;
-    if (path.startsWith("/auth/")) response = await authHandler(request);
+    if (request.method === "GET" && path === "/healthz") response = new Response("ok");
+    else if (path.startsWith("/auth/")) response = await authHandler(request);
     else if (path === "/sync") response = await syncHandler(request);
     else if (path.startsWith("/attachments/") && attachmentHandler) response = await attachmentHandler(request);
     else response = new Response("Not found", { status: 404 });
