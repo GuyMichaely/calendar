@@ -1,12 +1,12 @@
 # Calendar deployment control
 
-This branch contains deployment control only. Application code lives in separate deploy-unit development streams.
+This branch contains deployment control only. Application code lives on separate development branches.
 
 ## Deploy units
 
-- `root`: the production application, developed on `agent/solid-refactor` and published at `/calendar/`.
-- `old`: kept for historical reasons at `/calendar/old/`.
-- `vanilla`: kept for historical reasons at `/calendar/vanilla/`
+- `root`: the production Solid application, developed on `main` and published at `/calendar/`.
+- `old`: the pre-refactor application, published at `/calendar/old/`.
+- `vanilla`: the vanilla refactor retained at `/calendar/vanilla/`.
 
 The control branch itself is not an application source.
 
@@ -14,39 +14,49 @@ The control branch itself is not an application source.
 
 `deployment.json` is authoritative. Each deploy unit records the deployed application commit plus the Actions artifact and candidate-build run that produced its deployable output.
 
-## Development and testing
+## Agent action requests
 
-Development branches may contain arbitrary intermediate commits. Pushing development commits does not run tests, build, or deploy.
+Agents that cannot invoke `workflow_dispatch` directly use the dedicated `action-trigger` branch. That branch contains a permanent `.github/workflows/action-request.yml` dispatcher and `action-request.json`.
 
-Use **Test and Build Candidate** whenever you want GitHub to run the canonical checks for a commit. Test semantics are defined per unit in the action.
+The request format is:
 
-From a shell with GitHub CLI authentication:
-
-```bash
-gh workflow run test-and-build-candidate.yml -f unit=root -f commit="$(git rev-parse HEAD)"
+```json
+{
+  "operation": "test",
+  "unit": "root",
+  "revision": "main"
+}
 ```
 
-Or use **Actions -> Test and Build Candidate -> Run workflow** in GitHub.
+`operation` is `test` or `deploy`. `unit` is `root`, `old`, or `vanilla`. `revision` may be a branch name, tag, full or abbreviated commit ID, or another Git revision that resolves unambiguously to a commit in this repository.
 
-A successful run is meant to indicate that all tests pass and the app builds. It stores the deployable output as `deploy-<unit>-<sha>`. Running it does not deploy anything; use Promote Deployment for that.
+An agent requests work by committing a new `action-request.json` to `action-trigger`. The push-triggered dispatcher resolves `revision` immediately and records the exact 40-character commit SHA in the Actions log. All subsequent test, build, verification, and deployment work uses that SHA even if the named branch later moves.
+
+The trigger commit itself identifies the request, so the JSON does not need a separate request ID. Repeating the same request requires a new commit so that GitHub receives another push event.
+
+The dispatcher delegates canonical work to reusable workflows on `deployment-control`. Application development branches do not need GitHub Actions listener files merely to let agents request CI or deployment.
+
+Do not rewrite or force-push away `action-trigger` history during normal operation. Its commits provide a human-readable request audit trail alongside the GitHub Actions run history.
+
+## Testing
+
+A `test` request runs the canonical checks for the resolved application commit and stores deployable output as `deploy-<unit>-<sha>`. It does not publish anything.
+
+Humans can still invoke **Test and Build Candidate** manually with an exact SHA through GitHub Actions or `gh workflow run`. Manual dispatch is a fallback and diagnostic interface, not the agent protocol.
 
 ## Deploying
 
-When you want to deploy a build, run **Promote Deployment** with the unit name and SHA:
+A `deploy` request resolves the requested revision to an exact SHA and invokes **Promote Deployment**. Promotion only accepts a candidate with a successful canonical test/build artifact for the same unit and SHA.
 
-```bash
-gh workflow run promote-deployment.yml -f unit=<unit-name> -f commit="$(git rev-parse HEAD)"
-```
+Promotion jobs share the `deployment-promotions` concurrency group with `queue: max`, so promotions wait one at a time until previous promotions complete.
 
-Or use **Actions -> Promote Deployment -> Run workflow**.
+Successful promotion updates `deployment.json`. That manifest update triggers the Pages deployment.
 
-Promotion jobs share the `deployment-promotions` concurrency group with `queue: max`, so promotions wait one at a time until all previous promotions complete.
+Humans can still invoke **Promote Deployment** manually with an exact SHA when needed.
 
-Successful promotion jobs modify `deployment.json`, triggering a deploy.
+## Pages deployment
 
-## Deployment
-
-Changes to `deployment.json` trigger deployment automatically. Normal operation should use Promote Deployment instead of editing the manifest directly.
+Changes to `deployment.json` trigger deployment automatically. Normal operation should use promotion instead of editing the manifest directly.
 
 Deployment does not rerun unit tests or integration checks. It consumes the candidate-build artifacts recorded in the manifest, assembles the three pinned outputs, and publishes one GitHub Pages artifact.
 
