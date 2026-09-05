@@ -12,11 +12,11 @@ The control branch itself is not an application source.
 
 ## Deployment state
 
-`deployment.json` is authoritative. Each deploy unit records the deployed application commit plus the Actions artifact and candidate-build run that produced its deployable output.
+`deployment.json` on `deployment-control` is authoritative. Each deploy unit records the deployed application commit plus the Actions artifact and candidate-build run that produced its deployable output.
 
 ## Agent action requests
 
-Agents that cannot invoke `workflow_dispatch` directly use the dedicated `action-trigger` branch. That branch contains a permanent `.github/workflows/action-request.yml` dispatcher and `action-request.json`.
+Agents that cannot invoke `workflow_dispatch` directly use the dedicated `action-trigger` branch. That branch contains only the push listener, request file, and branch documentation.
 
 The request format is:
 
@@ -30,33 +30,27 @@ The request format is:
 
 `operation` is `test` or `deploy`. `unit` is `root`, `old`, or `vanilla`. `revision` may be a branch name, tag, full or abbreviated commit ID, or another Git revision that resolves unambiguously to a commit in this repository.
 
-An agent requests work by committing a new `action-request.json` to `action-trigger`. The push-triggered dispatcher resolves `revision` immediately and records the exact 40-character commit SHA in the Actions log. All subsequent test, build, verification, and deployment work uses that SHA even if the named branch later moves.
+When `action-request.json` changes, `.github/workflows/action-request.yml` on `action-trigger` passes the exact trigger commit SHA to `.github/workflows/dispatch-request.yml` on this branch. The dispatcher reads the request from that exact commit, validates it, resolves `revision` immediately to an exact 40-character application commit SHA, and selects the canonical test or promotion workflow.
 
-The trigger commit itself identifies the request, so the JSON does not need a separate request ID. Repeating the same request requires a new commit so that GitHub receives another push event.
+The trigger branch does not implement parsing, testing, building, promotion, or deployment. Those definitions live here.
 
-The dispatcher delegates canonical work to reusable workflows on `deployment-control`. Application development branches do not need GitHub Actions listener files merely to let agents request CI or deployment.
-
-Do not rewrite or force-push away `action-trigger` history during normal operation. Its commits provide a human-readable request audit trail alongside the GitHub Actions run history.
+The trigger commit itself identifies the request, so the JSON does not need a separate request ID. Repeating the same request requires a new commit so that GitHub receives another push event. Do not rewrite or force-push away `action-trigger` history during normal operation.
 
 ## Testing
 
-A `test` request runs the canonical checks for the resolved application commit and stores deployable output as `deploy-<unit>-<sha>`. It does not publish anything.
-
-Humans can still invoke **Test and Build Candidate** manually with an exact SHA through GitHub Actions or `gh workflow run`. Manual dispatch is a fallback and diagnostic interface, not the agent protocol.
+A `test` request runs `.github/workflows/test-and-build-candidate.yml` for the resolved application commit and stores deployable output as `deploy-<unit>-<sha>`. It does not publish anything.
 
 ## Deploying
 
-A `deploy` request resolves the requested revision to an exact SHA and invokes **Promote Deployment**. Promotion only accepts a candidate with a successful canonical test/build artifact for the same unit and SHA.
+A `deploy` request invokes `.github/workflows/promote-deployment.yml`. Promotion only accepts a candidate with a successful canonical test/build artifact for the same unit and SHA.
 
 Promotion jobs share the `deployment-promotions` concurrency group with `queue: max`, so promotions wait one at a time until previous promotions complete.
 
-Successful promotion updates `deployment.json`. That manifest update triggers the Pages deployment.
-
-Humans can still invoke **Promote Deployment** manually with an exact SHA when needed.
+Successful promotion updates `deployment.json` on this branch. That control-state commit is then used for the Pages deployment.
 
 ## Pages deployment
 
-Changes to `deployment.json` trigger deployment automatically. Normal operation should use promotion instead of editing the manifest directly.
+Changes to `deployment.json` on `deployment-control` trigger deployment automatically. Normal operation should use promotion instead of editing the manifest directly.
 
 Deployment does not rerun unit tests or integration checks. It consumes the candidate-build artifacts recorded in the manifest, assembles the three pinned outputs, and publishes one GitHub Pages artifact.
 
