@@ -4,28 +4,22 @@ A personal calendar and task planner built around the distinction between an ope
 
 ## Current implementation
 
-The selected frontend is SolidJS + TypeScript + Vite. `agent/solid-refactor` is the primary application development stream and its tested `root` candidates are published at `/calendar/`.
+`main` is the canonical application development branch. The selected frontend is SolidJS + TypeScript + Vite.
 
 The app supports:
 
 - task and event creation/editing;
 - task states: open, completed, canceled;
 - available-from, due, and latest-start times;
-- recurring action windows for persistent tasks, such as office hours;
+- recurring action windows for persistent tasks;
 - sleep as a separate user-imposed suppression layer, either until a chosen time or indefinitely;
-- one-click sleep until the next calendar day plus a dedicated custom sleep dialog;
 - conversion between a finite sleep date and an available-from wait date;
-- task sections for Can do now, a combined Upcoming/Waiting view, All open, and Completed;
-- sleeping tasks folded into the bottom of the combined Upcoming/Waiting section;
-- optional upcoming horizons: rolling 1/7/30 days or calendar-boundary Today/This week/This month;
+- task sections for Can do now, Upcoming/Waiting, All open, and Completed;
+- rolling 1/7/30-day or calendar-boundary upcoming horizons;
 - keyboard task navigation and configurable task shortcuts;
 - month calendar projection with sleep-aware task starts;
-- calendar search that dims nonmatching items;
-- tags and file attachments on tasks and events, with file-picker and drag/drop attachment input;
-- compact task cards with a notes preview;
-- queued, click-to-dismiss toast notifications;
-- JSON backup/export and import, including attachment contents;
-- local session undo/redo;
+- search, tags, and file attachments on tasks and events;
+- compact task cards, queued toasts, JSON backup/import, and local undo/redo;
 - optional authenticated remote Automerge and attachment synchronization;
 - a dark responsive interface.
 
@@ -33,15 +27,19 @@ Waiting is derived from real availability constraints. Sleep does not change a t
 
 ## Local data and Automerge
 
-The Solid development stream uses one Automerge document as the canonical local calendar/task state. The document is stored in the `calendar-automerge` IndexedDB database and is also the unit exchanged by the remote sync core.
+The application stores one Automerge document in the `calendar-automerge` IndexedDB database. That document is the canonical local calendar/task state and the unit exchanged by remote sync.
 
-Calendar item updates are represented as fine-grained Automerge changes where practical. Title and notes use Automerge collaborative text operations; tags, attachment metadata, task fields, and tombstones have separate operations. Deletion is represented by an application-level `deletedAt` tombstone so an offline edit cannot accidentally resurrect a deleted item.
+Calendar item updates are represented as fine-grained Automerge changes where practical. Title and notes use collaborative text operations; tags, attachment metadata, task fields, and tombstones have separate operations. Deletion uses an application-level `deletedAt` tombstone so an offline edit cannot accidentally resurrect a deleted item.
 
-Attachment bytes are deliberately not placed in the Automerge document. Attachment metadata participates in the CRDT. Browser-local `Blob` contents are stored separately in the local IndexedDB `attachments` object store so attachments remain available offline. When remote sync is configured, referenced local blobs are uploaded separately and blobs referenced by merged remote metadata are downloaded into that local store. A production backend should satisfy the blob-store contract with object/blob storage rather than putting large attachment bytes into the Automerge document or ordinary relational/document records.
+Attachment bytes are not stored in the Automerge document and normal application writes no longer persist attachment blobs in IndexedDB. Attachment metadata participates in the CRDT. New attachment bytes are uploaded to the configured backend before their metadata is persisted locally, and remote attachment bytes are fetched on demand when opened.
 
-`readSyncSnapshot()` and `mergeSyncSnapshot()` in `site/storage.js` expose the serialized Automerge boundary used by `sync/client.js`. The Solid frontend only enables its remote controls when `VITE_CALENDAR_BACKEND_URL` is configured. Local-only operation remains the default.
+Older Automerge-backed clients may have blobs in the legacy `calendar-automerge/attachments` object store. Once an authenticated remote backend is available, the current client uploads referenced legacy blobs before sync and removes the legacy local records only after the uploads succeed. Failed uploads leave the local records intact for a later retry.
 
-Undo/redo history remains in the separate `calendar-history` IndexedDB database and is session-scoped. It is never part of the Automerge document and must never be synchronized between devices. Undo/redo is applied as new local CRDT changes rather than restoring the entire remote-sync document wholesale, so unrelated merged list/history changes are retained.
+JSON backup/export is metadata-only for attachments. A backup containing embedded legacy attachment bytes is rejected rather than silently discarding those bytes.
+
+`readSyncSnapshot()` and `mergeSyncSnapshot()` in `site/storage.js` expose the serialized Automerge boundary used by `sync/client.js`. The Solid frontend enables remote controls only when `VITE_CALENDAR_BACKEND_URL` is configured. Local-only operation remains available.
+
+Undo/redo history is stored separately in the `calendar-history` IndexedDB database and is session-scoped. It is never synchronized. Undo/redo is applied as new CRDT changes rather than replacing the synchronized document wholesale, so unrelated concurrent changes are preserved.
 
 ## Remote authentication and sync
 
@@ -50,51 +48,44 @@ The repository contains a host-neutral backend and browser client for remote syn
 - `auth/oidc.js` implements provider-agnostic OpenID Connect using authorization code, PKCE, state, and nonce validation through `openid-client`;
 - `auth/http.js` implements login, callback, session inspection, logout, exact `(issuer, subject)` authorization, and opaque server-side sessions;
 - `sync/http.js` implements authenticated `POST /sync` with an atomic document-store contract;
-- `sync/attachments-http.js` implements authenticated `HEAD`, `GET`, and `PUT` for attachment blobs with an injected blob-store contract;
-- `sync/client.js` exchanges serialized Solid storage snapshots and merges the response into current local state after the request completes;
+- `sync/attachments-http.js` implements authenticated `HEAD`, `GET`, and `PUT` attachment routes with an injected blob-store contract;
+- `sync/client.js` exchanges serialized Automerge snapshots and merges responses into current local state;
 - `solid/src/remote-sync.ts` adds browser session handling, queued sync requests, and attachment upload/download;
-- `backend/http.js` composes the HTTP routes and enforces the configured browser-origin allowlist;
+- `backend/http.js` composes the routes and enforces the configured browser-origin allowlist;
 - `backend/app.js` composes OIDC, sessions, Automerge sync, and optional attachment storage without choosing a hosting provider.
 
 The backend URL may include a path prefix. Auth callback URLs, `/sync`, attachment routes, and the Solid client all preserve that prefix.
 
-`POST /sync` has no application-defined byte limit. It exchanges the current serialized Automerge document as one request/response body. A concrete hosting/runtime layer may still impose its own technical request-size or memory limits and should document them if it does.
+`POST /sync` and attachment upload routes have no application-defined byte ceiling. A concrete runtime, reverse proxy, or storage provider may still impose technical limits.
 
-Google is the first intended OIDC provider, but provider-specific configuration and secrets are not committed to the app. `backend/config.js` also accepts arbitrary OIDC provider and exact-identity arrays. Memory-backed auth, document, and blob stores exist only for tests and local development.
+Google is the first intended OIDC provider, but the auth core remains provider-agnostic. Authorization is based on exact issuer and subject, not email address.
 
-Production enablement still requires durable session storage, atomic durable Automerge document storage, durable attachment blob/object storage, OIDC credentials and callback configuration, a Bun-capable or otherwise Fetch-compatible backend runtime, and `VITE_CALENDAR_BACKEND_URL` in the Solid build. The host-neutral core does not choose a production storage provider.
+The included Bun development backend uses memory-backed auth, document, and blob stores. Production still requires durable session storage, atomic durable Automerge document storage, durable blob/object storage, OIDC credentials and callback configuration, a Fetch-compatible backend runtime, and `VITE_CALENDAR_BACKEND_URL` in the frontend build.
 
 ## Data migrations
 
-Application code assumes the current storage/schema format. It does not contain runtime compatibility or automatic migration paths for older data.
+Application runtime code assumes the current data model rather than maintaining general compatibility with old schemas.
 
-The switch from the old `calendar-app/items` store to the Automerge-backed store therefore has a one-off migration:
+The original `calendar-app/items` format has a one-off migration:
 
 ```text
 migrations/2026-09-automerge-storage.js
 ```
 
-Run it explicitly in DevTools on the calendar origin before using an Automerge-backed deployed candidate with existing data. Back up first. The migration:
+Run it explicitly in DevTools on the calendar origin before using an Automerge-backed build with existing pre-Automerge data. Back up first. The migration writes a versioned Automerge document and leaves the old database intact for the pre-refactor snapshot.
 
-- reads the existing `calendar-app/items` records;
-- writes one versioned Automerge document to `calendar-automerge`;
-- moves attachment blobs into the separate local attachment store while keeping only metadata in the CRDT;
-- leaves the old `calendar-app` database untouched for `/calendar/old/` rollback/reference use;
-- starts a new local undo-history session rather than migrating undo state;
-- refuses to overwrite a non-empty Automerge database unless the script is deliberately edited to force replacement.
-
-After migration, changes made in `/calendar/old/` and the new Solid app are independent because they use different local data stores.
+The later transition away from browser-persisted attachment blobs is handled separately as described above: legacy blobs from the Automerge attachment object store are uploaded and cleared only after authenticated remote storage is available.
 
 ## Local development
 
-Install dependencies and run the Solid dev server:
+Install dependencies and run the Solid frontend:
 
 ```bash
 npm install
 npm run dev:solid
 ```
 
-For local browser testing of auth and remote sync, run the provider-neutral Bun development backend in a second process. Its auth sessions, Automerge document, and attachment blobs are memory-only and disappear when the process exits.
+For local auth and remote-sync testing, run the Bun development backend in another process. Its auth sessions, Automerge document, and attachment blobs are memory-only and reset when the process exits.
 
 Google convenience configuration:
 
@@ -107,21 +98,17 @@ ALLOWED_GOOGLE_SUBJECT=your-google-subject \
 npm run dev:backend
 ```
 
-`npm run dev:backend` invokes Bun, so Bun must be installed on the machine running the backend.
-
 Then start the Solid frontend with the matching backend URL:
 
 ```bash
 VITE_CALENDAR_BACKEND_URL=http://localhost:8787/ npm run dev:solid
 ```
 
-For that example, the OIDC redirect URI is `http://localhost:8787/auth/callback/google`. Authorization uses the exact OIDC issuer and subject. Email addresses are display claims only and are not authorization identifiers.
+For that example, the OIDC redirect URI is `http://localhost:8787/auth/callback/google`. A prefixed backend also works, such as `http://localhost:8787/calendar-api/`.
 
-A prefixed backend also works. For example, if `CALENDAR_PUBLIC_BASE_URL` and `VITE_CALENDAR_BACKEND_URL` are both `http://localhost:8787/calendar-api/`, the callback becomes `http://localhost:8787/calendar-api/auth/callback/google` and the sync endpoint becomes `http://localhost:8787/calendar-api/sync`.
+Instead of the Google convenience variables, arbitrary providers and identities can be supplied through `CALENDAR_OIDC_PROVIDERS_JSON` and `CALENDAR_ALLOWED_IDENTITIES_JSON`.
 
-Instead of the Google convenience variables, arbitrary providers and identities can be supplied as JSON arrays through `CALENDAR_OIDC_PROVIDERS_JSON` and `CALENDAR_ALLOWED_IDENTITIES_JSON`. Provider objects require `id`, `issuer`, and `clientId`; identity objects require `issuer` and `subject`.
-
-Validation commands used for a Solid root candidate are:
+The canonical application checks are:
 
 ```bash
 npm test
@@ -130,20 +117,18 @@ npm run typecheck:solid
 npm run build:solid
 ```
 
-The production Vite base is `/calendar/` and the build output is `site/solid/`.
-
 ## Deployment
 
-Deployment infrastructure lives on the separate default branch `deployment-control`; that branch is control-plane only and is not application source.
+Deployment infrastructure lives on the separate `deployment-control` branch. That branch is control-plane only and is not application source. Agents that cannot invoke Actions directly submit requests through the `action-trigger` branch.
 
-Current public deploy units are:
+Current public deployment units are defined by `deployment-control/deployment.json`. At present they are:
 
-- `root`: Solid, published at `/calendar/`;
+- `prod`: Solid, published at `/calendar/`;
 - `old`: the pre-refactor application, published at `/calendar/old/`;
-- `vanilla`: the vanilla refactor retained for reference at `/calendar/vanilla/`.
+- `vanilla`: the vanilla refactor retained at `/calendar/vanilla/`.
 
-The old `/calendar/solid/` deployment is retired.
+A test request accepts any valid unit label and any Git revision that resolves to a commit. The workflow resolves that revision to an exact SHA, runs the canonical checks, and stores deployable output as `deploy-<unit>-<sha>`.
 
-Pushing development commits does not test, build, or deploy them. **Test and Build Candidate** can be run at any point for an exact development SHA to execute the canonical checks and produce a deployable artifact without publishing it. To publish that tested SHA, run **Promote Deployment** for the same unit and SHA. Promotion records the tested artifact in `deployment.json`, which triggers deployment.
+A deploy request promotes a tested unit/SHA artifact. Existing units may omit `path` to retain their current path. Supplying `path` can update an existing unit's path or create a new unit in `deployment.json`. Additional fields in `action-request.json` are ignored, so an agent can change an arbitrary nonce-like field to submit the same semantic request again.
 
-See the `deployment-control` branch README for the authoritative deployment protocol.
+See the `deployment-control` and `action-trigger` branch READMEs for the authoritative deployment protocol.
