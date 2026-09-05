@@ -30,20 +30,18 @@ GET  /attachments/:id
 PUT  /attachments/:id
 ```
 
-All three operations require the same injected authentication used by document sync. `HEAD` lets a client avoid re-uploading a blob that is already present. `PUT` is immutable through the blob-store `putIfAbsent()` contract. `GET` returns the stored bytes and media type. The current attachment endpoint has a separate 25 MiB upload policy limit.
+All three operations require the same injected authentication used by document sync. `HEAD` lets a client avoid re-uploading a blob that is already present. `PUT` is immutable through the blob-store `putIfAbsent()` contract. `GET` returns the stored bytes and media type. The attachment endpoint does not impose an application-level byte limit; concrete runtimes, reverse proxies, and storage providers may still impose technical limits.
 
-The Solid remote client performs document merge first. It then examines the merged attachment metadata. Referenced blobs already present in local IndexedDB are uploaded if absent remotely; referenced blobs missing locally are downloaded and inserted into the local attachment object store. A later normal item refresh hydrates those blobs onto attachment metadata.
+For current application writes, attachment bytes are uploaded before their metadata is persisted in the Automerge document. The browser does not use IndexedDB as the normal attachment byte store. When a user opens an attachment, the client fetches the blob from the remote attachment endpoint on demand.
 
-Browser IndexedDB is used as the offline local file store. Production server-side blob bytes are intentionally behind a separate blob-store contract so an implementation can use object/blob storage rather than ordinary database records.
-
-A production blob-store adapter must provide:
+Production server-side blob bytes sit behind a separate blob-store contract so a deployment can use filesystem, object/blob storage, or another durable implementation without changing the sync protocol:
 
 ```js
 blobStore.get(id)
 blobStore.putIfAbsent(id, { bytes, contentType })
 ```
 
-No provider-specific object storage API is assumed.
+No provider-specific object storage API is assumed. `backend/file-stores.js` supplies the current persistent filesystem implementation; the memory store remains useful for tests and local development.
 
 ## Document storage contract
 
@@ -60,7 +58,7 @@ documentStore.update(key, async (currentBytes) => {
 
 A production adapter must serialize or transact concurrent updates for the same key. This prevents two requests from reading the same old state, independently creating different merged states, and overwriting each other on write. A database transaction, compare-and-swap loop, or single-owner state object can satisfy the contract.
 
-`createMemoryDocumentStore()` implements the same serialized contract for tests and local development. It is not durable production storage.
+`createMemoryDocumentStore()` implements the same serialized contract for tests and local development. `backend/file-stores.js` provides a durable single-process filesystem implementation. Do not run multiple backend processes against the same filesystem data directory; use a store with cross-process serialization if the deployment needs multiple writers.
 
 ## Backend composition and CORS
 
@@ -68,7 +66,7 @@ A production adapter must serialize or transact concurrent updates for the same 
 
 The sync endpoint requires `application/vnd.automerge`, a non-simple media type. Attachment uploads use their actual content type. Browser cross-origin requests therefore use the configured preflight path where required.
 
-`backend/app.js` creates the complete provider-neutral handler from injected auth, document, and optional blob stores. `backend/bun-dev.js` provides a memory-only Bun HTTP runtime for local browser testing. Production durable storage remains a separate deployment choice.
+`backend/app.js` creates the complete provider-neutral handler from injected auth, document, and optional blob stores. `backend/bun-dev.js` provides a memory-only Bun HTTP runtime for local browser testing. `backend/bun-server.js` composes the persistent filesystem stores for a durable single-process deployment; see `backend/README.md` for runtime configuration and backup requirements.
 
 The separate `calendar-history` IndexedDB database remains local-only. It is never included in the Automerge document or remote sync.
 
@@ -76,13 +74,13 @@ The separate `calendar-history` IndexedDB database remains local-only. It is nev
 
 `tests/automerge.test.js` covers replica convergence, collaborative text, tags, conflicts, tombstones, explicit restore, serialization, replay, and in-flight merges.
 
-`tests/automerge-storage.test.js` covers the current Solid IndexedDB adapter, including stale editor intent rebasing, collaborative text captured at historical heads, kind conversion cleanup, local attachment bytes, and local-only undo history.
+`tests/automerge-storage.test.js` covers the Solid IndexedDB adapter, including stale editor intent rebasing, collaborative text captured at historical heads, kind conversion cleanup, and local-only undo history.
 
 `tests/sync-http.test.js` covers authentication gating, initial sync, atomic simultaneous requests, merged responses, replay, malformed input, empty input, and routing.
 
 `tests/sync-client.test.js` covers the serialized storage boundary, credentialed Fetch, auth failures, response media validation, and edits made while a request is in flight.
 
-`tests/attachments-http.test.js` covers attachment authentication, path prefixes, immutable upload, probing, downloading, and size limits.
+`tests/attachments-http.test.js` covers attachment authentication, path prefixes, immutable upload, probing, downloading, and unrestricted application-level upload size.
 
 `tests/backend-http.test.js`, `tests/backend-prefix.test.js`, and `tests/backend-attachment-integration.test.js` cover backend composition, exact-origin CORS, prefixed routing, auth sessions, Automerge sync, and attachment access.
 
