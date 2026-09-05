@@ -44,6 +44,7 @@ dialog::backdrop {
 
 .shortcut-dialog {
   width: min(520px, calc(100vw - 26px));
+  padding: 20px;
 }
 
 .shortcut-help {
