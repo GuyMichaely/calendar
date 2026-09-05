@@ -539,6 +539,52 @@ function writeState(mutator, attachments = []) {
   }));
 }
 
+export async function listLegacyLocalAttachments() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CALENDAR_ATTACHMENT_STORE, "readonly");
+    const request = tx.objectStore(CALENDAR_ATTACHMENT_STORE).getAll();
+    let records = [];
+    request.onsuccess = () => { records = request.result || []; };
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => {
+      db.close();
+      resolve(records.filter((record) => record?.id && record.blob instanceof Blob));
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(tx.error || new Error("IndexedDB transaction aborted"));
+    };
+  });
+}
+
+export async function deleteLegacyLocalAttachments(ids) {
+  const uniqueIds = [...new Set((ids || []).filter(Boolean))];
+  if (!uniqueIds.length) return;
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CALENDAR_ATTACHMENT_STORE, "readwrite");
+    const store = tx.objectStore(CALENDAR_ATTACHMENT_STORE);
+    for (const id of uniqueIds) store.delete(id);
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(tx.error || new Error("IndexedDB transaction aborted"));
+    };
+  });
+}
+
 export async function listLocalItems() {
   const { doc, localAttachments } = await readState();
   return hydrateItems(materializeItems(doc), localAttachments, Automerge.getHeads(doc));
