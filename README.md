@@ -1,53 +1,21 @@
-# Calendar deployment control
+# Calendar action trigger
 
-This branch contains deployment control only. Application code lives in separate deploy-unit development streams.
+This branch is the command channel for agents that can edit Git refs and files but cannot directly invoke GitHub Actions workflows.
 
-## Deploy units
+Do not develop application code here. Application development belongs on the appropriate development branch. Canonical CI and deployment implementation belongs on `deployment-control`.
 
-- `root`: the production application, developed on `agent/solid-refactor` and published at `/calendar/`.
-- `old`: kept for historical reasons at `/calendar/old/`.
-- `vanilla`: kept for historical reasons at `/calendar/vanilla/`
+To request an action, commit a new `action-request.json` with this shape:
 
-The control branch itself is not an application source.
-
-## Deployment state
-
-`deployment.json` is authoritative. Each deploy unit records the deployed application commit plus the Actions artifact and candidate-build run that produced its deployable output.
-
-## Development and testing
-
-Development branches may contain arbitrary intermediate commits. Pushing development commits does not run tests, build, or deploy.
-
-Use **Test and Build Candidate** whenever you want GitHub to run the canonical checks for a commit. Test semantics are defined per unit in the action.
-
-From a shell with GitHub CLI authentication:
-
-```bash
-gh workflow run test-and-build-candidate.yml -f unit=root -f commit="$(git rev-parse HEAD)"
+```json
+{
+  "operation": "test",
+  "unit": "root",
+  "revision": "main"
+}
 ```
 
-Or use **Actions -> Test and Build Candidate -> Run workflow** in GitHub.
+Allowed operations are `test` and `deploy`. Allowed units are `root`, `old`, and `vanilla`. `revision` may be any Git revision that resolves unambiguously to a commit in this repository, including a branch, tag, full SHA, or abbreviated SHA.
 
-A successful run is meant to indicate that all tests pass and the app builds. It stores the deployable output as `deploy-<unit>-<sha>`. Running it does not deploy anything; use Promote Deployment for that.
+`.github/workflows/action-request.yml` resolves the requested revision to an exact 40-character SHA before invoking canonical reusable workflows on `deployment-control`. The resolved SHA is what the build or deployment operates on.
 
-## Deploying
-
-When you want to deploy a build, run **Promote Deployment** with the unit name and SHA:
-
-```bash
-gh workflow run promote-deployment.yml -f unit=<unit-name> -f commit="$(git rev-parse HEAD)"
-```
-
-Or use **Actions -> Promote Deployment -> Run workflow**.
-
-Promotion jobs share the `deployment-promotions` concurrency group with `queue: max`, so promotions wait one at a time until all previous promotions complete.
-
-Successful promotion jobs modify `deployment.json`, triggering a deploy.
-
-## Deployment
-
-Changes to `deployment.json` trigger deployment automatically. Normal operation should use Promote Deployment instead of editing the manifest directly.
-
-Deployment does not rerun unit tests or integration checks. It consumes the candidate-build artifacts recorded in the manifest, assembles the three pinned outputs, and publishes one GitHub Pages artifact.
-
-If a recorded artifact is explicitly expired, deployment rebuilds it by SHA without testing it. If GitHub has already removed the artifact metadata and its recorded expiry time has passed, deployment treats that as normal expiry and rebuilds. If an artifact disappears before its recorded expiry, deployment fails.
+The trigger commit itself is the request identifier. Do not add a request ID to the JSON merely to make requests unique. To repeat an identical request, create another commit. Preserve this branch's history so the request commits remain available for audit.
