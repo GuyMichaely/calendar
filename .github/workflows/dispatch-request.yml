@@ -60,7 +60,7 @@ jobs:
             (.revision | type == "string") and
             ((has("path") | not) or (.path | type == "string"))
           ' action-request.json >/dev/null; then
-            echo "action-request.json must contain string operation, unit, and revision fields; optional path must be a string." >&2
+            echo "action-request.json must contain string operation, unit, and revision fields; optional path must be a string. Additional fields are allowed and ignored." >&2
             exit 1
           fi
 
@@ -129,7 +129,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    uses: $/.github/workflows/test-and-build-candidate.yml
+    uses: ./.github/workflows/test-and-build-candidate.yml
     with:
       unit: ${{ needs.resolve.outputs.unit }}
       revision: ${{ needs.resolve.outputs.sha }}
@@ -140,7 +140,7 @@ jobs:
     permissions:
       contents: write
       actions: write
-    uses: $/.github/workflows/promote-deployment.yml
+    uses: ./.github/workflows/promote-deployment.yml
     with:
       unit: ${{ needs.resolve.outputs.unit }}
       commit: ${{ needs.resolve.outputs.sha }}
