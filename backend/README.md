@@ -24,15 +24,15 @@ Optional listener values:
 
 `CALENDAR_PUBLIC_BASE_URL` is deliberately independent of `HOST` and `PORT`. A reverse proxy can expose an HTTPS public URL while Bun listens only on a local HTTP socket.
 
-The filesystem document store serializes atomic document updates within one backend process and commits new document bytes by atomic rename. Do not run multiple backend processes against the same `CALENDAR_DATA_DIR`. A future database/object-store adapter can implement the same injected store contracts when multi-process or multi-host operation is needed.
+The filesystem document store serializes atomic document updates within one backend process and commits new document bytes by atomic rename. Attachment records are assembled in temporary directories and published by rename, so readers do not observe partially written blob records. Do not run multiple backend processes against the same `CALENDAR_DATA_DIR`. A future database/object-store adapter can implement the same injected store contracts when multi-process or multi-host operation is needed.
 
 The data directory contains three subdirectories:
 
 - `auth/`: OIDC flow and opaque session records;
 - `documents/`: serialized Automerge documents;
-- `blobs/`: immutable attachment bytes and content-type sidecars.
+- `blobs/`: immutable attachment records containing the bytes and content type.
 
-Back up the entire data directory as one unit. The application does not require any particular backup tool.
+Back up the entire data directory. For a mutually consistent filesystem copy, stop the backend during the copy or use a filesystem/storage snapshot with equivalent point-in-time semantics. The application does not require any particular backup tool.
 
 ## OIDC configuration
 
