@@ -1,6 +1,6 @@
 {
-  "operation": "test",
+  "operation": "deploy",
   "unit": "prod",
-  "revision": "main",
-  "requestNonce": "2026-09-06T00:08:00Z"
+  "revision": "f24dbf2d452d8022551ac58a4ebdf73487881c12",
+  "requestNonce": "2026-09-06T00:12:00Z"
 }
