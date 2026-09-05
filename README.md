@@ -11,7 +11,7 @@ This branch contains deployment control only. Application code lives on separate
 
 Normal changes should go through `promote-deployment.yml`. Promotion can update an existing unit's revision, change its path when a path is supplied, or create a new unit when both a previously unused unit label and a path are supplied.
 
-Deployment paths must be unique, but they may share parents or be nested. For example, `/parent/child1/` and `/parent/child2/` are valid, as are `/parent/` and `/parent/child/`. A unit at `/` is optional.
+Deployment paths must be unique and may share parent directories. For example, `/parent/child1/` and `/parent/child2/` are valid. One unit may not own a path that contains another unit's path, so `/parent/` and `/parent/child/` cannot both be deployment units. A unit at `/` is optional.
 
 ## Agent action requests
 
