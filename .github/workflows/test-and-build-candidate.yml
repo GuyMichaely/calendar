@@ -49,25 +49,39 @@ jobs:
             exit 1
           fi
 
-      - name: Check out requested revision
+      - name: Check out repository for revision resolution
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.revision }}
-          path: .candidate
-          fetch-depth: 1
+          ref: deployment-control
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Resolve exact candidate commit
         id: candidate
         shell: bash
+        env:
+          REVISION: ${{ inputs.revision }}
         run: |
-          SHA="$(git -C .candidate rev-parse HEAD | tr '[:upper:]' '[:lower:]')"
+          set -euo pipefail
+          git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+
+          SHA=""
+          if SHA="$(git rev-parse --verify "$REVISION^{commit}" 2>/dev/null)"; then
+            :
+          elif SHA="$(git rev-parse --verify "origin/$REVISION^{commit}" 2>/dev/null)"; then
+            :
+          else
+            echo "Could not resolve revision '$REVISION' to a commit." >&2
+            exit 1
+          fi
+
+          SHA="${SHA,,}"
           if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "Requested revision did not resolve to an exact commit SHA." >&2
             exit 1
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "Resolved ${{ inputs.revision }} to $SHA"
+          echo "Resolved $REVISION to $SHA"
 
   build:
     needs: resolve
