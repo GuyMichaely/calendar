@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 
-const DEFAULT_MAX_REQUEST_BYTES = 6 * 1024 * 1024;
+const DEFAULT_MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 
 async function readNodeBody(request, maxBytes) {
   if (request.method === "GET" || request.method === "HEAD") return null;
