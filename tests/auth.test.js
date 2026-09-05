@@ -230,16 +230,41 @@ test("the same handler is provider-agnostic", async () => {
   }
 });
 
-test("production cookie mode uses host-only Secure HttpOnly SameSite cookies", async () => {
+test("production flow cookies stay Lax while session cookies allow credentialed cross-site requests", async () => {
   const handler = createAuthHandler(handlerOptions({ secureCookies: true }));
-  const response = await handler(new Request("https://sync.example/auth/login/google"));
-  const cookies = setCookies(response).join("\n");
-  assert.match(cookies, /__Host-calendar_auth_flow=/u);
-  assert.match(cookies, /Secure/u);
-  assert.match(cookies, /HttpOnly/u);
-  assert.match(cookies, /SameSite=Lax/u);
-  assert.match(cookies, /Path=\//u);
-  assert.doesNotMatch(cookies, /Domain=/u);
+  const loginResponse = await handler(new Request("https://sync.example/auth/login/google"));
+  const loginCookies = setCookies(loginResponse);
+  const flowHeader = loginCookies.find((header) => header.startsWith("__Host-calendar_auth_flow="));
+  assert.ok(flowHeader);
+  assert.match(flowHeader, /Secure/u);
+  assert.match(flowHeader, /HttpOnly/u);
+  assert.match(flowHeader, /SameSite=Lax/u);
+  assert.match(flowHeader, /Path=\//u);
+  assert.doesNotMatch(flowHeader, /Domain=/u);
+
+  const flowCookie = cookieFrom(loginResponse, "__Host-calendar_auth_flow");
+  const callbackResponse = await handler(new Request("https://sync.example/auth/callback/google?code=code&state=state-google", {
+    headers: { cookie: flowCookie },
+  }));
+  assert.equal(callbackResponse.status, 302);
+  const sessionHeader = setCookies(callbackResponse).find((header) => header.startsWith("__Host-calendar_session="));
+  assert.ok(sessionHeader);
+  assert.match(sessionHeader, /Secure/u);
+  assert.match(sessionHeader, /HttpOnly/u);
+  assert.match(sessionHeader, /SameSite=None/u);
+  assert.match(sessionHeader, /Path=\//u);
+  assert.doesNotMatch(sessionHeader, /Domain=/u);
+
+  const sessionCookie = cookieFrom(callbackResponse, "__Host-calendar_session");
+  const logoutResponse = await handler(new Request("https://sync.example/auth/logout", {
+    method: "POST",
+    headers: { cookie: sessionCookie },
+  }));
+  const clearHeader = setCookies(logoutResponse).find((header) => header.startsWith("__Host-calendar_session="));
+  assert.ok(clearHeader);
+  assert.match(clearHeader, /SameSite=None/u);
+  assert.match(clearHeader, /Secure/u);
+  assert.match(clearHeader, /Max-Age=0/u);
 });
 
 test("real openid-client discovery builds an OIDC code-flow URL with PKCE, state, and nonce", async () => {
