@@ -7,11 +7,11 @@ This branch contains deployment control only. Application code lives on separate
 `deployment.json` controls deployment. Each key under `units` defines one deployed unit:
 
 - `path`: deployment path relative to the Pages site root
-- `revision`: exact application commit currently pinned for that unit
+- `revision`: the revision to deploy
 
-Normal changes should go through `promote-deployment.yml`. Promotion can update an existing unit's revision, change its path when a path is supplied, or create a new unit when both a previously unused unit label and a path are supplied.
+Changes to `deployment.json` automatically initiate builds. Normal changes should be done via `promote-deployment.yml`. Edit `deployment.json` directly at your own risk.
 
-Deployment paths must be unique and may share parent directories. For example, `/parent/child1/` and `/parent/child2/` are valid. One unit may not own a path that contains another unit's path, so `/parent/` and `/parent/child/` cannot both be deployment units. A unit at `/` is optional.
+Deployment paths must be unique and may share parent directories. For example, `/parent/child1/` and `/parent/child2/` are valid. One unit may not own a path that contains another unit's path, so `/parent/` and `/parent/child/` cannot both be deployment units.
 
 ## Agent action requests
 
@@ -38,15 +38,15 @@ A deploy request may also include `path`:
 }
 ```
 
-`operation` is `test` or `deploy`. `unit` is a unit label. `revision` is any Git revision that resolves to a commit in this repository. The dispatcher resolves the revision to an exact commit SHA before canonical work begins. `path` is only valid for deploy requests and is optional when promoting an existing unit.
+`operation` is `test` or `deploy`. `unit` is an arbitrary string unit label. `revision` is a Git revision resolving to a commit. The dispatcher resolves the revision to a committo pin against. `path` is only valid for deploy requests and is optional when promoting an existing unit.
 
 ## Testing and building
 
-A `test` request runs `.github/workflows/test-and-build-candidate.yml`. Unit labels are not limited to the units already present in `deployment.json`, so an unused label can be used to prepare a candidate build before that unit exists in the manifest.
+A `test` request runs `.github/workflows/test-and-build-candidate.yml`. The workflow builds a deploy ready artifact if all tests succeed. Supply an previously unused unit label to this workflow if you want to create a new deploy unit to use with the deployment workflow.
 
 The candidate revision itself determines how it is built. Revisions with a `build:solid` package script are built from `site/solid`; other revisions use `site`. Tests and typechecking are run when the corresponding package scripts exist.
 
-If the candidate passes, deployable output is stored as `deploy-<unit>-<sha>`. A build refuses to create another active artifact for the same unit and exact commit.
+If the candidate passes, deployable output is stored as `deploy-<unit>-<sha>`. A build refuses to create another active artifact for the same unit-commit pair.
 
 ## Deploying
 
