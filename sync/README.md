@@ -16,6 +16,8 @@ The endpoint is deliberately simple. It does not require Automerge Repo, WebSock
 
 `sync/client.js` works at the same serialized boundary as the Solid storage layer. `syncCalendarStorage()` reads one local snapshot, sends it through ordinary Fetch with credentials, then calls the supplied `mergeSnapshot(bytes)` only after the response arrives. Because the merge occurs against the storage layer's current document, edits made while the network request is in flight are preserved.
 
+`POST /sync` does not impose an application-level byte limit. The whole serialized Automerge document is still buffered for merge, so concrete runtimes and infrastructure may impose technical body-size or memory limits. Those belong to the deployment/runtime layer rather than an arbitrary constant in the sync protocol.
+
 `createSyncHandler()` accepts an optional backend path prefix. The same prefix can therefore be used consistently for OIDC callbacks, `/sync`, attachment routes, and the Solid remote client.
 
 ## Attachment endpoint
@@ -28,9 +30,11 @@ GET  /attachments/:id
 PUT  /attachments/:id
 ```
 
-All three operations require the same injected authentication used by document sync. `HEAD` lets a client avoid re-uploading a blob that is already present. `PUT` is immutable through the blob-store `putIfAbsent()` contract. `GET` returns the stored bytes and media type. The default upload limit is 25 MiB.
+All three operations require the same injected authentication used by document sync. `HEAD` lets a client avoid re-uploading a blob that is already present. `PUT` is immutable through the blob-store `putIfAbsent()` contract. `GET` returns the stored bytes and media type. The current attachment endpoint has a separate 25 MiB upload policy limit.
 
 The Solid remote client performs document merge first. It then examines the merged attachment metadata. Referenced blobs already present in local IndexedDB are uploaded if absent remotely; referenced blobs missing locally are downloaded and inserted into the local attachment object store. A later normal item refresh hydrates those blobs onto attachment metadata.
+
+Browser IndexedDB is used as the offline local file store. Production server-side blob bytes are intentionally behind a separate blob-store contract so an implementation can use object/blob storage rather than ordinary database records.
 
 A production blob-store adapter must provide:
 
@@ -64,7 +68,7 @@ A production adapter must serialize or transact concurrent updates for the same 
 
 The sync endpoint requires `application/vnd.automerge`, a non-simple media type. Attachment uploads use their actual content type. Browser cross-origin requests therefore use the configured preflight path where required.
 
-`backend/app.js` creates the complete provider-neutral handler from injected auth, document, and optional blob stores. `backend/node-dev.js` provides a memory-only local HTTP runtime for browser testing. Production runtime and durable storage remain separate deployment choices.
+`backend/app.js` creates the complete provider-neutral handler from injected auth, document, and optional blob stores. `backend/bun-dev.js` provides a memory-only Bun HTTP runtime for local browser testing. Production durable storage remains a separate deployment choice.
 
 The separate `calendar-history` IndexedDB database remains local-only. It is never included in the Automerge document or remote sync.
 
@@ -74,7 +78,7 @@ The separate `calendar-history` IndexedDB database remains local-only. It is nev
 
 `tests/automerge-storage.test.js` covers the current Solid IndexedDB adapter, including stale editor intent rebasing, collaborative text captured at historical heads, kind conversion cleanup, local attachment bytes, and local-only undo history.
 
-`tests/sync-http.test.js` covers authentication gating, initial sync, atomic simultaneous requests, merged responses, replay, malformed input, size limits, and routing.
+`tests/sync-http.test.js` covers authentication gating, initial sync, atomic simultaneous requests, merged responses, replay, malformed input, empty input, and routing.
 
 `tests/sync-client.test.js` covers the serialized storage boundary, credentialed Fetch, auth failures, response media validation, and edits made while a request is in flight.
 
