@@ -1,29 +1,25 @@
 name: Test and Build Candidate
-run-name: Test and build ${{ inputs.unit }} @ ${{ inputs.commit }}
+run-name: Test and build ${{ inputs.unit }} @ ${{ inputs.revision }}
 
 on:
   workflow_call:
     inputs:
       unit:
-        description: Deploy unit
+        description: Deploy unit label
         required: true
         type: string
-      commit:
-        description: Exact 40-character commit SHA
+      revision:
+        description: Git revision to test and build
         required: true
         type: string
   workflow_dispatch:
     inputs:
       unit:
-        description: Deploy unit
+        description: Deploy unit label
         required: true
-        type: choice
-        options:
-          - root
-          - old
-          - vanilla
-      commit:
-        description: Exact 40-character commit SHA
+        type: string
+      revision:
+        description: Git revision to test and build
         required: true
         type: string
 
@@ -31,31 +27,73 @@ permissions:
   contents: read
   actions: read
 
-concurrency:
-  group: candidate-build-${{ inputs.unit }}-${{ inputs.commit }}
-  cancel-in-progress: false
-
 jobs:
-  test-and-build:
+  resolve:
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.candidate.outputs.sha }}
     steps:
-      - name: Normalize inputs
-        id: candidate
+      - name: Validate inputs
         shell: bash
         env:
-          RAW_SHA: ${{ inputs.commit }}
+          UNIT: ${{ inputs.unit }}
+          REVISION: ${{ inputs.revision }}
         run: |
-          SHA="${RAW_SHA,,}"
+          set -euo pipefail
+          if [[ ! "$UNIT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "Invalid unit name. Use letters, numbers, '.', '_', and '-' only, starting with an alphanumeric character." >&2
+            exit 1
+          fi
+          if [[ -z "$REVISION" || "$REVISION" == -* ]]; then
+            echo "revision must be a non-empty Git revision and may not begin with '-'." >&2
+            exit 1
+          fi
+
+      - name: Check out requested revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          path: .candidate
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve exact candidate commit
+        id: candidate
+        shell: bash
+        run: |
+          SHA="$(git -C .candidate rev-parse HEAD | tr '[:upper:]' '[:lower:]')"
           if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Commit must be an exact 40-character SHA." >&2
+            echo "Requested revision did not resolve to an exact commit SHA." >&2
             exit 1
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${{ inputs.revision }} to $SHA"
 
+  build:
+    needs: resolve
+    runs-on: ubuntu-latest
+    concurrency:
+      group: candidate-build-${{ inputs.unit }}-${{ needs.resolve.outputs.sha }}
+      cancel-in-progress: false
+    steps:
       - name: Check out deployment control
         uses: actions/checkout@v4
         with:
           ref: deployment-control
+
+      - name: Check out exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          path: .candidate
+
+      - name: Confirm exact candidate
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          ACTUAL_SHA="$(git -C .candidate rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
 
       - uses: actions/setup-node@v4
         with:
@@ -67,84 +105,9 @@ jobs:
         run: >-
           node scripts/assert-candidate-artifact-absent.mjs
           "${{ inputs.unit }}"
-          "${{ steps.candidate.outputs.sha }}"
+          "${{ needs.resolve.outputs.sha }}"
 
-      - name: Check out candidate
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.candidate.outputs.sha }}
-          path: .candidate
-
-      - name: Confirm exact candidate
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ steps.candidate.outputs.sha }}
-        run: |
-          ACTUAL_SHA="$(git -C .candidate rev-parse HEAD)"
-          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
-
-      - name: Install root dependencies
-        if: inputs.unit == 'root'
-        working-directory: .candidate
-        run: npm install --no-audit --no-fund
-
-      - name: Root tests
-        if: inputs.unit == 'root'
-        working-directory: .candidate
-        shell: bash
-        run: |
-          for FILE in tests/*.test.js; do
-            node --test "$FILE"
-          done
-
-      - name: Solid tests
-        id: solid_tests
-        if: inputs.unit == 'root'
-        working-directory: .candidate
-        shell: bash
-        run: |
-          FAILED=""
-          for FILE in solid/test/*.test.ts; do
-            if ! node --test "$FILE"; then
-              FAILED="$(basename "$FILE")"
-              break
-            fi
-          done
-          echo "failure=$FAILED" >> "$GITHUB_OUTPUT"
-
-      - name: Record failing Solid test
-        if: inputs.unit == 'root' && steps.solid_tests.outputs.failure != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: solid-test-failure-${{ steps.solid_tests.outputs.failure }}
-          path: .candidate/package.json
-          retention-days: 1
-
-      - name: Fail Solid tests
-        if: inputs.unit == 'root' && steps.solid_tests.outputs.failure != ''
-        run: exit 1
-
-      - name: Solid typecheck
-        if: inputs.unit == 'root'
-        working-directory: .candidate
-        run: npm run typecheck:solid
-
-      - name: Build Solid root
-        if: inputs.unit == 'root'
-        working-directory: .candidate
-        run: npm run build:solid
-
-      - name: Stage Solid root artifact
-        if: inputs.unit == 'root'
-        shell: bash
-        run: |
-          rm -rf artifact-output
-          mkdir artifact-output
-          cp -R .candidate/site/solid/. artifact-output/
-          test -f artifact-output/index.html
-
-      - name: Test and build non-root candidate
-        if: inputs.unit != 'root'
+      - name: Test and build candidate
         run: >-
           node scripts/build-deploy-unit.mjs
           --unit "${{ inputs.unit }}"
@@ -155,7 +118,7 @@ jobs:
       - name: Upload deploy artifact
         uses: actions/upload-artifact@v4
         with:
-          name: deploy-${{ inputs.unit }}-${{ steps.candidate.outputs.sha }}
+          name: deploy-${{ inputs.unit }}-${{ needs.resolve.outputs.sha }}
           path: artifact-output
           if-no-files-found: error
           retention-days: 90
