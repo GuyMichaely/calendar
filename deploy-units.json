@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "units": {
+    "root": {
+      "developmentBranch": "main",
+      "deployBranch": "deploy/root"
+    },
+    "old": {
+      "developmentBranch": "reference/pre-preview-deployment-main",
+      "deployBranch": "deploy/old"
+    },
+    "vanilla": {
+      "developmentBranch": "agent/vanilla-refactor",
+      "deployBranch": "deploy/vanilla"
+    }
+  }
+}
