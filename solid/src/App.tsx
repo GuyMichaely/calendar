@@ -118,26 +118,28 @@ export function App() {
     message: string,
   ) => {
     const now = new Date().toISOString();
-    await putItem({
+    const next: Task = {
       ...task,
       ...patch,
       updatedAt: now,
       history: [...(task.history || []), { at: now, ...historyEntry }],
-    });
+    };
+    await putItem(next, task);
     await refresh();
     showToast(message);
   };
 
   const completeTask = async (task: Task) => {
     const now = new Date().toISOString();
-    await putItem({
+    const next: Task = {
       ...task,
       state: "completed",
       completedAt: now,
       sleep: null,
       updatedAt: now,
       history: [...(task.history || []), { at: now, type: "completed" }],
-    });
+    };
+    await putItem(next, task);
     await refresh();
     showToast("Task completed");
   };
@@ -412,7 +414,7 @@ export function App() {
               showToast("Deleted");
             }}
             onSave={async (item, created) => {
-              await putItem(item);
+              await putItem(item, request.item);
               setEditor(null);
               await refresh();
               showToast(created ? `${item.kind === "task" ? "Task" : "Event"} created` : "Saved");
