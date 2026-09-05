@@ -32,15 +32,29 @@ Waiting is derived from real availability constraints. Sleep does not change a t
 
 ## Local data and Automerge
 
-The Solid development stream uses one Automerge document as the canonical local calendar/task state. The document is stored in the `calendar-automerge` IndexedDB database and is designed to be the unit exchanged by the future remote `/sync` endpoint.
+The Solid development stream uses one Automerge document as the canonical local calendar/task state. The document is stored in the `calendar-automerge` IndexedDB database and is also the unit exchanged by the remote sync core.
 
 Calendar item updates are represented as fine-grained Automerge changes where practical. Title and notes use Automerge collaborative text operations; tags, attachment metadata, task fields, and tombstones have separate operations. Deletion is represented by an application-level `deletedAt` tombstone so an offline edit cannot accidentally resurrect a deleted item.
 
 Attachment bytes are deliberately not placed in the Automerge document. Attachment metadata participates in the CRDT; local `Blob` contents are stored separately in the `attachments` object store and will use a separate content-addressed remote blob path when cloud synchronization is added.
 
-`readSyncSnapshot()` and `mergeSyncSnapshot()` in `site/storage.js` expose the current serialized Automerge document boundary for the later request/response sync client. There is no remote service configured in the Solid application yet.
+`readSyncSnapshot()` and `mergeSyncSnapshot()` in `site/storage.js` expose the serialized Automerge boundary used by `sync/client.js`. The browser application does not have a production remote endpoint configured yet.
 
 Undo/redo history remains in the separate `calendar-history` IndexedDB database and is session-scoped. It is never part of the Automerge document and must never be synchronized between devices. Undo/redo is applied as new local CRDT changes rather than restoring the entire remote-sync document wholesale, so unrelated merged list/history changes are retained.
+
+## Remote authentication and sync
+
+The repository contains the host-neutral backend core needed for remote synchronization:
+
+- `auth/oidc.js` implements provider-agnostic OpenID Connect using authorization code, PKCE, state, and nonce validation through `openid-client`;
+- `auth/http.js` implements login, callback, session inspection, logout, exact `(issuer, subject)` authorization, and opaque server-side sessions;
+- `sync/http.js` implements authenticated `POST /sync` with an atomic document-store contract;
+- `sync/client.js` exchanges serialized Solid storage snapshots and merges the response into current local state after the request completes;
+- `backend/http.js` composes auth and sync and enforces the configured browser-origin allowlist.
+
+Google is the first intended OIDC provider, but provider-specific configuration and secrets are not committed to the app. Memory-backed auth and document stores exist only for tests and local development.
+
+Production enablement still requires a backend HTTP runtime, durable session storage, atomic durable Automerge document storage, content-addressed attachment blob storage, Google OIDC credentials and callback configuration, and a configured backend URL in the Solid application.
 
 ## Data migrations
 
