@@ -41,10 +41,15 @@ type RemoteSyncQueueOptions = {
   onError?: (error: unknown) => void;
 };
 
+export const REMOTE_BACKEND_STORAGE_KEY = "calendar.remoteBackendUrl";
+
 function normalizeBaseUrl(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "";
   const url = new URL(trimmed);
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error("Remote sync URL must use HTTP or HTTPS.");
+  }
   if (!url.pathname.endsWith("/")) url.pathname += "/";
   url.search = "";
   url.hash = "";
@@ -57,11 +62,20 @@ function requestError(message: string, status: number) {
 
 function browserBackendUrl() {
   if (typeof window === "undefined") return "";
+  const saved = window.localStorage?.getItem(REMOTE_BACKEND_STORAGE_KEY);
+  if (saved !== null) return saved;
   return import.meta.env?.VITE_CALENDAR_BACKEND_URL || "";
 }
 
 export function configuredBackendUrl(value = browserBackendUrl()) {
   return normalizeBaseUrl(value);
+}
+
+export function saveConfiguredBackendUrl(value: string) {
+  if (typeof window === "undefined") return normalizeBaseUrl(value);
+  const normalized = normalizeBaseUrl(value);
+  window.localStorage.setItem(REMOTE_BACKEND_STORAGE_KEY, normalized);
+  return normalized;
 }
 
 export function createRemoteCalendarClient({ backendUrl, storage, fetch: fetchImpl = globalThis.fetch }: RemoteClientOptions) {
