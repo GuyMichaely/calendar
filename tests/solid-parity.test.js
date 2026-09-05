@@ -57,7 +57,13 @@ test("Solid shell keeps vanilla calendar search, today navigation, and menu word
   assert.doesNotMatch(app, /solid-badge/);
 });
 
-test("Solid calendar omits sleep-end markers and Vite targets the Solid preview path", () => {
+test("Solid writes include the item snapshot they were based on", () => {
+  const app = source("solid/src/App.tsx");
+  assert.match(app, /await putItem\(next, task\);/);
+  assert.match(app, /await putItem\(item, request\.item\);/);
+});
+
+test("Solid calendar omits sleep-end markers and Vite targets the root calendar path", () => {
   const calendar = source("solid/src/CalendarView.tsx");
   const vite = source("solid/vite.config.ts");
   assert.doesNotMatch(calendar, /Sleep ends:/);
@@ -65,7 +71,7 @@ test("Solid calendar omits sleep-end markers and Vite targets the Solid preview 
   assert.match(calendar, /\$\{count\} matching \$\{noun\}/);
   assert.match(calendar, /Untitled event/);
   assert.match(calendar, /Sleeping projections are shown differently\./);
-  assert.match(vite, /base: "\/calendar\/solid\/"/);
+  assert.match(vite, /base: "\/calendar\/"/);
   assert.match(vite, /outDir: "\.\.\/site\/solid"/);
 });
 
