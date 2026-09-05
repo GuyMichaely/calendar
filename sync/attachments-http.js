@@ -1,5 +1,3 @@
-const DEFAULT_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
-
 function copyBytes(value) {
   return value == null ? null : new Uint8Array(value);
 }
@@ -47,46 +45,9 @@ function attachmentId(pathname, basePath) {
   return id;
 }
 
-function contentLength(request) {
-  const raw = request.headers.get("content-length");
-  if (!raw) return null;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-async function readBytes(request, maxBytes) {
-  if (!request.body) return new Uint8Array();
-  const reader = request.body.getReader();
-  const chunks = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
-      total += bytes.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel("Attachment is too large").catch(() => {});
-        return null;
-      }
-      chunks.push(bytes);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const result = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return result;
-}
-
 export function createAttachmentHandler({
   authenticate,
   blobStore,
-  maxAttachmentBytes = DEFAULT_MAX_ATTACHMENT_BYTES,
   basePath = "",
 }) {
   if (typeof authenticate !== "function") throw new Error("Attachment service requires authenticate(request).");
@@ -114,12 +75,7 @@ export function createAttachmentHandler({
       return new Response(request.method === "HEAD" ? null : stored.bytes, { status: 200, headers });
     }
 
-    const declaredLength = contentLength(request);
-    if (declaredLength != null && declaredLength > maxAttachmentBytes) {
-      return new Response("Attachment is too large", { status: 413 });
-    }
-    const bytes = await readBytes(request, maxAttachmentBytes);
-    if (bytes == null) return new Response("Attachment is too large", { status: 413 });
+    const bytes = new Uint8Array(await request.arrayBuffer());
     if (!bytes.byteLength) return new Response("Attachment is empty", { status: 400 });
     await blobStore.putIfAbsent(id, {
       bytes,
