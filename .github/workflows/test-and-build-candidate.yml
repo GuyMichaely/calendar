@@ -82,19 +82,28 @@ jobs:
         shell: bash
         run: |
           FAILED=""
+          CASE=""
           for FILE in tests/*.test.js; do
-            if ! node --test "$FILE"; then
+            set +e
+            OUTPUT="$(node --test "$FILE" 2>&1)"
+            STATUS=$?
+            set -e
+            printf '%s\n' "$OUTPUT"
+            if [[ $STATUS -ne 0 ]]; then
               FAILED="$(basename "$FILE")"
+              CASE="$(printf '%s\n' "$OUTPUT" | sed -n 's/^[[:space:]]*not ok [0-9][0-9]* - //p' | head -n 1)"
               break
             fi
           done
+          SLUG="$(printf '%s' "$CASE" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//' | cut -c1-100)"
           echo "failure=$FAILED" >> "$GITHUB_OUTPUT"
+          echo "case=${SLUG:-unknown}" >> "$GITHUB_OUTPUT"
 
       - name: Record failing root test
         if: inputs.unit == 'root' && steps.root_tests.outputs.failure != ''
         uses: actions/upload-artifact@v4
         with:
-          name: root-test-failure-${{ steps.root_tests.outputs.failure }}
+          name: root-test-failure-${{ steps.root_tests.outputs.failure }}-${{ steps.root_tests.outputs.case }}
           path: .candidate/package.json
           retention-days: 1
 
@@ -102,7 +111,7 @@ jobs:
         if: inputs.unit == 'root' && steps.root_tests.outputs.failure != ''
         shell: bash
         run: |
-          echo "Root test file failed: ${{ steps.root_tests.outputs.failure }}" >&2
+          echo "Root test failed: ${{ steps.root_tests.outputs.failure }} / ${{ steps.root_tests.outputs.case }}" >&2
           exit 1
 
       - name: Solid tests
