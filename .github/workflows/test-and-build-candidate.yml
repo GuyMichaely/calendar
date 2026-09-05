@@ -29,6 +29,11 @@ on:
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: candidate-build-${{ inputs.unit }}-${{ inputs.commit }}
+  cancel-in-progress: false
 
 jobs:
   test-and-build:
@@ -52,6 +57,18 @@ jobs:
         with:
           ref: deployment-control
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Refuse duplicate candidate artifact
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          node scripts/assert-candidate-artifact-absent.mjs
+          "${{ inputs.unit }}"
+          "${{ steps.candidate.outputs.sha }}"
+
       - name: Check out candidate
         uses: actions/checkout@v4
         with:
@@ -65,10 +82,6 @@ jobs:
         run: |
           ACTUAL_SHA="$(git -C .candidate rev-parse HEAD)"
           test "$ACTUAL_SHA" = "$EXPECTED_SHA"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
 
       - name: Install root dependencies
         if: inputs.unit == 'root'
