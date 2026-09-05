@@ -13,9 +13,9 @@ Google is the first intended provider, but the HTTP and session code is not Goog
 5. The backend exchanges the authorization code and validates PKCE, state, nonce, issuer, audience, token signature, and expiry through `openid-client`.
 6. The resulting identity is reduced to `{ issuer, subject, ...displayClaims }`.
 7. Authorization checks the exact `(issuer, subject)` pair against the configured allowlist. Email is display information, not an authorization identifier.
-8. The backend creates a new opaque random calendar session. The browser receives only a host-only `HttpOnly; Secure; SameSite=Lax` session cookie. Provider tokens are not used as the calendar API session.
+8. The backend creates a new opaque random calendar session. In production the browser receives only a host-only `HttpOnly; Secure; SameSite=Lax` session cookie. Provider tokens are not used as the calendar API session.
 
-The same model can support additional OIDC providers later. If two provider identities should represent the same person, backend configuration can map both `(issuer, subject)` pairs to the same account without changing the sync protocol.
+The same model can support additional OIDC providers later. If two provider identities should represent the same person, backend configuration can allow both `(issuer, subject)` pairs without changing the sync protocol.
 
 ## HTTP surface
 
@@ -24,9 +24,13 @@ The same model can support additional OIDC providers later. If two provider iden
 - `GET /auth/me`
 - `POST /auth/logout`
 
-`createAuthHandler()` uses Fetch API `Request` and `Response`, Web Crypto, and an injected asynchronous key-value store. It is not tied to Express, Cloudflare, or another host. `createMemoryAuthStore()` exists only for tests and local development. Production must supply durable storage for login transactions and sessions.
+`createAuthHandler()` uses Fetch API `Request` and `Response`, Web Crypto, and an injected asynchronous key-value store. It is not tied to Express or another host runtime. `createMemoryAuthStore()` exists only for tests and local development. Production must supply durable storage for login transactions and sessions.
 
-The configured `publicBaseUrl` constructs registered callback URLs. The configured `appUrl` is the fixed post-login destination, so request parameters cannot introduce an open redirect.
+The configured `publicBaseUrl` constructs registered callback URLs and may include a path prefix. For example, a public base of `https://sync.example.com/calendar-api/` produces `https://sync.example.com/calendar-api/auth/callback/google`. Requests outside that configured prefix are not treated as auth routes.
+
+The configured `appUrl` is the fixed post-login destination, so request parameters cannot introduce an open redirect.
+
+The local Node development backend uses non-`Secure` cookies only when its public URL is HTTP, such as `http://localhost:8787/`. HTTPS production configuration enables the `__Host-` cookie names and `Secure` attribute.
 
 ## Google configuration
 
@@ -42,7 +46,7 @@ A Google provider has this shape:
 }
 ```
 
-The Google OAuth client must register the backend callback URL, for example `https://sync.example.com/auth/callback/google`. Client secrets and the allowed subject ID belong only in backend configuration or secrets. They must not be committed to this repository or shipped in the browser bundle.
+The Google OAuth client must register the exact backend callback URL, for example `https://sync.example.com/auth/callback/google`. Client secrets and the allowed subject ID belong only in backend configuration or secrets. They must not be committed to this repository or shipped in the browser bundle.
 
 For the current single-user application, authorization can be configured as:
 
@@ -52,6 +56,8 @@ allowedIdentities: [
 ]
 ```
 
+`backend/config.js` provides those Google convenience variables while also accepting arbitrary providers through `CALENDAR_OIDC_PROVIDERS_JSON` and exact identities through `CALENDAR_ALLOWED_IDENTITIES_JSON`.
+
 ## Relationship to sync
 
-`readAuthSession()` is the authentication boundary consumed by the remote sync handler. The Automerge transport remains independent of Google, OIDC, and provider tokens. Authentication and synchronization therefore remain separately testable and replaceable.
+`readAuthSession()` is the authentication boundary consumed by both remote document sync and attachment blob sync. The transports remain independent of Google, OIDC, and provider tokens. Authentication and synchronization therefore remain separately testable and replaceable.
