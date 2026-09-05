@@ -98,6 +98,77 @@ test("remote sync sends current serialized storage and delegates the response to
   assert.deepEqual(items, [materializeItem(document, "task-remote-client")]);
 });
 
+test("remote sync uploads referenced local attachment blobs that the server does not have", async () => {
+  const document = createCalendarDocument([{
+    ...task(),
+    attachments: [{ id: "attachment-local", name: "note.txt", type: "text/plain", size: 5 }],
+  }]);
+  const bytes = saveCalendarDocument(document);
+  const localBlob = new Blob(["hello"], { type: "text/plain" });
+  let uploaded = "";
+  const client = createRemoteCalendarClient({
+    backendUrl: "https://sync.example/calendar-api/",
+    storage: {
+      readSnapshot: async () => bytes,
+      mergeSnapshot: async () => [{
+        ...task(),
+        attachments: [{ id: "attachment-local", name: "note.txt", type: "text/plain", size: 5, blob: localBlob }],
+      }],
+    },
+    fetch: async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/sync")) {
+        return new Response(bytes, { status: 200, headers: { "content-type": AUTOMERGE_MEDIA_TYPE } });
+      }
+      assert.equal(url, "https://sync.example/calendar-api/attachments/attachment-local");
+      assert.equal(init?.credentials, "include");
+      if (init?.method === "HEAD") return new Response(null, { status: 404 });
+      assert.equal(init?.method, "PUT");
+      assert.equal((init?.headers as Record<string, string>)["content-type"], "text/plain");
+      uploaded = await new Response(init?.body as BodyInit).text();
+      return new Response(null, { status: 204 });
+    },
+  });
+
+  await client.sync();
+  assert.equal(uploaded, "hello");
+});
+
+test("remote sync downloads referenced attachment blobs missing from local IndexedDB", async () => {
+  const document = createCalendarDocument([{
+    ...task(),
+    attachments: [{ id: "attachment-remote", name: "remote.txt", type: "text/plain", size: 6 }],
+  }]);
+  const bytes = saveCalendarDocument(document);
+  let stored: { id: string; text: string; type: string } | null = null;
+  const client = createRemoteCalendarClient({
+    backendUrl: "https://sync.example/",
+    storage: {
+      readSnapshot: async () => bytes,
+      mergeSnapshot: async () => [{
+        ...task(),
+        attachments: [{ id: "attachment-remote", name: "remote.txt", type: "text/plain", size: 6 }],
+      }],
+      putAttachmentBlob: async (id, blob) => {
+        stored = { id, text: await blob.text(), type: blob.type };
+      },
+    },
+    fetch: async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/sync")) {
+        return new Response(bytes, { status: 200, headers: { "content-type": AUTOMERGE_MEDIA_TYPE } });
+      }
+      assert.equal(url, "https://sync.example/attachments/attachment-remote");
+      assert.equal(init?.credentials, "include");
+      assert.equal(init?.method, undefined);
+      return new Response("remote", { status: 200, headers: { "content-type": "text/plain" } });
+    },
+  });
+
+  await client.sync();
+  assert.deepEqual(stored, { id: "attachment-remote", text: "remote", type: "text/plain" });
+});
+
 test("remote logout is credentialed and requires a successful response", async () => {
   let status = 204;
   const client = createRemoteCalendarClient({
