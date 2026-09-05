@@ -4,7 +4,7 @@ A personal calendar and task planner built around the distinction between an ope
 
 ## Current implementation
 
-The selected frontend is SolidJS + TypeScript + Vite. `agent/solid-refactor` is the primary application development stream and its verified `root` candidates are published at `/calendar/`.
+The selected frontend is SolidJS + TypeScript + Vite. `agent/solid-refactor` is the primary application development stream and its tested `root` candidates are published at `/calendar/`.
 
 The app supports:
 
@@ -37,7 +37,7 @@ The Solid development stream uses one Automerge document as the canonical local 
 
 Calendar item updates are represented as fine-grained Automerge changes where practical. Title and notes use Automerge collaborative text operations; tags, attachment metadata, task fields, and tombstones have separate operations. Deletion is represented by an application-level `deletedAt` tombstone so an offline edit cannot accidentally resurrect a deleted item.
 
-Attachment bytes are deliberately not placed in the Automerge document. Attachment metadata participates in the CRDT; `Blob` contents are stored separately in the local `attachments` object store. When remote sync is configured, referenced local blobs are uploaded separately and blobs referenced by merged remote metadata are downloaded into that same local store. The remote blob protocol addresses a blob by its stable attachment ID and does not change the Automerge schema.
+Attachment bytes are deliberately not placed in the Automerge document. Attachment metadata participates in the CRDT. Browser-local `Blob` contents are stored separately in the local IndexedDB `attachments` object store so attachments remain available offline. When remote sync is configured, referenced local blobs are uploaded separately and blobs referenced by merged remote metadata are downloaded into that local store. A production backend should satisfy the blob-store contract with object/blob storage rather than putting large attachment bytes into the Automerge document or ordinary relational/document records.
 
 `readSyncSnapshot()` and `mergeSyncSnapshot()` in `site/storage.js` expose the serialized Automerge boundary used by `sync/client.js`. The Solid frontend only enables its remote controls when `VITE_CALENDAR_BACKEND_URL` is configured. Local-only operation remains the default.
 
@@ -58,9 +58,11 @@ The repository contains a host-neutral backend and browser client for remote syn
 
 The backend URL may include a path prefix. Auth callback URLs, `/sync`, attachment routes, and the Solid client all preserve that prefix.
 
+`POST /sync` has no application-defined byte limit. It exchanges the current serialized Automerge document as one request/response body. A concrete hosting/runtime layer may still impose its own technical request-size or memory limits and should document them if it does.
+
 Google is the first intended OIDC provider, but provider-specific configuration and secrets are not committed to the app. `backend/config.js` also accepts arbitrary OIDC provider and exact-identity arrays. Memory-backed auth, document, and blob stores exist only for tests and local development.
 
-Production enablement still requires a chosen HTTP runtime, durable session storage, atomic durable Automerge document storage, durable attachment blob storage, OIDC credentials and callback configuration, and `VITE_CALENDAR_BACKEND_URL` in the Solid build. None of those durable storage/runtime choices are implemented by the host-neutral core.
+Production enablement still requires durable session storage, atomic durable Automerge document storage, durable attachment blob/object storage, OIDC credentials and callback configuration, a Bun-capable or otherwise Fetch-compatible backend runtime, and `VITE_CALENDAR_BACKEND_URL` in the Solid build. The host-neutral core does not choose a production storage provider.
 
 ## Data migrations
 
@@ -92,7 +94,7 @@ npm install
 npm run dev:solid
 ```
 
-For local browser testing of auth and remote sync, run the provider-neutral Node development backend in a second process. Its auth sessions, Automerge document, and attachment blobs are memory-only and disappear when the process exits.
+For local browser testing of auth and remote sync, run the provider-neutral Bun development backend in a second process. Its auth sessions, Automerge document, and attachment blobs are memory-only and disappear when the process exits.
 
 Google convenience configuration:
 
@@ -104,6 +106,8 @@ GOOGLE_CLIENT_SECRET=your-client-secret \
 ALLOWED_GOOGLE_SUBJECT=your-google-subject \
 npm run dev:backend
 ```
+
+`npm run dev:backend` invokes Bun, so Bun must be installed on the machine running the backend.
 
 Then start the Solid frontend with the matching backend URL:
 
@@ -140,6 +144,6 @@ Current public deploy units are:
 
 The old `/calendar/solid/` deployment is retired.
 
-Pushing development commits does not verify or deploy them. To publish a Solid commit, run **Verify Candidate** from `deployment-control` with unit `root` and the exact Solid commit SHA. A successful verification runs the repository tests, Solid behavior tests, strict TypeScript checking, and the Vite build and records the resulting artifact. Then run **Promote Deployment** with the same unit/SHA. Promotion updates only the `root` entry in `deployment.json`; deployment assembles the pinned already-verified `root`, `old`, and `vanilla` artifacts.
+Pushing development commits does not test, build, or deploy them. **Test and Build Candidate** can be run at any point for an exact development SHA to execute the canonical checks and produce a deployable artifact without publishing it. To publish that tested SHA, run **Promote Deployment** for the same unit and SHA. Promotion records the tested artifact in `deployment.json`, which triggers deployment.
 
 See the `deployment-control` branch README for the authoritative deployment protocol.
