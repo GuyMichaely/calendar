@@ -18,7 +18,7 @@ The control branch itself is not an application source.
 
 Development branches may contain arbitrary intermediate commits. Pushing development commits does not run tests, build, or deploy.
 
-Use **Test and Build Candidate** whenever you want GitHub to run the canonical checks for an exact commit. For deploy unit `root`, it runs the repository tests, Solid behavior tests, strict TypeScript checking, and the Solid production build. Old and vanilla candidates use their corresponding deploy-unit checks.
+Use **Test and Build Candidate** whenever you want GitHub to run the canonical checks for a commit. Test semantics are defined per unit in the action.
 
 From a shell with GitHub CLI authentication:
 
@@ -28,19 +28,21 @@ gh workflow run test-and-build-candidate.yml -f unit=root -f commit="$(git rev-p
 
 Or use **Actions -> Test and Build Candidate -> Run workflow** in GitHub.
 
-A successful run means all checks for that deploy unit and SHA passed. It stores the deployable output for 90 days as `deploy-<unit>-<sha>`. Running it does not deploy anything or imply that the candidate should be published, so it can also be used during development to check intermediate commits.
+A successful run is meant to indicate that all tests pass and the app builds. It stores the deployable output as `deploy-<unit>-<sha>`. Running it does not deploy anything; use Promote Deployment for that.
 
-## Promotion
+## Deploying
 
-When you want to publish a successful candidate build, run **Promote Deployment** with the same unit and SHA:
+When you want to deploy a build, run **Promote Deployment** with the unit name and SHA:
 
 ```bash
-gh workflow run promote-deployment.yml -f unit=root -f commit="$(git rev-parse HEAD)"
+gh workflow run promote-deployment.yml -f unit=<unit-name> -f commit="$(git rev-parse HEAD)"
 ```
 
 Or use **Actions -> Promote Deployment -> Run workflow**.
 
-Promotion jobs share the `deployment-promotions` concurrency group with `queue: max`, so concurrent requests wait and each reads the manifest after earlier promotions finish.
+Promotion jobs share the `deployment-promotions` concurrency group with `queue: max`, so promotions wait one at a time until all previous promotions complete.
+
+Successful promotion jobs modify `deployment.json`, triggering a deploy.
 
 ## Deployment
 
