@@ -13,7 +13,7 @@ on:
           - old
           - vanilla
       commit:
-        description: Exact verified 40-character commit SHA
+        description: Exact candidate 40-character commit SHA
         required: true
         type: string
 
@@ -52,7 +52,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Find successful verification
+      - name: Find successful candidate build
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
@@ -77,7 +77,7 @@ jobs:
         run: |
           if git diff --quiet -- deployment.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Deployment manifest already contains this exact verification."
+            echo "Deployment manifest already contains this exact candidate build."
             exit 0
           fi
 
