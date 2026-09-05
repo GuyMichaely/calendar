@@ -38,19 +38,7 @@ const uniquePaths = new Set(deployPaths.values());
 if (uniquePaths.size !== units.length) throw new Error("Deployment paths must be unique.");
 
 const rootUnits = units.filter((unit) => deployPaths.get(unit) === "");
-if (rootUnits.length !== 1) throw new Error("Exactly one deploy unit must use path '/'.");
-
-for (const unit of units) {
-  const candidate = deployPaths.get(unit);
-  if (!candidate) continue;
-  for (const other of units) {
-    if (unit === other) continue;
-    const otherPath = deployPaths.get(other);
-    if (otherPath && otherPath.startsWith(`${candidate}${path.sep}`)) {
-      throw new Error(`Deployment paths may not nest: ${unit} and ${other}.`);
-    }
-  }
-}
+if (rootUnits.length > 1) throw new Error("Only one deploy unit may use path '/'.");
 
 const nestedDeployDirectories = new Set([
   ...[...deployPaths.values()]
@@ -105,18 +93,30 @@ rmSync(outputDir, { recursive: true, force: true });
 mkdirSync(outputDir, { recursive: true });
 
 const rootUnit = rootUnits[0];
-const rootSource = path.join(sourcesDir, rootUnit);
-cpSync(rootSource, outputDir, { recursive: true });
-for (const nested of nestedDeployDirectories) {
-  rmSync(path.join(outputDir, nested), { recursive: true, force: true });
+if (rootUnit) {
+  const rootSource = path.join(sourcesDir, rootUnit);
+  cpSync(rootSource, outputDir, { recursive: true });
+  for (const nested of nestedDeployDirectories) {
+    rmSync(path.join(outputDir, nested), { recursive: true, force: true });
+  }
+  normalizeRootIndex(outputDir);
+  writeShellManifest(rootSource, outputDir);
 }
-normalizeRootIndex(outputDir);
-writeShellManifest(rootSource, outputDir);
 
-for (const unit of units) {
-  if (unit === rootUnit) continue;
+const nonRootUnits = units
+  .filter((unit) => unit !== rootUnit)
+  .sort((a, b) => {
+    const aPath = deployPaths.get(a);
+    const bPath = deployPaths.get(b);
+    const aDepth = aPath.split(path.sep).length;
+    const bDepth = bPath.split(path.sep).length;
+    return aDepth - bDepth || aPath.localeCompare(bPath) || a.localeCompare(b);
+  });
+
+for (const unit of nonRootUnits) {
   const source = path.join(sourcesDir, unit);
   const destination = path.join(outputDir, deployPaths.get(unit));
+  rmSync(destination, { recursive: true, force: true });
   mkdirSync(path.dirname(destination), { recursive: true });
   cpSync(source, destination, { recursive: true });
   writeShellManifest(source, destination);
