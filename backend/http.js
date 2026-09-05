@@ -2,6 +2,20 @@ function normalizeOrigins(allowedOrigins) {
   return new Set((allowedOrigins || []).map((origin) => new URL(origin).origin));
 }
 
+function normalizeBasePath(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "/") return "";
+  const prefixed = raw.startsWith("/") ? raw : `/${raw}`;
+  return prefixed.replace(/\/+$/u, "");
+}
+
+function pathWithinBase(pathname, basePath) {
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (!pathname.startsWith(`${basePath}/`)) return null;
+  return pathname.slice(basePath.length);
+}
+
 function applyCors(response, origin) {
   if (!origin) return response;
   response.headers.set("access-control-allow-origin", origin);
@@ -11,10 +25,11 @@ function applyCors(response, origin) {
   return response;
 }
 
-export function createCalendarBackend({ authHandler, syncHandler, allowedOrigins = [] }) {
+export function createCalendarBackend({ authHandler, syncHandler, allowedOrigins = [], basePath = "" }) {
   if (typeof authHandler !== "function") throw new Error("Backend requires an auth handler.");
   if (typeof syncHandler !== "function") throw new Error("Backend requires a sync handler.");
   const origins = normalizeOrigins(allowedOrigins);
+  const routeBasePath = normalizeBasePath(basePath);
 
   return async function handleRequest(request) {
     const url = new URL(request.url);
@@ -25,6 +40,9 @@ export function createCalendarBackend({ authHandler, syncHandler, allowedOrigins
     // reaching the server. Reject untrusted Origin values before auth/logout or
     // sync handlers can mutate server state.
     if (requestOrigin && !allowedOrigin) return new Response("Origin not allowed", { status: 403 });
+
+    const path = pathWithinBase(url.pathname, routeBasePath);
+    if (path == null) return applyCors(new Response("Not found", { status: 404 }), allowedOrigin);
 
     if (request.method === "OPTIONS") {
       if (!allowedOrigin) return new Response("Origin not allowed", { status: 403 });
@@ -39,8 +57,8 @@ export function createCalendarBackend({ authHandler, syncHandler, allowedOrigins
     }
 
     let response;
-    if (url.pathname.startsWith("/auth/")) response = await authHandler(request);
-    else if (url.pathname === "/sync") response = await syncHandler(request);
+    if (path.startsWith("/auth/")) response = await authHandler(request);
+    else if (path === "/sync") response = await syncHandler(request);
     else response = new Response("Not found", { status: 404 });
 
     return applyCors(response, allowedOrigin);
