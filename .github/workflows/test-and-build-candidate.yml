@@ -70,24 +70,48 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install root dependencies for storage regression check
+      - name: Install root dependencies
         if: inputs.unit == 'root'
         working-directory: .candidate
         run: npm install --no-audit --no-fund
 
-      - name: Automerge storage regression tests
+      - name: Root tests
         if: inputs.unit == 'root'
         working-directory: .candidate
-        run: node --test tests/automerge-storage.test.js
+        run: npm test
 
-      - name: Test and build candidate
+      - name: Solid tests
+        if: inputs.unit == 'root'
+        working-directory: .candidate
+        run: npm run test:solid
+
+      - name: Solid typecheck
+        if: inputs.unit == 'root'
+        working-directory: .candidate
+        run: npm run typecheck:solid
+
+      - name: Build Solid root
+        if: inputs.unit == 'root'
+        working-directory: .candidate
+        run: npm run build:solid
+
+      - name: Stage Solid root artifact
+        if: inputs.unit == 'root'
         shell: bash
         run: |
-          node scripts/build-deploy-unit.mjs \
-            --unit "${{ inputs.unit }}" \
-            --source .candidate \
-            --output artifact-output \
-            --verify
+          rm -rf artifact-output
+          mkdir artifact-output
+          cp -R .candidate/site/solid/. artifact-output/
+          test -f artifact-output/index.html
+
+      - name: Test and build non-root candidate
+        if: inputs.unit != 'root'
+        run: >-
+          node scripts/build-deploy-unit.mjs
+          --unit "${{ inputs.unit }}"
+          --source .candidate
+          --output artifact-output
+          --verify
 
       - name: Upload deploy artifact
         uses: actions/upload-artifact@v4
