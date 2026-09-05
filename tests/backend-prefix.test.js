@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createAuthHandler, createMemoryAuthStore } from "../auth/http.js";
 import { createCalendarBackend } from "../backend/http.js";
+import { createCalendarDocument, saveCalendarDocument } from "../sync/automerge-document.js";
+import { AUTOMERGE_MEDIA_TYPE, createMemoryDocumentStore, createSyncHandler } from "../sync/http.js";
 
 const provider = {
   id: "example",
@@ -50,23 +52,42 @@ test("auth routes and OIDC callbacks preserve the configured backend path prefix
   assert.equal(unprefixedMe.status, 404);
 });
 
-test("composed backend routes auth, sync, and CORS under one optional path prefix", async () => {
+test("composed backend routes the real sync handler and CORS under one optional path prefix", async () => {
+  const basePath = "/calendar-api";
+  const syncHandler = createSyncHandler({
+    authenticate: async () => ({ identity: { issuer: provider.issuer, subject: "guy" } }),
+    documentStore: createMemoryDocumentStore(),
+    basePath,
+  });
   const backend = createCalendarBackend({
     authHandler: async () => new Response("auth"),
-    syncHandler: async () => new Response("sync"),
+    syncHandler,
     allowedOrigins: ["https://app.example"],
-    basePath: "/calendar-api/",
+    basePath,
   });
 
   const auth = await backend(new Request("https://sync.example/calendar-api/auth/me"));
   assert.equal(auth.status, 200);
   assert.equal(await auth.text(), "auth");
 
-  const sync = await backend(new Request("https://sync.example/calendar-api/sync", { method: "POST" }));
+  const bytes = saveCalendarDocument(createCalendarDocument([]));
+  const sync = await backend(new Request("https://sync.example/calendar-api/sync", {
+    method: "POST",
+    headers: {
+      origin: "https://app.example",
+      "content-type": AUTOMERGE_MEDIA_TYPE,
+    },
+    body: bytes,
+  }));
   assert.equal(sync.status, 200);
-  assert.equal(await sync.text(), "sync");
+  assert.equal(sync.headers.get("access-control-allow-origin"), "https://app.example");
+  assert.equal(sync.headers.get("content-type"), AUTOMERGE_MEDIA_TYPE);
 
-  const outside = await backend(new Request("https://sync.example/sync", { method: "POST" }));
+  const outside = await backend(new Request("https://sync.example/sync", {
+    method: "POST",
+    headers: { "content-type": AUTOMERGE_MEDIA_TYPE },
+    body: bytes,
+  }));
   assert.equal(outside.status, 404);
 
   const preflight = await backend(new Request("https://sync.example/calendar-api/sync", {
