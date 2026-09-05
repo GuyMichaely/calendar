@@ -44,7 +44,7 @@ test("Solid dialogs protect dirty edits and preserve attachment and sleep feedba
   const shortcuts = source("solid/src/shortcuts.tsx");
   assert.match(editor, /draggingAttachments\(\) \? "dragging"/);
   assert.match(editor, /Discard your unsaved changes\?/);
-  assert.match(editor, /Files are stored locally and sync when remote sync is configured\./);
+  assert.match(editor, /Attachment files are stored on the sync server and downloaded on demand\./);
   assert.match(app, /Choose a future sleep time/);
   assert.match(shortcuts, /Discard your unsaved changes\?/);
 });
@@ -63,9 +63,10 @@ test("Solid writes include the item snapshot they were based on", () => {
   assert.match(app, /await putItem\(item, request\.item\);/);
 });
 
-test("Solid remote integration uses the serialized storage boundary and queues local writes", () => {
+test("Solid remote integration uses the serialized storage boundary and server attachment routes", () => {
   const app = source("solid/src/App.tsx");
   const remote = source("solid/src/remote-sync.ts");
+  const tasks = source("solid/src/TasksView.tsx");
   assert.match(app, /storage: \{ readSnapshot: readSyncSnapshot, mergeSnapshot: mergeSyncSnapshot \}/);
   assert.match(app, /createRemoteSyncQueue/);
   assert.match(app, /Sign in with Google/);
@@ -74,6 +75,7 @@ test("Solid remote integration uses the serialized storage boundary and queues l
   assert.match(remote, /attachments\/\$\{encodeURIComponent\(attachment\.id\)\}/);
   assert.match(remote, /method: "HEAD"/);
   assert.match(remote, /method: "PUT"/);
+  assert.match(tasks, /downloadAttachmentOnDemand/);
 });
 
 test("Solid calendar omits sleep-end markers and Vite targets the root calendar path", () => {
