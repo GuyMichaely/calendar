@@ -25,9 +25,10 @@ function applyCors(response, origin) {
   return response;
 }
 
-export function createCalendarBackend({ authHandler, syncHandler, allowedOrigins = [], basePath = "" }) {
+export function createCalendarBackend({ authHandler, syncHandler, attachmentHandler = null, allowedOrigins = [], basePath = "" }) {
   if (typeof authHandler !== "function") throw new Error("Backend requires an auth handler.");
   if (typeof syncHandler !== "function") throw new Error("Backend requires a sync handler.");
+  if (attachmentHandler != null && typeof attachmentHandler !== "function") throw new Error("Backend attachment handler must be a function.");
   const origins = normalizeOrigins(allowedOrigins);
   const routeBasePath = normalizeBasePath(basePath);
 
@@ -49,7 +50,7 @@ export function createCalendarBackend({ authHandler, syncHandler, allowedOrigins
       return applyCors(new Response(null, {
         status: 204,
         headers: {
-          "access-control-allow-methods": "GET, POST, OPTIONS",
+          "access-control-allow-methods": "GET, HEAD, POST, PUT, OPTIONS",
           "access-control-allow-headers": "Content-Type",
           "access-control-max-age": "600",
         },
@@ -59,6 +60,7 @@ export function createCalendarBackend({ authHandler, syncHandler, allowedOrigins
     let response;
     if (path.startsWith("/auth/")) response = await authHandler(request);
     else if (path === "/sync") response = await syncHandler(request);
+    else if (path.startsWith("/attachments/") && attachmentHandler) response = await attachmentHandler(request);
     else response = new Response("Not found", { status: 404 });
 
     return applyCors(response, allowedOrigin);
