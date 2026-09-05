@@ -30,7 +30,7 @@ The configured `publicBaseUrl` constructs registered callback URLs and may inclu
 
 The configured `appUrl` is the fixed post-login destination, so request parameters cannot introduce an open redirect.
 
-The local Node development backend uses non-`Secure` cookies only when its public URL is HTTP, such as `http://localhost:8787/`. HTTPS production configuration enables the `__Host-` cookie names and `Secure` attribute.
+The local Bun development backend uses non-`Secure` cookies only when its public URL is HTTP, such as `http://localhost:8787/`. HTTPS production configuration enables the `__Host-` cookie names and `Secure` attribute.
 
 ## Google configuration
 
