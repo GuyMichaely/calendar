@@ -52,6 +52,16 @@ function validateManifest(manifest) {
 
   const uniquePaths = new Set(deployPaths.values());
   if (uniquePaths.size !== deployPaths.size) throw new Error("Deployment paths must be unique.");
+
+  for (const [unitName, candidate] of deployPaths) {
+    if (!candidate) continue;
+    for (const [otherUnit, otherPath] of deployPaths) {
+      if (unitName === otherUnit || !otherPath) continue;
+      if (otherPath.startsWith(`${candidate}${path.sep}`)) {
+        throw new Error(`Deployment paths may not nest: ${unitName} and ${otherUnit}.`);
+      }
+    }
+  }
 }
 
 const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
