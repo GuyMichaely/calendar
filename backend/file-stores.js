@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
   mkdir,
-  open,
   readFile,
   rename,
   rm,
@@ -15,7 +14,7 @@ function requireDirectory(value) {
   return resolve(text);
 }
 
-function fileNameForKey(key, extension) {
+function fileNameForKey(key, extension = "") {
   const encoded = Buffer.from(String(key), "utf8").toString("base64url");
   return `${encoded || "empty"}${extension}`;
 }
@@ -30,6 +29,10 @@ function copyBytes(value) {
 
 function isMissing(error) {
   return error?.code === "ENOENT";
+}
+
+function destinationExists(error) {
+  return error?.code === "EEXIST" || error?.code === "ENOTEMPTY";
 }
 
 async function ensureDirectory(directory) {
@@ -132,59 +135,48 @@ export function createFileDocumentStore({ directory } = {}) {
 
 export function createFileBlobStore({ directory } = {}) {
   const root = join(requireDirectory(directory), "blobs");
-  const blobPathFor = (key) => join(root, fileNameForKey(key, ".blob"));
-  const metadataPathFor = (key) => join(root, fileNameForKey(key, ".json"));
+  const pathFor = (key) => join(root, fileNameForKey(key));
 
   return {
     async get(key) {
       await ensureDirectory(root);
+      const path = pathFor(key);
       let bytes;
       try {
-        bytes = new Uint8Array(await readFile(blobPathFor(key)));
+        bytes = new Uint8Array(await readFile(join(path, "blob")));
       } catch (error) {
         if (isMissing(error)) return null;
         throw error;
       }
 
-      let contentType = "application/octet-stream";
-      try {
-        const metadata = JSON.parse(await readFile(metadataPathFor(key), "utf8"));
-        if (typeof metadata?.contentType === "string" && metadata.contentType) contentType = metadata.contentType;
-      } catch (error) {
-        if (!isMissing(error)) throw error;
-      }
+      const metadata = JSON.parse(await readFile(join(path, "metadata.json"), "utf8"));
+      const contentType = typeof metadata?.contentType === "string" && metadata.contentType
+        ? metadata.contentType
+        : "application/octet-stream";
       return { bytes, contentType };
     },
 
     async putIfAbsent(key, value) {
       if (!(value?.bytes instanceof Uint8Array)) throw new Error("Blob store requires Uint8Array bytes.");
       await ensureDirectory(root);
-      const blobPath = blobPathFor(key);
-      const metadataPath = metadataPathFor(key);
-      let handle;
-      try {
-        handle = await open(blobPath, "wx", 0o600);
-      } catch (error) {
-        if (error?.code === "EEXIST") return false;
-        throw error;
-      }
+      const path = pathFor(key);
+      const temporary = `${path}.tmp-${process.pid}-${randomUUID()}`;
 
       try {
-        await handle.writeFile(value.bytes);
-        await handle.close();
-        handle = null;
-        await atomicWrite(
-          metadataPath,
+        await mkdir(temporary, { mode: 0o700 });
+        await writeFile(join(temporary, "blob"), value.bytes, { mode: 0o600 });
+        await writeFile(
+          join(temporary, "metadata.json"),
           JSON.stringify({ contentType: value.contentType || "application/octet-stream" }),
           { encoding: "utf8", mode: 0o600 },
         );
+        await rename(temporary, path);
+        return true;
       } catch (error) {
-        await handle?.close().catch(() => {});
-        await rm(blobPath, { force: true }).catch(() => {});
-        await rm(metadataPath, { force: true }).catch(() => {});
+        await rm(temporary, { recursive: true, force: true }).catch(() => {});
+        if (destinationExists(error)) return false;
         throw error;
       }
-      return true;
     },
   };
 }
