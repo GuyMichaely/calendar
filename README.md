@@ -2,23 +2,13 @@
 
 This branch contains deployment control only. Application code lives on separate development branches.
 
-## Deploy units
-
-`deployment.json` defines each unit and its deployment path relative to the GitHub Pages site root. For this repository, `/` is published at `/calendar/`, `/old/` at `/calendar/old/`, and `/vanilla/` at `/calendar/vanilla/`.
-
 ## Deployment state
 
 `deployment.json` is authoritative. Each deploy unit records:
 
 - `path`: deployment path relative to the Pages site root.
-- `sha`: exact application commit that is deployed.
+- `sha`: exact application commit that is deployed
 - `artifact`: GitHub Actions artifact ID for the verified build.
-
-Artifact IDs uniquely pin the build artifact in this repository. The manifest does not duplicate artifact name, verification run ID, expiry timestamp, or digest metadata.
-
-Candidate artifacts are still named `deploy-<unit>-<sha>`. Promotion starts with a requested unit and application revision, before it knows the artifact ID, so the unit and SHA in the artifact name provide the lookup key. Promotion verifies that the matching artifact came from a successful canonical candidate workflow, then records only its artifact ID in the manifest.
-
-If a pinned artifact has expired or is otherwise unavailable, Pages deployment rebuilds that unit from the manifest's exact `sha` without rerunning tests.
 
 ## Agent action requests
 
