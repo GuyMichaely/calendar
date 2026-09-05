@@ -2,8 +2,6 @@
 
 This branch is the command channel for agents that can edit Git refs and files but cannot directly invoke GitHub Actions workflows.
 
-Do not develop application code here. Application development belongs on the appropriate development branch. Canonical CI and deployment implementation belongs on `deployment-control`.
-
 To request an action, commit a new `action-request.json` with this shape:
 
 ```json
@@ -14,6 +12,4 @@ To request an action, commit a new `action-request.json` with this shape:
 }
 ```
 
-Allowed operations are `test` and `deploy`. Allowed units are `root`, `old`, and `vanilla`. `revision` may be any Git revision that resolves unambiguously to a commit in this repository, including a branch, tag, full SHA, or abbreviated SHA.
-
-`.github/workflows/action-request.yml` resolves the requested revision to an exact 40-character SHA before invoking canonical reusable workflows on `deployment-control`. The resolved SHA is what the build or deployment operates on.
+Allowed operations are `test` and `deploy`. Allowed units are `root`, `old`, and `vanilla`. `revision` may be any Git revision that resolves to a commit in this repository.
