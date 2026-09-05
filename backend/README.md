@@ -59,4 +59,12 @@ The callback URL for provider `<id>` is `<CALENDAR_PUBLIC_BASE_URL>/auth/callbac
 
 ## Frontend connection
 
-Build or run the Solid frontend with `VITE_CALENDAR_BACKEND_URL` set to the same public backend base URL. Browser requests use credentialed CORS and server-side opaque sessions.
+The Solid frontend has a **Remote sync server** field in the hamburger menu. Saving a URL there stores it in browser local storage and reloads the app with that backend. Clearing the field disables remote sync for that browser.
+
+`VITE_CALENDAR_BACKEND_URL` remains available as a build-time default. A browser-saved value takes precedence, including an explicitly saved empty value.
+
+Browser requests use credentialed CORS and server-side opaque sessions. The current session cookie is `SameSite=Lax`, so a normal authenticated deployment should expose the backend on a hostname that is same-site with the frontend, such as `sync.guymichaely.com` for a frontend on `guymichaely.com`.
+
+## Azure App Service
+
+`Dockerfile` packages the persistent backend for a Linux custom-container App Service deployment. See [`AZURE_APP_SERVICE.md`](./AZURE_APP_SERVICE.md) for the resource layout, persistent `/home` configuration, container build command, custom-domain requirement, and Google callback settings.
