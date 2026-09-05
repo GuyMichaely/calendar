@@ -40,6 +40,18 @@ if (uniquePaths.size !== units.length) throw new Error("Deployment paths must be
 const rootUnits = units.filter((unit) => deployPaths.get(unit) === "");
 if (rootUnits.length > 1) throw new Error("Only one deploy unit may use path '/'.");
 
+for (const unit of units) {
+  const candidate = deployPaths.get(unit);
+  if (!candidate) continue;
+  for (const other of units) {
+    if (unit === other) continue;
+    const otherPath = deployPaths.get(other);
+    if (otherPath && otherPath.startsWith(`${candidate}${path.sep}`)) {
+      throw new Error(`Deployment paths may not nest: ${unit} and ${other}.`);
+    }
+  }
+}
+
 const nestedDeployDirectories = new Set([
   ...[...deployPaths.values()]
     .filter(Boolean)
@@ -105,13 +117,7 @@ if (rootUnit) {
 
 const nonRootUnits = units
   .filter((unit) => unit !== rootUnit)
-  .sort((a, b) => {
-    const aPath = deployPaths.get(a);
-    const bPath = deployPaths.get(b);
-    const aDepth = aPath.split(path.sep).length;
-    const bDepth = bPath.split(path.sep).length;
-    return aDepth - bDepth || aPath.localeCompare(bPath) || a.localeCompare(b);
-  });
+  .sort((a, b) => deployPaths.get(a).localeCompare(deployPaths.get(b)) || a.localeCompare(b));
 
 for (const unit of nonRootUnits) {
   const source = path.join(sourcesDir, unit);
