@@ -10,7 +10,14 @@ if (!manifestFile || !rawSourcesDir || !rawOutputDir) {
 const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
 const sourcesDir = path.resolve(rawSourcesDir);
 const outputDir = path.resolve(rawOutputDir);
-const units = ["root", "old", "vanilla"];
+const units = Object.keys(manifest.units || {});
+if (units.length === 0) throw new Error("Deployment manifest has no units.");
+
+for (const unit of units) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(unit)) {
+    throw new Error(`Invalid deployment unit name: ${unit}`);
+  }
+}
 
 function relativeDeployPath(unit) {
   const raw = manifest.units?.[unit]?.path;
@@ -103,7 +110,7 @@ cpSync(rootSource, outputDir, { recursive: true });
 for (const nested of nestedDeployDirectories) {
   rmSync(path.join(outputDir, nested), { recursive: true, force: true });
 }
-if (rootUnit === "root") normalizeRootIndex(outputDir);
+normalizeRootIndex(outputDir);
 writeShellManifest(rootSource, outputDir);
 
 for (const unit of units) {
