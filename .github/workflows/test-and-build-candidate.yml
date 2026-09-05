@@ -76,9 +76,34 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Root tests
+        id: root_tests
         if: inputs.unit == 'root'
         working-directory: .candidate
-        run: npm test
+        shell: bash
+        run: |
+          FAILED=""
+          for FILE in tests/*.test.js; do
+            if ! node --test "$FILE"; then
+              FAILED="$(basename "$FILE")"
+              break
+            fi
+          done
+          echo "failure=$FAILED" >> "$GITHUB_OUTPUT"
+
+      - name: Record failing root test
+        if: inputs.unit == 'root' && steps.root_tests.outputs.failure != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: root-test-failure-${{ steps.root_tests.outputs.failure }}
+          path: .candidate/package.json
+          retention-days: 1
+
+      - name: Fail root tests
+        if: inputs.unit == 'root' && steps.root_tests.outputs.failure != ''
+        shell: bash
+        run: |
+          echo "Root test file failed: ${{ steps.root_tests.outputs.failure }}" >&2
+          exit 1
 
       - name: Solid tests
         if: inputs.unit == 'root'
