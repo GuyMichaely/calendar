@@ -3,10 +3,8 @@ import {
   migrateLegacyCalendarData,
 } from "../../migrations/2026-09-automerge-storage.js";
 
-const status = document.querySelector<HTMLParagraphElement>("#status");
-const migrateButton = document.querySelector<HTMLButtonElement>("#migrate");
-
-if (!status || !migrateButton) throw new Error("Migration page is missing required controls.");
+const status = document.querySelector<HTMLParagraphElement>("#status")!;
+const migrateButton = document.querySelector<HTMLButtonElement>("#migrate")!;
 
 function show(message: string, kind: "plain" | "error" | "success" = "plain") {
   status.textContent = message;
