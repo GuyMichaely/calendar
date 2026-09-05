@@ -21,11 +21,12 @@ The app supports:
 - keyboard task navigation and configurable task shortcuts;
 - month calendar projection with sleep-aware task starts;
 - calendar search that dims nonmatching items;
-- tags and local file attachments on tasks and events, with file-picker and drag/drop attachment input;
+- tags and file attachments on tasks and events, with file-picker and drag/drop attachment input;
 - compact task cards with a notes preview;
 - queued, click-to-dismiss toast notifications;
 - JSON backup/export and import, including attachment contents;
 - local session undo/redo;
+- optional authenticated remote Automerge and attachment synchronization;
 - a dark responsive interface.
 
 Waiting is derived from real availability constraints. Sleep does not change a task's underlying actionability. It controls whether the task is surfaced and, in the calendar, whether sleep is treated as an additional delay when projecting a work opportunity.
@@ -36,25 +37,30 @@ The Solid development stream uses one Automerge document as the canonical local 
 
 Calendar item updates are represented as fine-grained Automerge changes where practical. Title and notes use Automerge collaborative text operations; tags, attachment metadata, task fields, and tombstones have separate operations. Deletion is represented by an application-level `deletedAt` tombstone so an offline edit cannot accidentally resurrect a deleted item.
 
-Attachment bytes are deliberately not placed in the Automerge document. Attachment metadata participates in the CRDT; local `Blob` contents are stored separately in the `attachments` object store and will use a separate content-addressed remote blob path when cloud synchronization is added.
+Attachment bytes are deliberately not placed in the Automerge document. Attachment metadata participates in the CRDT; `Blob` contents are stored separately in the local `attachments` object store. When remote sync is configured, referenced local blobs are uploaded separately and blobs referenced by merged remote metadata are downloaded into that same local store. The remote blob protocol addresses a blob by its stable attachment ID and does not change the Automerge schema.
 
-`readSyncSnapshot()` and `mergeSyncSnapshot()` in `site/storage.js` expose the serialized Automerge boundary used by `sync/client.js`. The browser application does not have a production remote endpoint configured yet.
+`readSyncSnapshot()` and `mergeSyncSnapshot()` in `site/storage.js` expose the serialized Automerge boundary used by `sync/client.js`. The Solid frontend only enables its remote controls when `VITE_CALENDAR_BACKEND_URL` is configured. Local-only operation remains the default.
 
 Undo/redo history remains in the separate `calendar-history` IndexedDB database and is session-scoped. It is never part of the Automerge document and must never be synchronized between devices. Undo/redo is applied as new local CRDT changes rather than restoring the entire remote-sync document wholesale, so unrelated merged list/history changes are retained.
 
 ## Remote authentication and sync
 
-The repository contains the host-neutral backend core needed for remote synchronization:
+The repository contains a host-neutral backend and browser client for remote synchronization:
 
 - `auth/oidc.js` implements provider-agnostic OpenID Connect using authorization code, PKCE, state, and nonce validation through `openid-client`;
 - `auth/http.js` implements login, callback, session inspection, logout, exact `(issuer, subject)` authorization, and opaque server-side sessions;
 - `sync/http.js` implements authenticated `POST /sync` with an atomic document-store contract;
+- `sync/attachments-http.js` implements authenticated `HEAD`, `GET`, and `PUT` for attachment blobs with an injected blob-store contract;
 - `sync/client.js` exchanges serialized Solid storage snapshots and merges the response into current local state after the request completes;
-- `backend/http.js` composes auth and sync and enforces the configured browser-origin allowlist.
+- `solid/src/remote-sync.ts` adds browser session handling, queued sync requests, and attachment upload/download;
+- `backend/http.js` composes the HTTP routes and enforces the configured browser-origin allowlist;
+- `backend/app.js` composes OIDC, sessions, Automerge sync, and optional attachment storage without choosing a hosting provider.
 
-Google is the first intended OIDC provider, but provider-specific configuration and secrets are not committed to the app. Memory-backed auth and document stores exist only for tests and local development.
+The backend URL may include a path prefix. Auth callback URLs, `/sync`, attachment routes, and the Solid client all preserve that prefix.
 
-Production enablement still requires a backend HTTP runtime, durable session storage, atomic durable Automerge document storage, content-addressed attachment blob storage, Google OIDC credentials and callback configuration, and a configured backend URL in the Solid application.
+Google is the first intended OIDC provider, but provider-specific configuration and secrets are not committed to the app. `backend/config.js` also accepts arbitrary OIDC provider and exact-identity arrays. Memory-backed auth, document, and blob stores exist only for tests and local development.
+
+Production enablement still requires a chosen HTTP runtime, durable session storage, atomic durable Automerge document storage, durable attachment blob storage, OIDC credentials and callback configuration, and `VITE_CALENDAR_BACKEND_URL` in the Solid build. None of those durable storage/runtime choices are implemented by the host-neutral core.
 
 ## Data migrations
 
@@ -85,6 +91,31 @@ Install dependencies and run the Solid dev server:
 npm install
 npm run dev:solid
 ```
+
+For local browser testing of auth and remote sync, run the provider-neutral Node development backend in a second process. Its auth sessions, Automerge document, and attachment blobs are memory-only and disappear when the process exits.
+
+Google convenience configuration:
+
+```bash
+CALENDAR_APP_URL=http://localhost:5173/calendar/ \
+CALENDAR_PUBLIC_BASE_URL=http://localhost:8787/ \
+GOOGLE_CLIENT_ID=your-client-id \
+GOOGLE_CLIENT_SECRET=your-client-secret \
+ALLOWED_GOOGLE_SUBJECT=your-google-subject \
+npm run dev:backend
+```
+
+Then start the Solid frontend with the matching backend URL:
+
+```bash
+VITE_CALENDAR_BACKEND_URL=http://localhost:8787/ npm run dev:solid
+```
+
+For that example, the OIDC redirect URI is `http://localhost:8787/auth/callback/google`. Authorization uses the exact OIDC issuer and subject. Email addresses are display claims only and are not authorization identifiers.
+
+A prefixed backend also works. For example, if `CALENDAR_PUBLIC_BASE_URL` and `VITE_CALENDAR_BACKEND_URL` are both `http://localhost:8787/calendar-api/`, the callback becomes `http://localhost:8787/calendar-api/auth/callback/google` and the sync endpoint becomes `http://localhost:8787/calendar-api/sync`.
+
+Instead of the Google convenience variables, arbitrary providers and identities can be supplied as JSON arrays through `CALENDAR_OIDC_PROVIDERS_JSON` and `CALENDAR_ALLOWED_IDENTITIES_JSON`. Provider objects require `id`, `issuer`, and `clientId`; identity objects require `issuer` and `subject`.
 
 Validation commands used for a Solid root candidate are:
 
