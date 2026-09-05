@@ -19,15 +19,10 @@ jobs:
           ref: deployment-control
           fetch-depth: 0
 
-      - name: Restore and rename branches
+      - name: Remove old branch and archive tag
         shell: bash
         run: |
           set -euo pipefail
-
-          git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
-
-          git push origin 5ba1e4a7099adecf85b490dc3f3be938516ee187:refs/heads/pre-refactor-snapshot
-          git push origin ac79628eae09e0a38b56b829eac702e2b3057323:refs/heads/vanilla-refactor
 
           if git ls-remote --exit-code --heads origin refs/heads/reference/pre-preview-deployment-main >/dev/null 2>&1; then
             git push origin --delete reference/pre-preview-deployment-main
