@@ -27,8 +27,11 @@ async function api(path) {
 }
 
 function usedCanonicalCandidateWorkflow(run) {
-  return (run.referenced_workflows || []).some((workflow) =>
-    workflow.path === `${repository}/.github/workflows/test-and-build-candidate.yml@deployment-control`,
+  const prefix = `${repository}/.github/workflows/test-and-build-candidate.yml@`;
+  return (run.referenced_workflows || []).some(
+    (workflow) =>
+      String(workflow.path || "").startsWith(prefix) &&
+      workflow.ref === "refs/heads/deployment-control",
   );
 }
 
