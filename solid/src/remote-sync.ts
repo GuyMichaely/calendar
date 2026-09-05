@@ -14,9 +14,23 @@ export type RemoteSession = {
   identity: RemoteIdentity | null;
 };
 
+type RemoteAttachment = {
+  id: string;
+  name?: string;
+  type?: string;
+  size?: number;
+  blob?: Blob;
+};
+
+type RemoteItem = {
+  attachments?: RemoteAttachment[];
+};
+
 type RemoteStorage = {
   readSnapshot: () => Promise<Uint8Array>;
   mergeSnapshot: (bytes: Uint8Array) => Promise<unknown>;
+  listItems?: () => Promise<RemoteItem[]>;
+  putAttachmentBlob?: (id: string, blob: Blob) => Promise<void>;
 };
 
 type RemoteClientOptions = {
@@ -42,6 +56,22 @@ function normalizeBaseUrl(value: string) {
   return url.href;
 }
 
+function requestError(message: string, status: number) {
+  return Object.assign(new Error(`${message} (${status}).`), { status });
+}
+
+function uniqueAttachments(items: RemoteItem[]) {
+  const attachments = new Map<string, RemoteAttachment>();
+  for (const item of items) {
+    for (const attachment of item.attachments || []) {
+      if (!attachment?.id) continue;
+      const existing = attachments.get(attachment.id);
+      if (!existing || (!existing.blob && attachment.blob)) attachments.set(attachment.id, attachment);
+    }
+  }
+  return [...attachments.values()];
+}
+
 export function configuredBackendUrl(value = import.meta.env?.VITE_CALENDAR_BACKEND_URL || "") {
   return normalizeBaseUrl(value);
 }
@@ -53,6 +83,35 @@ export function createRemoteCalendarClient({ backendUrl, storage, fetch: fetchIm
 
   const endpoint = (path: string) => new URL(path.replace(/^\//u, ""), baseUrl).href;
 
+  const syncAttachments = async (signal?: AbortSignal) => {
+    if (!storage.listItems || !storage.putAttachmentBlob) return;
+    const attachments = uniqueAttachments(await storage.listItems());
+    for (const attachment of attachments) {
+      const url = endpoint(`attachments/${encodeURIComponent(attachment.id)}`);
+      if (attachment.blob instanceof Blob) {
+        const existing = await fetchImpl(url, { method: "HEAD", credentials: "include", signal });
+        if (existing.ok) continue;
+        if (existing.status !== 404) throw requestError("Could not check remote attachment", existing.status);
+        const upload = await fetchImpl(url, {
+          method: "PUT",
+          credentials: "include",
+          signal,
+          headers: { "content-type": attachment.blob.type || attachment.type || "application/octet-stream" },
+          body: attachment.blob,
+        });
+        if (!upload.ok) throw requestError("Could not upload attachment", upload.status);
+        continue;
+      }
+
+      const download = await fetchImpl(url, { credentials: "include", signal });
+      if (download.status === 404) continue;
+      if (!download.ok) throw requestError("Could not download attachment", download.status);
+      const contentType = download.headers.get("content-type") || attachment.type || "application/octet-stream";
+      const blob = new Blob([await download.arrayBuffer()], { type: contentType });
+      await storage.putAttachmentBlob(attachment.id, blob);
+    }
+  };
+
   return {
     loginUrl(provider = "google") {
       return endpoint(`auth/login/${encodeURIComponent(provider)}`);
@@ -61,7 +120,7 @@ export function createRemoteCalendarClient({ backendUrl, storage, fetch: fetchIm
     async session(): Promise<RemoteSession> {
       const response = await fetchImpl(endpoint("auth/me"), { credentials: "include" });
       if (response.status === 401) return { authenticated: false, identity: null };
-      if (!response.ok) throw new Error(`Could not check calendar login (${response.status}).`);
+      if (!response.ok) throw requestError("Could not check calendar login", response.status);
       const body = await response.json() as { authenticated?: boolean; identity?: RemoteIdentity };
       if (!body.authenticated || !body.identity?.issuer || !body.identity?.subject) {
         throw new Error("Calendar backend returned an invalid authenticated session.");
@@ -74,16 +133,18 @@ export function createRemoteCalendarClient({ backendUrl, storage, fetch: fetchIm
         method: "POST",
         credentials: "include",
       });
-      if (!response.ok) throw new Error(`Could not sign out (${response.status}).`);
+      if (!response.ok) throw requestError("Could not sign out", response.status);
     },
 
-    sync(signal?: AbortSignal) {
-      return syncCalendarStorage(storage, {
+    async sync(signal?: AbortSignal) {
+      const result = await syncCalendarStorage(storage, {
         endpoint: endpoint("sync"),
         fetch: fetchImpl,
         credentials: "include",
         signal,
       });
+      await syncAttachments(signal);
+      return storage.listItems ? storage.listItems() : result;
     },
   };
 }
