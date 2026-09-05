@@ -28,7 +28,7 @@ type RemoteClientOptions = {
 type RemoteSyncQueueOptions = {
   sync: () => Promise<unknown>;
   onBusyChange?: (busy: boolean) => void;
-  onSynced?: () => void;
+  onSynced?: () => void | Promise<void>;
   onError?: (error: unknown) => void;
 };
 
@@ -98,7 +98,7 @@ export function createRemoteSyncQueue({ sync, onBusyChange, onSynced, onError }:
       while (pending) {
         pending = false;
         await sync();
-        onSynced?.();
+        await onSynced?.();
       }
     } catch (error) {
       pending = false;
