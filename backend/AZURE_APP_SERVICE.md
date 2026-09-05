@@ -9,12 +9,13 @@ Use these resources:
 - one resource group, for example `calendar-sync`;
 - one Azure Container Registry;
 - one Linux App Service plan;
-- one Web App using the container from the registry;
-- a same-site backend hostname such as `sync.guymichaely.com` for normal authenticated use.
+- one Web App using the container from the registry.
 
 The app is deliberately single-process. Do not scale the Web App to multiple instances while it uses `backend/file-stores.js`.
 
-The Free F1 App Service tier is useful for reserving and testing the Web App. Azure requires a paid App Service tier such as Basic B1 before a custom domain can be mapped. The current authentication uses a host-only `SameSite=Lax` session cookie, so the Azure-provided `*.azurewebsites.net` hostname is not the recommended final endpoint for a frontend hosted on `guymichaely.com`. A `sync.guymichaely.com` endpoint is same-site with the frontend and avoids depending on third-party-cookie behavior.
+The Azure-provided `https://<app-name>.azurewebsites.net/` hostname can be used directly for authenticated sync. Secure production session cookies use `SameSite=None; Secure; HttpOnly`, so the frontend on `guymichaely.com` can send the session cookie on credentialed cross-site requests. The backend still rejects browser requests whose `Origin` is not the configured calendar origin.
+
+A custom hostname such as `sync.guymichaely.com` is optional. Use one later if desired, but it is no longer required by the application's authentication design. Browser-level policies that disable third-party cookies entirely can still block a cross-site cookie even when `SameSite=None` is set.
 
 ## 1. Create the Azure resources
 
@@ -23,7 +24,7 @@ In the Azure portal:
 1. Create a resource group, for example `calendar-sync`.
 2. Create an Azure Container Registry in that resource group. Basic is sufficient. A registry name must be globally unique.
 3. Create a Web App with Publish set to Container and Operating System set to Linux.
-4. F1 Free is sufficient to allocate and test the Web App. Use Basic B1 or higher before adding `sync.guymichaely.com`.
+4. F1 Free is sufficient for the current single-user backend if its resource limits are adequate in practice.
 5. Give the Web App a globally unique name. Azure assigns `https://<app-name>.azurewebsites.net/`.
 
 The Web App can initially point at any placeholder image if the portal requires one before creation. Replace it with `calendar-backend:latest` after the first build.
@@ -64,37 +65,20 @@ Linux custom-container persistence must include `/home`; the backend data direct
 
 ## 4. Configure the public URLs
 
-For initial Azure-hostname testing:
+Using the Azure hostname directly:
 
 ```text
 CALENDAR_APP_URL=https://guymichaely.com/calendar/
 CALENDAR_PUBLIC_BASE_URL=https://<app-name>.azurewebsites.net/
 ```
 
-For normal authenticated use after mapping the custom domain:
-
-```text
-CALENDAR_APP_URL=https://guymichaely.com/calendar/
-CALENDAR_PUBLIC_BASE_URL=https://sync.guymichaely.com/
-```
-
 The backend derives the allowed browser origin from `CALENDAR_APP_URL`.
 
-## 5. Map `sync.guymichaely.com`
+If a custom backend hostname is added later, change `CALENDAR_PUBLIC_BASE_URL` to that URL and update the Google OAuth callback URI to match.
 
-Scale the App Service plan to Basic B1 or higher. In the Web App's Custom domains page, add `sync.guymichaely.com` and follow Azure's DNS validation instructions. For a subdomain, this normally includes a CNAME pointing to `<app-name>.azurewebsites.net` plus Azure's requested ownership-validation record. Use an App Service managed certificate for HTTPS.
+## 5. Create the Google OAuth client
 
-After the hostname is active, change `CALENDAR_PUBLIC_BASE_URL` to `https://sync.guymichaely.com/` and restart the Web App.
-
-## 6. Create the Google OAuth client
-
-Create a Google OAuth 2.0 Web application client. Its authorized redirect URI must exactly match:
-
-```text
-https://sync.guymichaely.com/auth/callback/google
-```
-
-For temporary Azure-hostname testing instead, use:
+Create a Google OAuth 2.0 Web application client. Its authorized redirect URI must exactly match the backend hostname:
 
 ```text
 https://<app-name>.azurewebsites.net/auth/callback/google
@@ -110,17 +94,33 @@ ALLOWED_GOOGLE_SUBJECT=<your-google-openid-sub>
 
 `ALLOWED_GOOGLE_SUBJECT` is Google's stable OpenID Connect `sub` identifier, not an email address.
 
-## 7. Configure the browser
+## 6. Configure the browser
 
 The Solid frontend has a Remote sync server field in the hamburger menu. Enter:
 
 ```text
-https://sync.guymichaely.com/
+https://<app-name>.azurewebsites.net/
 ```
 
 and choose Save sync server. The page reloads using that backend. The build-time `VITE_CALENDAR_BACKEND_URL` remains only a fallback when the browser has no saved setting.
 
 Then use Sign in with Google. After authentication, Sync now exchanges the local Automerge document with the backend.
+
+If the browser is configured to block all third-party cookies, direct cross-site cookie authentication can still be blocked by the browser. In that case, either allow cookies for the Azure backend or map a same-site custom hostname such as `sync.guymichaely.com`.
+
+## Optional custom hostname
+
+If desired later, scale the App Service plan to a tier that supports custom domains. In the Web App's Custom domains page, add `sync.guymichaely.com` and follow Azure's DNS validation instructions. Then set:
+
+```text
+CALENDAR_PUBLIC_BASE_URL=https://sync.guymichaely.com/
+```
+
+and register this Google callback URI instead:
+
+```text
+https://sync.guymichaely.com/auth/callback/google
+```
 
 ## Operational notes
 
