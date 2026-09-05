@@ -19,7 +19,7 @@
   z-index: 20;
   top: calc(100% + 8px);
   left: 0;
-  min-width: 220px;
+  min-width: 280px;
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 6px;
@@ -48,6 +48,25 @@
   height: 1px;
   margin: 6px 4px;
   background: var(--line);
+}
+
+.solid-menu-remote label {
+  display: grid;
+  gap: 5px;
+  padding: 5px 12px 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.solid-menu-remote input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 7px 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
 }
 
 .solid-menu-status,
