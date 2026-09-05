@@ -42,9 +42,10 @@ function patternedBytes(length, seed = 17) {
   return value;
 }
 
-test("durable auth adapter stores opaque session and flow values without changing their shape", async () => {
+test("durable auth adapter stores opaque values and enforces store expiry", async () => {
+  let clock = 10_000;
   const storage = memoryTransactionalStorage();
-  const auth = createDurableAuthStore(storage);
+  const auth = createDurableAuthStore(storage, { now: () => clock });
   const value = {
     identity: { issuer: "https://accounts.example", subject: "guy" },
     expiresAt: 42_000,
@@ -57,8 +58,9 @@ test("durable auth adapter stores opaque session and flow values without changin
     expiresAt: 42_000,
   });
 
-  await auth.delete("auth:session:abc");
+  clock = 42_001;
   assert.equal(await auth.get("auth:session:abc"), null);
+  assert.equal(storage.keys().includes("auth:session:abc"), false);
 });
 
 test("chunked document store round-trips a five-megabyte document without any value exceeding one megabyte", async () => {
