@@ -223,9 +223,12 @@ export async function putItem(item, baseline = null) {
   const cleanAfter = withoutAttachmentBytes(after);
   syncLiveItem(item.id, cleanAfter);
   if (applyingHistory) return;
+
+  const historyBefore = cleanBaseline == null ? cleanBefore : cleanBaseline;
+  const historyAfter = cleanBaseline == null ? cleanAfter : cleanItem;
   await pushHistory({
     label: actionLabel(cleanBefore, cleanAfter),
-    changes: [{ id: item.id, before: cleanBefore, after: cleanAfter }],
+    changes: [{ id: item.id, before: historyBefore, after: historyAfter }],
   });
 }
 
