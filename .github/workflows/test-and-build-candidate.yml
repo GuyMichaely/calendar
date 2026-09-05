@@ -70,25 +70,24 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install root dependencies for storage regression check
+        if: inputs.unit == 'root'
+        working-directory: .candidate
+        run: npm install --no-audit --no-fund
+
+      - name: Automerge storage regression tests
+        if: inputs.unit == 'root'
+        working-directory: .candidate
+        run: node --test tests/automerge-storage.test.js
+
       - name: Test and build candidate
         shell: bash
         run: |
-          set +e
           node scripts/build-deploy-unit.mjs \
             --unit "${{ inputs.unit }}" \
             --source .candidate \
             --output artifact-output \
-            --verify 2>&1 | tee candidate-build.log
-          STATUS=${PIPESTATUS[0]}
-          if [[ $STATUS -ne 0 ]]; then
-            {
-              echo '### Candidate test/build failure'
-              echo '```text'
-              tail -n 120 candidate-build.log
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          exit $STATUS
+            --verify
 
       - name: Upload deploy artifact
         uses: actions/upload-artifact@v4
