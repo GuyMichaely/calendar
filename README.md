@@ -23,7 +23,8 @@ The basic request format is:
 {
   "operation": "test",
   "unit": "prod",
-  "revision": "main"
+  "revision": "main",
+  "requestNonce": "any arbitrary value"
 }
 ```
 
@@ -34,11 +35,14 @@ A deploy request may also include `path`:
   "operation": "deploy",
   "unit": "preview",
   "revision": "feature-branch",
-  "path": "/preview/"
+  "path": "/preview/",
+  "requestNonce": "another arbitrary value"
 }
 ```
 
 `operation` is `test` or `deploy`. `unit` is a syntactically valid unit label. `revision` is a Git revision resolving to a commit. The dispatcher resolves the revision to a commit SHA to pin against. `path` is only valid for deploy requests and is optional when promoting an existing unit.
+
+Additional top-level JSON fields are allowed. The dispatcher ignores them. Agents can therefore change an arbitrary field such as `requestNonce` when they need a new commit to submit an otherwise identical request.
 
 ## Testing and building
 
