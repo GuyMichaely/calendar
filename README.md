@@ -4,12 +4,10 @@ This branch contains deployment control only. Application code lives on separate
 
 ## Deployment state
 
-`deployment.json` is authoritative desired state. Each deploy unit records:
+`deployment.json` controls deployment and should only be edited via the `promote-deployment.yml` workflow:
 
-- `path`: deployment path relative to the Pages site root.
-- `revision`: exact application commit that should be deployed.
-
-Artifact IDs and workflow-run metadata are intentionally not persisted in the manifest.
+- `path`: deployment path relative to the Pages site root
+- `revision`: commit to deploy
 
 ## Agent action requests
 
@@ -25,26 +23,20 @@ The request format is:
 }
 ```
 
-`operation` is `test` or `deploy`. `unit` is a unit name (currently one of `root`, `old`, or `vanilla`). `revision` is a Git revision. The dispatcher resolves it to an exact commit SHA before canonical work begins.
+`operation` is `test` or `deploy`. `unit` is a unit name. `revision` is a Git revision.
 
 ## Testing
 
 A `test` request runs `.github/workflows/test-and-build-candidate.yml` for the resolved application commit and stores deployable output as `deploy-<unit>-<sha>`.
 
-The SHA remains in the artifact name because GitHub associates an artifact with the top-level workflow run. For requests arriving through `action-trigger`, that run's own `head_sha` is the request commit, not the application commit being built. The artifact name is therefore the direct index from unit and application revision to build output.
-
-There may be at most one active candidate artifact for a given unit and SHA. Candidate builds for the same unit and SHA are serialized, and a build refuses to proceed if that artifact already exists.
-
 ## Deploying
 
-A `deploy` request invokes `.github/workflows/promote-deployment.yml`. Promotion confirms that the unique active artifact for the unit and exact SHA came from a successful canonical candidate-build workflow. It then records only that SHA as the unit's `revision` in `deployment.json`.
+A `deploy` request invokes `.github/workflows/promote-deployment.yml`. Promotion confirms that the given unit and SHA have a build output that came from `test-and-build-candidate.yml` and then updates the SHA for the given unit in `deployment.json`, triggering a deploy.
 
 Promotion jobs share the `deployment-promotions` concurrency group with `queue: max`, so promotions wait one at a time until previous promotions complete.
-
-Successful promotion updates `deployment.json` on this branch. That control-state commit is then used for the Pages deployment.
 
 ## Pages deployment
 
 Changes to `deployment.json` on `deployment-control` trigger deployment automatically. Normal operation should use promotion instead of editing the manifest directly.
 
-For each unit, deployment looks up the unique active successful canonical artifact named for the unit and recorded revision. If it exists, it is used. If none is available, the exact recorded revision is rebuilt without rerunning tests. The resulting units are placed at their manifest `path`, assembled into one GitHub Pages artifact, and published.
+For each unit, deployment looks up the artifact named for the unit-revision pair. If it exists, it is used. If none is available, the exact recorded revision is rebuilt without rerunning tests. The resulting units are placed at their manifest `path`, assembled into one GitHub Pages artifact, and published.
