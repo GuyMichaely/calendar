@@ -1,3 +1,4 @@
+import * as Automerge from "@automerge/automerge";
 import {
   addAttachmentMetadata,
   addHistoryEntry,
@@ -27,6 +28,7 @@ export const CALENDAR_DOCUMENT_STORE = "documents";
 export const CALENDAR_ATTACHMENT_STORE = "attachments";
 export const CALENDAR_DOCUMENT_ID = "primary";
 
+const ITEM_HEADS = Symbol("calendar.automergeHeads");
 const COMMON_ITEM_FIELDS = new Set([
   "id",
   "kind",
@@ -89,7 +91,7 @@ function attachmentsById(records) {
   return new Map((records || []).map((record) => [record.id, record.blob]));
 }
 
-function hydrateItem(item, localAttachments) {
+function hydrateItem(item, localAttachments, heads = null) {
   if (!item) return null;
   const copy = cloneValue(item);
   if (Array.isArray(copy.attachments)) {
@@ -98,11 +100,19 @@ function hydrateItem(item, localAttachments) {
       return blob ? { ...attachment, blob } : attachment;
     });
   }
+  if (heads) {
+    Object.defineProperty(copy, ITEM_HEADS, {
+      value: [...heads],
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+  }
   return copy;
 }
 
-function hydrateItems(items, localAttachments) {
-  return items.map((item) => hydrateItem(item, localAttachments));
+function hydrateItems(items, localAttachments, heads = null) {
+  return items.map((item) => hydrateItem(item, localAttachments, heads));
 }
 
 function sameValue(left, right) {
@@ -129,10 +139,158 @@ function listDifference(left = [], right = []) {
   return result;
 }
 
+function isPlainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || value instanceof Date) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
 function allowedFieldsForKind(kind) {
   if (kind === "task") return TASK_ITEM_FIELDS;
   if (kind === "event") return EVENT_ITEM_FIELDS;
   throw new Error(`Unknown item kind ${kind}.`);
+}
+
+function getPathParent(root, path) {
+  let parent = root;
+  for (const segment of path.slice(0, -1)) parent = parent[segment];
+  return { parent, key: path.at(-1) };
+}
+
+function pathUsesCollaborativeText(path, before, after) {
+  return (
+    path.length === 3 &&
+    path[0] === "items" &&
+    ["title", "notes"].includes(path[2]) &&
+    typeof before === "string" &&
+    typeof after === "string"
+  );
+}
+
+function applyDraftValue(root, path, before, after, afterPresent = true) {
+  if (afterPresent && sameValue(before, after)) return;
+  const { parent, key } = getPathParent(root, path);
+  if (!afterPresent) {
+    if (parent && Object.hasOwn(parent, key)) delete parent[key];
+    return;
+  }
+
+  if (pathUsesCollaborativeText(path, before, after)) {
+    Automerge.updateText(root, path, after);
+    return;
+  }
+
+  if (isPlainObject(before) && isPlainObject(after) && parent?.[key] && typeof parent[key] === "object") {
+    const fields = new Set([...Object.keys(before), ...Object.keys(after)]);
+    for (const field of fields) {
+      applyDraftValue(
+        root,
+        [...path, field],
+        before[field],
+        after[field],
+        Object.hasOwn(after, field),
+      );
+    }
+    return;
+  }
+
+  parent[key] = after;
+}
+
+function mutateDraftFromIntent(draft, baseline, next) {
+  const item = draft.items[next.id];
+  if (!item) return;
+
+  for (const field of ["title", "notes"]) {
+    if (sameValue(baseline[field], next[field])) continue;
+    applyDraftValue(
+      draft,
+      ["items", next.id, field],
+      baseline[field],
+      next[field],
+      Object.hasOwn(next, field),
+    );
+  }
+
+  if (!sameValue(baseline.tags || [], next.tags || [])) {
+    if (!Array.isArray(item.tags)) item.tags = [];
+    for (const tag of listDifference(baseline.tags || [], next.tags || [])) {
+      const index = item.tags.indexOf(tag);
+      if (index >= 0) item.tags.splice(index, 1);
+    }
+    for (const tag of listDifference(next.tags || [], baseline.tags || [])) {
+      if (!item.tags.includes(tag)) item.tags.push(tag);
+    }
+  }
+
+  const baselineAttachments = new Map((baseline.attachments || []).map((attachment) => [attachment.id, attachment]));
+  const nextAttachments = new Map((next.attachments || []).map((attachment) => [attachment.id, attachment]));
+  if (!Array.isArray(item.attachments)) item.attachments = [];
+  for (const [attachmentId] of baselineAttachments) {
+    if (nextAttachments.has(attachmentId)) continue;
+    const index = item.attachments.findIndex((candidate) => candidate.id === attachmentId);
+    if (index >= 0) item.attachments.splice(index, 1);
+  }
+  for (const [attachmentId, attachment] of nextAttachments) {
+    const beforeAttachment = baselineAttachments.get(attachmentId);
+    if (beforeAttachment && sameValue(beforeAttachment, attachment)) continue;
+    const index = item.attachments.findIndex((candidate) => candidate.id === attachmentId);
+    if (index < 0) item.attachments.push(attachment);
+    else {
+      const fields = new Set([...Object.keys(beforeAttachment || {}), ...Object.keys(attachment)]);
+      for (const field of fields) {
+        applyDraftValue(
+          draft,
+          ["items", next.id, "attachments", index, field],
+          beforeAttachment?.[field],
+          attachment[field],
+          Object.hasOwn(attachment, field),
+        );
+      }
+    }
+  }
+
+  if (!Array.isArray(item.history) && ((baseline.history || []).length || (next.history || []).length)) item.history = [];
+  for (const entry of listDifference(baseline.history || [], next.history || [])) {
+    const entryFingerprint = fingerprint(entry);
+    const index = (item.history || []).findIndex((candidate) => fingerprint(candidate) === entryFingerprint);
+    if (index >= 0) item.history.splice(index, 1);
+  }
+  for (const entry of listDifference(next.history || [], baseline.history || [])) {
+    const entryFingerprint = fingerprint(entry);
+    if (!(item.history || []).some((candidate) => fingerprint(candidate) === entryFingerprint)) item.history.push(entry);
+  }
+
+  const fields = new Set([...Object.keys(baseline), ...Object.keys(next)]);
+  for (const field of fields) {
+    if (SPECIAL_DELTA_FIELDS.has(field) || sameValue(baseline[field], next[field])) continue;
+    applyDraftValue(
+      draft,
+      ["items", next.id, field],
+      baseline[field],
+      next[field],
+      Object.hasOwn(next, field),
+    );
+  }
+
+  if (baseline.kind !== next.kind) {
+    const allowed = allowedFieldsForKind(next.kind);
+    for (const field of Object.keys(item)) {
+      if (!allowed.has(field)) delete item[field];
+    }
+  }
+}
+
+function applyItemIntentAtHeads(doc, heads, baselineItem, nextItem) {
+  const baseline = itemForSync(baselineItem);
+  const next = itemForSync(nextItem);
+  if (baseline.id !== next.id) throw new Error("Item edit baseline must use the same id as the submitted item.");
+  if (!Automerge.hasHeads(doc, heads)) return null;
+
+  const { newDoc } = Automerge.changeAt(doc, heads, `Edit item ${next.id}`, (draft) => {
+    mutateDraftFromIntent(draft, baseline, next);
+  });
+  return newDoc;
 }
 
 function applyItemIntent(doc, baselineItem, nextItem, { restoreDeleted = false } = {}) {
@@ -370,33 +528,42 @@ function writeState(mutator, attachments = []) {
 
 export async function listLocalItems() {
   const { doc, localAttachments } = await readState();
-  return hydrateItems(materializeItems(doc), localAttachments);
+  return hydrateItems(materializeItems(doc), localAttachments, Automerge.getHeads(doc));
 }
 
 export async function getLocalItem(id) {
   const { doc, localAttachments } = await readState();
-  return hydrateItem(materializeItem(doc, id), localAttachments);
+  return hydrateItem(materializeItem(doc, id), localAttachments, Automerge.getHeads(doc));
 }
 
 export function putLocalItem(item, baseline = null) {
   const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
+  const baselineHeads = baseline?.[ITEM_HEADS] || null;
   return writeState((doc, localAttachments) => {
-    const before = hydrateItem(materializeItem(doc, item.id), localAttachments);
+    const currentHeads = Automerge.getHeads(doc);
+    const before = hydrateItem(materializeItem(doc, item.id), localAttachments, currentHeads);
     const current = materializeItem(doc, item.id, { includeDeleted: true });
-    const nextDoc = applyItemIntent(
+    const historicalEdit = baseline && baselineHeads
+      ? applyItemIntentAtHeads(doc, baselineHeads, baseline, item)
+      : null;
+    const nextDoc = historicalEdit || applyItemIntent(
       doc,
       baseline || current,
       item,
       { restoreDeleted: baseline == null },
     );
-    const after = hydrateItem(materializeItem(nextDoc, item.id), localAttachments);
+    const after = hydrateItem(
+      materializeItem(nextDoc, item.id),
+      localAttachments,
+      Automerge.getHeads(nextDoc),
+    );
     return { doc: nextDoc, result: { before, after } };
   }, attachments);
 }
 
 export function deleteLocalItem(id, deletedAt = new Date().toISOString()) {
   return writeState((doc, localAttachments) => {
-    const before = hydrateItem(materializeItem(doc, id), localAttachments);
+    const before = hydrateItem(materializeItem(doc, id), localAttachments, Automerge.getHeads(doc));
     if (!before) return { doc, result: { before: null, after: null } };
     const nextDoc = tombstoneItem(doc, id, deletedAt);
     return { doc: nextDoc, result: { before, after: null } };
@@ -408,7 +575,11 @@ export function applyLocalHistoryChange(change, side) {
   const attachments = Array.isArray(target?.attachments) ? target.attachments : [];
   return writeState((doc, localAttachments) => {
     const nextDoc = applyHistoryDelta(doc, change.before, change.after, side);
-    const after = hydrateItem(materializeItem(nextDoc, change.id), localAttachments);
+    const after = hydrateItem(
+      materializeItem(nextDoc, change.id),
+      localAttachments,
+      Automerge.getHeads(nextDoc),
+    );
     return { doc: nextDoc, result: after };
   }, attachments);
 }
@@ -422,7 +593,7 @@ export function mergeLocalSyncSnapshot(incomingBytes) {
   return writeState((doc, localAttachments) => {
     const remote = loadCalendarDocument(incomingBytes);
     const merged = mergeCalendarDocuments(doc, remote);
-    const items = hydrateItems(materializeItems(merged), localAttachments);
+    const items = hydrateItems(materializeItems(merged), localAttachments, Automerge.getHeads(merged));
     return { doc: merged, result: items };
   });
 }
