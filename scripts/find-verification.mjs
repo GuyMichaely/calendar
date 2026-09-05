@@ -27,7 +27,7 @@ async function api(path) {
   return response.json();
 }
 
-const artifactName = `verified-${unit}-${sha}`;
+const artifactName = `deploy-${unit}-${sha}`;
 const query = new URLSearchParams({ name: artifactName, per_page: "100" });
 const { artifacts = [] } = await api(`/actions/artifacts?${query}`);
 const candidates = artifacts
@@ -43,7 +43,7 @@ for (const artifact of candidates) {
     run.status !== "completed" ||
     run.conclusion !== "success" ||
     run.event !== "workflow_dispatch" ||
-    run.path !== ".github/workflows/verify-candidate.yml"
+    run.path !== ".github/workflows/test-and-build-candidate.yml"
   ) {
     continue;
   }
@@ -58,8 +58,8 @@ for (const artifact of candidates) {
       digest: artifact.digest || null,
     }, null, 2)}\n`,
   );
-  console.log(`Found successful verification run ${runId} and artifact ${artifact.id}.`);
+  console.log(`Found successful candidate build run ${runId} and artifact ${artifact.id}.`);
   process.exit(0);
 }
 
-throw new Error(`No active successful Verify Candidate artifact found for ${unit} ${sha}.`);
+throw new Error(`No active successful Test and Build Candidate artifact found for ${unit} ${sha}.`);
