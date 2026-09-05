@@ -159,9 +159,11 @@ export function createFileBlobStore({ directory } = {}) {
     async putIfAbsent(key, value) {
       if (!(value?.bytes instanceof Uint8Array)) throw new Error("Blob store requires Uint8Array bytes.");
       await ensureDirectory(root);
+      const blobPath = blobPathFor(key);
+      const metadataPath = metadataPathFor(key);
       let handle;
       try {
-        handle = await open(blobPathFor(key), "wx", 0o600);
+        handle = await open(blobPath, "wx", 0o600);
       } catch (error) {
         if (error?.code === "EEXIST") return false;
         throw error;
@@ -169,18 +171,19 @@ export function createFileBlobStore({ directory } = {}) {
 
       try {
         await handle.writeFile(value.bytes);
+        await handle.close();
+        handle = null;
+        await atomicWrite(
+          metadataPath,
+          JSON.stringify({ contentType: value.contentType || "application/octet-stream" }),
+          { encoding: "utf8", mode: 0o600 },
+        );
       } catch (error) {
-        await handle.close().catch(() => {});
-        await rm(blobPathFor(key), { force: true }).catch(() => {});
+        await handle?.close().catch(() => {});
+        await rm(blobPath, { force: true }).catch(() => {});
+        await rm(metadataPath, { force: true }).catch(() => {});
         throw error;
       }
-      await handle.close();
-
-      await atomicWrite(
-        metadataPathFor(key),
-        JSON.stringify({ contentType: value.contentType || "application/octet-stream" }),
-        { encoding: "utf8", mode: 0o600 },
-      );
       return true;
     },
   };
