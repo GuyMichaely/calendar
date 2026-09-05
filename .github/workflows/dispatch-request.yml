@@ -66,10 +66,10 @@ jobs:
             *) echo "Unknown operation: $OPERATION. Expected test or deploy." >&2; exit 1 ;;
           esac
 
-          case "$UNIT" in
-            root|old|vanilla) ;;
-            *) echo "Unknown unit: $UNIT. Expected root, old, or vanilla." >&2; exit 1 ;;
-          esac
+          if [[ ! "$UNIT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "Invalid unit name. Use letters, numbers, '.', '_', and '-' only, starting with an alphanumeric character." >&2
+            exit 1
+          fi
 
           if [[ -z "$REVISION" || "$REVISION" == -* ]]; then
             echo "revision must be a non-empty Git revision and may not begin with '-'." >&2
@@ -109,10 +109,11 @@ jobs:
     if: needs.resolve.outputs.operation == 'test'
     permissions:
       contents: read
+      actions: read
     uses: $/.github/workflows/test-and-build-candidate.yml
     with:
       unit: ${{ needs.resolve.outputs.unit }}
-      commit: ${{ needs.resolve.outputs.sha }}
+      revision: ${{ needs.resolve.outputs.sha }}
 
   deploy:
     needs: resolve
