@@ -7,6 +7,7 @@ import {
   putLocalItem,
   readLocalSyncSnapshot,
 } from "./automerge-storage.js";
+import { uploadAttachmentsBeforePersist } from "./attachment-remote.js";
 
 const HISTORY_DB_NAME = "calendar-history";
 const HISTORY_DB_VERSION = 1;
@@ -44,6 +45,34 @@ function cloneValue(value) {
   return value == null ? null : structuredClone(value);
 }
 
+function attachmentMetadata(attachment) {
+  const { blob: _blob, dataUrl: _dataUrl, url: _url, ...metadata } = attachment || {};
+  return metadata;
+}
+
+function withoutAttachmentBytes(item) {
+  if (item == null) return item;
+  const copy = cloneValue(item);
+  if (Array.isArray(copy.attachments)) copy.attachments = copy.attachments.map(attachmentMetadata);
+  return copy;
+}
+
+function uploadableAttachments(item) {
+  return (item?.attachments || []).filter((attachment) => attachment?.blob instanceof Blob);
+}
+
+function cleanHistoryEntry(entry) {
+  if (!entry) return entry;
+  return {
+    ...entry,
+    changes: (entry.changes || []).map((change) => ({
+      ...change,
+      before: withoutAttachmentBytes(change.before),
+      after: withoutAttachmentBytes(change.after),
+    })),
+  };
+}
+
 function syncLiveItem(id, snapshot) {
   if (!liveItems) return;
   const index = liveItems.findIndex((item) => item.id === id);
@@ -51,14 +80,14 @@ function syncLiveItem(id, snapshot) {
     if (index >= 0) liveItems.splice(index, 1);
     return;
   }
-  const copy = cloneValue(snapshot);
+  const copy = withoutAttachmentBytes(snapshot);
   if (index >= 0) liveItems[index] = copy;
   else liveItems.push(copy);
 }
 
 function replaceLiveItems(items) {
   if (!liveItems) return;
-  liveItems.splice(0, liveItems.length, ...items.map(cloneValue));
+  liveItems.splice(0, liveItems.length, ...items.map(withoutAttachmentBytes));
 }
 
 function actionLabel(before, after) {
@@ -137,18 +166,19 @@ async function persistHistorySafely() {
 const historyReady = (async () => {
   const saved = await readPersistedHistory();
   if (saved) {
-    undoStack.push(...(saved.undoStack || []));
-    redoStack.push(...(saved.redoStack || []));
+    undoStack.push(...(saved.undoStack || []).map(cleanHistoryEntry));
+    redoStack.push(...(saved.redoStack || []).map(cleanHistoryEntry));
   }
   emitHistoryState();
 })().catch((error) => console.error("Could not load undo history", error));
 
 async function pushHistory(entry) {
   await historyReady;
-  if (!entry?.changes?.length) return;
+  const cleanEntry = cleanHistoryEntry(entry);
+  if (!cleanEntry?.changes?.length) return;
 
   if (activeBatch) {
-    for (const change of entry.changes) {
+    for (const change of cleanEntry.changes) {
       const existing = activeBatch.changes.find((candidate) => candidate.id === change.id);
       if (existing) existing.after = cloneValue(change.after);
       else activeBatch.changes.push(cloneValue(change));
@@ -156,7 +186,7 @@ async function pushHistory(entry) {
     return;
   }
 
-  undoStack.push(entry);
+  undoStack.push(cleanEntry);
   if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
   redoStack.length = 0;
   await persistHistorySafely();
@@ -164,31 +194,38 @@ async function pushHistory(entry) {
 }
 
 export async function listItems() {
-  liveItems = await listLocalItems();
+  liveItems = (await listLocalItems()).map(withoutAttachmentBytes);
   return liveItems;
 }
 
-export function listItemsSnapshot() {
-  return listLocalItems();
+export async function listItemsSnapshot() {
+  return (await listLocalItems()).map(withoutAttachmentBytes);
 }
 
 export async function putItem(item, baseline = null) {
-  const { before, after } = await putLocalItem(item, baseline);
-  syncLiveItem(item.id, after);
+  const uploads = uploadableAttachments(item);
+  await uploadAttachmentsBeforePersist(uploads);
+  const cleanItem = withoutAttachmentBytes(item);
+  const cleanBaseline = withoutAttachmentBytes(baseline);
+  const { before, after } = await putLocalItem(cleanItem, cleanBaseline);
+  const cleanBefore = withoutAttachmentBytes(before);
+  const cleanAfter = withoutAttachmentBytes(after);
+  syncLiveItem(item.id, cleanAfter);
   if (applyingHistory) return;
   await pushHistory({
-    label: actionLabel(before, after),
-    changes: [{ id: item.id, before: cloneValue(before), after: cloneValue(after) }],
+    label: actionLabel(cleanBefore, cleanAfter),
+    changes: [{ id: item.id, before: cleanBefore, after: cleanAfter }],
   });
 }
 
 export async function deleteItem(id) {
   const { before } = await deleteLocalItem(id);
+  const cleanBefore = withoutAttachmentBytes(before);
   syncLiveItem(id, null);
-  if (applyingHistory || !before) return;
+  if (applyingHistory || !cleanBefore) return;
   await pushHistory({
-    label: actionLabel(before, null),
-    changes: [{ id, before: cloneValue(before), after: null }],
+    label: actionLabel(cleanBefore, null),
+    changes: [{ id, before: cleanBefore, after: null }],
   });
 }
 
@@ -209,7 +246,12 @@ export function redoLabel() {
 }
 
 async function applySnapshot(change, side) {
-  const after = await applyLocalHistoryChange(change, side);
+  const cleanChange = {
+    ...change,
+    before: withoutAttachmentBytes(change.before),
+    after: withoutAttachmentBytes(change.after),
+  };
+  const after = await applyLocalHistoryChange(cleanChange, side);
   syncLiveItem(change.id, after);
 }
 
@@ -266,63 +308,25 @@ async function endBatch() {
   emitHistoryState();
 }
 
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
-
-function dataUrlToBlob(dataUrl) {
-  const [header, encoded] = dataUrl.split(",", 2);
-  const mime = header.match(/^data:(.*?);base64$/)?.[1] || "application/octet-stream";
-  const binary = atob(encoded || "");
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
-
 export async function exportData() {
-  const items = await listLocalItems();
-  const portable = [];
-  for (const item of items) {
-    const copy = { ...item };
-    if (Array.isArray(item.attachments)) {
-      copy.attachments = [];
-      for (const attachment of item.attachments) {
-        copy.attachments.push({
-          ...attachment,
-          blob: undefined,
-          dataUrl: attachment.blob ? await blobToDataUrl(attachment.blob) : attachment.dataUrl,
-        });
-      }
-    }
-    portable.push(copy);
-  }
-  return JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), items: portable }, null, 2);
+  const items = (await listLocalItems()).map(withoutAttachmentBytes);
+  return JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), items }, null, 2);
 }
 
 export async function importData(text) {
   const parsed = JSON.parse(text);
   const items = Array.isArray(parsed) ? parsed : parsed?.items;
   if (!Array.isArray(items)) throw new Error("Import file does not contain an items array.");
+  if (items.some((item) => (item?.attachments || []).some((attachment) => attachment?.dataUrl || attachment?.blob))) {
+    throw new Error("This backup contains browser-stored attachment bytes and must be migrated to server attachment storage before import.");
+  }
 
   await beginBatch("Import backup");
   let imported = 0;
   try {
     for (const raw of items) {
       if (!raw?.id || !raw?.kind) continue;
-      const item = { ...raw };
-      if (Array.isArray(raw.attachments)) {
-        item.attachments = raw.attachments.map((attachment) => ({
-          ...attachment,
-          blob: attachment.dataUrl ? dataUrlToBlob(attachment.dataUrl) : attachment.blob,
-          dataUrl: undefined,
-        }));
-      }
-      await putItem(item);
+      await putItem(withoutAttachmentBytes(raw));
       imported += 1;
     }
   } finally {
@@ -336,9 +340,11 @@ export function readSyncSnapshot() {
 }
 
 export async function mergeSyncSnapshot(bytes) {
-  const items = await mergeLocalSyncSnapshot(bytes);
+  const items = (await mergeLocalSyncSnapshot(bytes)).map(withoutAttachmentBytes);
   replaceLiveItems(items);
   return items;
 }
 
-export { getLocalItem as getItem };
+export async function getItem(id) {
+  return withoutAttachmentBytes(await getLocalItem(id));
+}
