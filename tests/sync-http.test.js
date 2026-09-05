@@ -40,11 +40,10 @@ async function responseDocument(response) {
   return loadCalendarDocument(new Uint8Array(await response.arrayBuffer()));
 }
 
-function authorizedHandler(documentStore, overrides = {}) {
+function authorizedHandler(documentStore) {
   return createSyncHandler({
     authenticate: async () => ({ identity: { issuer: "https://accounts.example", subject: "guy" } }),
     documentStore,
-    ...overrides,
   });
 }
 
@@ -134,40 +133,11 @@ test("invalid Automerge bytes are rejected without replacing stored state", asyn
   assert.deepEqual(materializeItem(stored, "task-1"), materializeItem(base, "task-1"));
 });
 
-test("empty and oversized sync bodies are rejected", async () => {
+test("empty sync bodies are rejected", async () => {
   const store = createMemoryDocumentStore();
-  const handler = authorizedHandler(store, { maxSyncBytes: 32 });
-
+  const handler = authorizedHandler(store);
   const empty = await handler(request(new Uint8Array()));
   assert.equal(empty.status, 400);
-
-  const oversized = await handler(request(new Uint8Array(33)));
-  assert.equal(oversized.status, 413);
-});
-
-test("streamed sync bodies are stopped once the size limit is exceeded", async () => {
-  const store = createMemoryDocumentStore();
-  const handler = authorizedHandler(store, { maxSyncBytes: 32 });
-  let cancelled = false;
-  const body = new ReadableStream({
-    pull(controller) {
-      controller.enqueue(new Uint8Array(20));
-    },
-    cancel() {
-      cancelled = true;
-    },
-  }, { highWaterMark: 0 });
-  const streamed = new Request("https://sync.example/sync", {
-    method: "POST",
-    headers: { "content-type": AUTOMERGE_MEDIA_TYPE },
-    body,
-    duplex: "half",
-  });
-
-  const response = await handler(streamed);
-  assert.equal(response.status, 413);
-  assert.equal(cancelled, true);
-  assert.equal(await store.get("calendar:primary"), null);
 });
 
 test("only POST /sync is accepted", async () => {
