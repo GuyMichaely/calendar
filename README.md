@@ -7,7 +7,7 @@ This branch contains deployment control only. Application code lives on separate
 `deployment.json` controls deployment. Each key under `units` defines one deployed unit:
 
 - `path`: deployment path relative to the Pages site root
-- `revision`: exact application commit currently pinned for that unit
+- `revision`: application commit currently pinned for that unit
 
 Changes to `deployment.json` automatically initiate Pages deployment. Normal changes should be done via `promote-deployment.yml`. Edit `deployment.json` directly at your own risk.
 
@@ -38,7 +38,7 @@ A deploy request may also include `path`:
 }
 ```
 
-`operation` is `test` or `deploy`. `unit` is a syntactically valid unit label. `revision` is a Git revision resolving to a commit. The dispatcher resolves the revision to an exact commit SHA to pin against. `path` is only valid for deploy requests and is optional when promoting an existing unit.
+`operation` is `test` or `deploy`. `unit` is a syntactically valid unit label. `revision` is a Git revision resolving to a commit. The dispatcher resolves the revision to a commit SHA to pin against. `path` is only valid for deploy requests and is optional when promoting an existing unit.
 
 ## Testing and building
 
