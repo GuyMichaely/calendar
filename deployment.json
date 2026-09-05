@@ -1,6 +1,16 @@
 {
   "version": 1,
   "units": {
+    "root": {
+      "sha": "fe03ddf5191af2872e779366e40dfa95346edc94",
+      "artifact": {
+        "id": 9956317540,
+        "name": "verified-solid-fe03ddf5191af2872e779366e40dfa95346edc94",
+        "verificationRunId": 33924601619,
+        "expiresAt": "2026-12-03T22:13:41Z",
+        "digest": "sha256:0a8ce76937f845ea29a3b737bb20d715c77f9f2c4c03cd66a793db381eb12b4e"
+      }
+    },
     "old": {
       "sha": "bfd64a4770a715517ca68d1a663a30f8c07012cf",
       "artifact": {
@@ -19,16 +29,6 @@
         "verificationRunId": 33924601619,
         "expiresAt": "2026-12-03T22:13:41Z",
         "digest": "sha256:94b032612573ae7bb586d93aefdd5aeea36b641420e7e7af440c38186db97f74"
-      }
-    },
-    "root": {
-      "sha": "fe03ddf5191af2872e779366e40dfa95346edc94",
-      "artifact": {
-        "id": 9956317540,
-        "name": "verified-solid-fe03ddf5191af2872e779366e40dfa95346edc94",
-        "verificationRunId": 33924601619,
-        "expiresAt": "2026-12-03T22:13:41Z",
-        "digest": "sha256:0a8ce76937f845ea29a3b737bb20d715c77f9f2c4c03cd66a793db381eb12b4e"
       }
     }
   }
