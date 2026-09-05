@@ -50,9 +50,20 @@ function attachmentMetadata(attachment) {
   return metadata;
 }
 
+function preserveHiddenMetadata(source, target) {
+  for (const key of Reflect.ownKeys(source)) {
+    const descriptor = Object.getOwnPropertyDescriptor(source, key);
+    if (!descriptor || (typeof key !== "symbol" && descriptor.enumerable)) continue;
+    const copied = { ...descriptor };
+    if (Object.hasOwn(copied, "value")) copied.value = cloneValue(copied.value);
+    Object.defineProperty(target, key, copied);
+  }
+  return target;
+}
+
 function withoutAttachmentBytes(item) {
   if (item == null) return item;
-  const copy = cloneValue(item);
+  const copy = preserveHiddenMetadata(item, cloneValue(item));
   if (Array.isArray(copy.attachments)) copy.attachments = copy.attachments.map(attachmentMetadata);
   return copy;
 }
