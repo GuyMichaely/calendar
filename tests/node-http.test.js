@@ -39,6 +39,25 @@ test("Node HTTP adapter preserves request path, method, headers, and bytes", asy
   });
 });
 
+test("Node HTTP adapter default limit accepts attachment-sized requests above the sync limit", async () => {
+  const bytes = new Uint8Array(7 * 1024 * 1024);
+  bytes[0] = 17;
+  bytes[bytes.length - 1] = 29;
+  await withServer(async (request) => {
+    const body = new Uint8Array(await request.arrayBuffer());
+    assert.equal(body.byteLength, bytes.byteLength);
+    assert.equal(body[0], 17);
+    assert.equal(body.at(-1), 29);
+    return new Response(null, { status: 204 });
+  }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/attachments/large-local-test`, {
+      method: "PUT",
+      body: bytes,
+    });
+    assert.equal(response.status, 204);
+  });
+});
+
 test("Node HTTP adapter forwards multiple Set-Cookie values", async () => {
   await withServer(async () => {
     const headers = new Headers();
