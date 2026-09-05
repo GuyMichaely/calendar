@@ -83,3 +83,25 @@ test("file blob store is immutable and persists content type", async () => {
     assert.equal(await reopened.get("missing"), null);
   });
 });
+
+test("concurrent file blob writes publish one complete immutable record", async () => {
+  await withTempDirectory(async (directory) => {
+    const store = createFileBlobStore({ directory });
+    const writes = await Promise.all([
+      store.putIfAbsent("same-id", {
+        bytes: new TextEncoder().encode("alpha"),
+        contentType: "text/alpha",
+      }),
+      store.putIfAbsent("same-id", {
+        bytes: new TextEncoder().encode("bravo"),
+        contentType: "text/bravo",
+      }),
+    ]);
+
+    assert.deepEqual([...writes].sort(), [false, true]);
+    const stored = await store.get("same-id");
+    const text = new TextDecoder().decode(stored.bytes);
+    assert.ok(text === "alpha" || text === "bravo");
+    assert.equal(stored.contentType, text === "alpha" ? "text/alpha" : "text/bravo");
+  });
+});
