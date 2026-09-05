@@ -25,45 +25,19 @@ import {
 export const CALENDAR_DATA_DB_NAME = "calendar-automerge";
 export const CALENDAR_DATA_DB_VERSION = 1;
 export const CALENDAR_DOCUMENT_STORE = "documents";
-export const CALENDAR_ATTACHMENT_STORE = "attachments";
 export const CALENDAR_DOCUMENT_ID = "primary";
 
 const ITEM_HEADS = Symbol("calendar.automergeHeads");
 const COMMON_ITEM_FIELDS = new Set([
-  "id",
-  "kind",
-  "title",
-  "notes",
-  "tags",
-  "attachments",
-  "createdAt",
-  "updatedAt",
-  "deletedAt",
+  "id", "kind", "title", "notes", "tags", "attachments", "createdAt", "updatedAt", "deletedAt",
 ]);
 const TASK_ITEM_FIELDS = new Set([
-  ...COMMON_ITEM_FIELDS,
-  "state",
-  "availableFrom",
-  "deadline",
-  "latestStart",
-  "sleep",
-  "availabilitySchedule",
-  "completedAt",
-  "history",
+  ...COMMON_ITEM_FIELDS, "state", "availableFrom", "deadline", "latestStart", "sleep",
+  "availabilitySchedule", "completedAt", "history",
 ]);
-const EVENT_ITEM_FIELDS = new Set([
-  ...COMMON_ITEM_FIELDS,
-  "start",
-  "end",
-]);
+const EVENT_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end"]);
 const SPECIAL_DELTA_FIELDS = new Set([
-  "id",
-  "title",
-  "notes",
-  "tags",
-  "attachments",
-  "history",
-  "deletedAt",
+  "id", "title", "notes", "tags", "attachments", "history", "deletedAt",
 ]);
 
 function openDb() {
@@ -73,9 +47,6 @@ function openDb() {
       const db = request.result;
       if (!db.objectStoreNames.contains(CALENDAR_DOCUMENT_STORE)) {
         db.createObjectStore(CALENDAR_DOCUMENT_STORE, { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains(CALENDAR_ATTACHMENT_STORE)) {
-        db.createObjectStore(CALENDAR_ATTACHMENT_STORE, { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -87,19 +58,9 @@ function cloneValue(value) {
   return value == null ? value : structuredClone(value);
 }
 
-function attachmentsById(records) {
-  return new Map((records || []).map((record) => [record.id, record.blob]));
-}
-
-function hydrateItem(item, localAttachments, heads = null) {
+function hydrateItem(item, heads = null) {
   if (!item) return null;
   const copy = cloneValue(item);
-  if (Array.isArray(copy.attachments)) {
-    copy.attachments = copy.attachments.map((attachment) => {
-      const blob = localAttachments.get(attachment.id);
-      return blob ? { ...attachment, blob } : attachment;
-    });
-  }
   if (heads) {
     Object.defineProperty(copy, ITEM_HEADS, {
       value: [...heads],
@@ -111,8 +72,8 @@ function hydrateItem(item, localAttachments, heads = null) {
   return copy;
 }
 
-function hydrateItems(items, localAttachments, heads = null) {
-  return items.map((item) => hydrateItem(item, localAttachments, heads));
+function hydrateItems(items, heads = null) {
+  return items.map((item) => hydrateItem(item, heads));
 }
 
 function sameValue(left, right) {
@@ -171,13 +132,8 @@ function getPathParent(root, path) {
 }
 
 function pathUsesCollaborativeText(path, before, after) {
-  return (
-    path.length === 3 &&
-    path[0] === "items" &&
-    ["title", "notes"].includes(path[2]) &&
-    typeof before === "string" &&
-    typeof after === "string"
-  );
+  return path.length === 3 && path[0] === "items" && ["title", "notes"].includes(path[2])
+    && typeof before === "string" && typeof after === "string";
 }
 
 function applyDraftValue(root, path, before, after, afterPresent = true) {
@@ -187,26 +143,17 @@ function applyDraftValue(root, path, before, after, afterPresent = true) {
     if (parent && Object.hasOwn(parent, key)) delete parent[key];
     return;
   }
-
   if (pathUsesCollaborativeText(path, before, after)) {
     Automerge.updateText(root, path, after);
     return;
   }
-
   if (isPlainObject(before) && isPlainObject(after) && parent?.[key] && typeof parent[key] === "object") {
     const fields = new Set([...Object.keys(before), ...Object.keys(after)]);
     for (const field of fields) {
-      applyDraftValue(
-        root,
-        [...path, field],
-        before[field],
-        after[field],
-        Object.hasOwn(after, field),
-      );
+      applyDraftValue(root, [...path, field], before[field], after[field], Object.hasOwn(after, field));
     }
     return;
   }
-
   parent[key] = after;
 }
 
@@ -216,13 +163,7 @@ function mutateDraftFromIntent(draft, baseline, next) {
 
   for (const field of ["title", "notes"]) {
     if (sameValue(baseline[field], next[field])) continue;
-    applyDraftValue(
-      draft,
-      ["items", next.id, field],
-      baseline[field],
-      next[field],
-      Object.hasOwn(next, field),
-    );
+    applyDraftValue(draft, ["items", next.id, field], baseline[field], next[field], Object.hasOwn(next, field));
   }
 
   if (!sameValue(baseline.tags || [], next.tags || [])) {
@@ -277,13 +218,7 @@ function mutateDraftFromIntent(draft, baseline, next) {
   const fields = new Set([...Object.keys(baseline), ...Object.keys(next)]);
   for (const field of fields) {
     if (SPECIAL_DELTA_FIELDS.has(field) || sameValue(baseline[field], next[field])) continue;
-    applyDraftValue(
-      draft,
-      ["items", next.id, field],
-      baseline[field],
-      next[field],
-      Object.hasOwn(next, field),
-    );
+    applyDraftValue(draft, ["items", next.id, field], baseline[field], next[field], Object.hasOwn(next, field));
   }
 
   if (baseline.kind !== next.kind) {
@@ -299,7 +234,6 @@ function applyItemIntentAtHeads(doc, heads, baselineItem, nextItem) {
   const next = itemForSync(nextItem);
   if (baseline.id !== next.id) throw new Error("Item edit baseline must use the same id as the submitted item.");
   if (!Automerge.hasHeads(doc, heads)) return null;
-
   const { newDoc } = Automerge.changeAt(doc, heads, `Edit item ${next.id}`, (draft) => {
     mutateDraftFromIntent(draft, baseline, next);
   });
@@ -310,62 +244,39 @@ function applyItemIntent(doc, baselineItem, nextItem, { restoreDeleted = false }
   const next = itemForSync(nextItem);
   let current = materializeItem(doc, next.id, { includeDeleted: true });
   if (!current) return putDocumentItem(doc, next);
-
   if (restoreDeleted && current.deletedAt) {
     doc = restoreItem(doc, next.id);
     current = materializeItem(doc, next.id, { includeDeleted: true });
   }
-
   const baseline = baselineItem ? itemForSync(baselineItem) : itemForSync(current);
   if (baseline.id !== next.id) throw new Error("Item edit baseline must use the same id as the submitted item.");
 
   for (const field of ["title", "notes"]) {
     if (sameValue(baseline[field], next[field])) continue;
-    if (!Object.hasOwn(next, field)) {
-      doc = deleteItemField(doc, next.id, field, `Clear ${field} for ${next.id}`);
-    } else {
-      doc = updateItemText(doc, next.id, field, String(next[field] ?? ""));
-    }
+    if (!Object.hasOwn(next, field)) doc = deleteItemField(doc, next.id, field, `Clear ${field} for ${next.id}`);
+    else doc = updateItemText(doc, next.id, field, String(next[field] ?? ""));
   }
-
-  for (const tag of listDifference(baseline.tags || [], next.tags || [])) {
-    doc = removeTag(doc, next.id, tag);
-  }
-  for (const tag of listDifference(next.tags || [], baseline.tags || [])) {
-    doc = addTag(doc, next.id, tag);
-  }
+  for (const tag of listDifference(baseline.tags || [], next.tags || [])) doc = removeTag(doc, next.id, tag);
+  for (const tag of listDifference(next.tags || [], baseline.tags || [])) doc = addTag(doc, next.id, tag);
 
   const baselineAttachments = new Map((baseline.attachments || []).map((attachment) => [attachment.id, attachment]));
   const nextAttachments = new Map((next.attachments || []).map((attachment) => [attachment.id, attachment]));
   for (const [attachmentId] of baselineAttachments) {
-    if (!nextAttachments.has(attachmentId)) {
-      doc = removeAttachmentMetadata(doc, next.id, attachmentId);
-    }
+    if (!nextAttachments.has(attachmentId)) doc = removeAttachmentMetadata(doc, next.id, attachmentId);
   }
   for (const [attachmentId, attachment] of nextAttachments) {
     const beforeAttachment = baselineAttachments.get(attachmentId);
-    if (!beforeAttachment || !sameValue(beforeAttachment, attachment)) {
-      doc = addAttachmentMetadata(doc, next.id, attachment);
-    }
+    if (!beforeAttachment || !sameValue(beforeAttachment, attachment)) doc = addAttachmentMetadata(doc, next.id, attachment);
   }
-
-  for (const entry of listDifference(baseline.history || [], next.history || [])) {
-    doc = removeHistoryEntry(doc, next.id, entry);
-  }
-  for (const entry of listDifference(next.history || [], baseline.history || [])) {
-    doc = addHistoryEntry(doc, next.id, entry);
-  }
+  for (const entry of listDifference(baseline.history || [], next.history || [])) doc = removeHistoryEntry(doc, next.id, entry);
+  for (const entry of listDifference(next.history || [], baseline.history || [])) doc = addHistoryEntry(doc, next.id, entry);
 
   const fields = new Set([...Object.keys(baseline), ...Object.keys(next)]);
   for (const field of fields) {
     if (SPECIAL_DELTA_FIELDS.has(field) || sameValue(baseline[field], next[field])) continue;
-    if (!Object.hasOwn(next, field)) {
-      doc = deleteItemField(doc, next.id, field);
-    } else {
-      doc = patchItem(doc, next.id, { [field]: next[field] });
-    }
+    if (!Object.hasOwn(next, field)) doc = deleteItemField(doc, next.id, field);
+    else doc = patchItem(doc, next.id, { [field]: next[field] });
   }
-
   if (baseline.kind !== next.kind) {
     const allowed = allowedFieldsForKind(next.kind);
     current = materializeItem(doc, next.id, { includeDeleted: true });
@@ -373,7 +284,6 @@ function applyItemIntent(doc, baselineItem, nextItem, { restoreDeleted = false }
       if (!allowed.has(field)) doc = deleteItemField(doc, next.id, field, `Remove ${field} after kind conversion for ${next.id}`);
     }
   }
-
   return doc;
 }
 
@@ -382,7 +292,6 @@ function applyHistoryDelta(doc, before, after, side) {
   const target = side === "before" ? before : after;
   const id = target?.id || source?.id;
   let current = materializeItem(doc, id, { includeDeleted: true });
-
   if (!source && target) {
     if (!current) return putDocumentItem(doc, target, `Redo create ${id}`);
     if (current.deletedAt) return restoreItem(doc, id, `Restore ${id}`);
@@ -402,20 +311,13 @@ function applyHistoryDelta(doc, before, after, side) {
       else doc = updateItemText(doc, id, field, String(target[field] ?? ""), `History ${field} for ${id}`);
     }
   }
-
-  for (const tag of listDifference(source.tags || [], target.tags || [])) {
-    doc = removeTag(doc, id, tag, `History remove tag for ${id}`);
-  }
-  for (const tag of listDifference(target.tags || [], source.tags || [])) {
-    doc = addTag(doc, id, tag, `History add tag for ${id}`);
-  }
+  for (const tag of listDifference(source.tags || [], target.tags || [])) doc = removeTag(doc, id, tag, `History remove tag for ${id}`);
+  for (const tag of listDifference(target.tags || [], source.tags || [])) doc = addTag(doc, id, tag, `History add tag for ${id}`);
 
   const sourceAttachments = new Map((source.attachments || []).map((attachment) => [attachment.id, attachment]));
   const targetAttachments = new Map((target.attachments || []).map((attachment) => [attachment.id, attachment]));
   for (const [attachmentId] of sourceAttachments) {
-    if (!targetAttachments.has(attachmentId)) {
-      doc = removeAttachmentMetadata(doc, id, attachmentId, `History remove attachment for ${id}`);
-    }
+    if (!targetAttachments.has(attachmentId)) doc = removeAttachmentMetadata(doc, id, attachmentId, `History remove attachment for ${id}`);
   }
   for (const [attachmentId, attachment] of targetAttachments) {
     const sourceAttachment = sourceAttachments.get(attachmentId);
@@ -425,13 +327,8 @@ function applyHistoryDelta(doc, before, after, side) {
       doc = addAttachmentMetadata(doc, id, attachment, `History attachment for ${id}`);
     }
   }
-
-  for (const entry of listDifference(source.history || [], target.history || [])) {
-    doc = removeHistoryEntry(doc, id, entry, `History remove audit entry for ${id}`);
-  }
-  for (const entry of listDifference(target.history || [], source.history || [])) {
-    doc = addHistoryEntry(doc, id, entry, `History add audit entry for ${id}`);
-  }
+  for (const entry of listDifference(source.history || [], target.history || [])) doc = removeHistoryEntry(doc, id, entry, `History remove audit entry for ${id}`);
+  for (const entry of listDifference(target.history || [], source.history || [])) doc = addHistoryEntry(doc, id, entry, `History add audit entry for ${id}`);
 
   const fields = new Set([...Object.keys(source), ...Object.keys(target)]);
   for (const field of fields) {
@@ -441,191 +338,77 @@ function applyHistoryDelta(doc, before, after, side) {
     if (!Object.hasOwn(target, field)) doc = deleteItemField(doc, id, field, `History clear ${field} for ${id}`);
     else doc = patchItem(doc, id, { [field]: target[field] }, `History ${field} for ${id}`);
   }
-
   return doc;
 }
 
 function readState() {
   return openDb().then((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction([CALENDAR_DOCUMENT_STORE, CALENDAR_ATTACHMENT_STORE], "readonly");
-    const documentRequest = tx.objectStore(CALENDAR_DOCUMENT_STORE).get(CALENDAR_DOCUMENT_ID);
-    const attachmentsRequest = tx.objectStore(CALENDAR_ATTACHMENT_STORE).getAll();
+    const tx = db.transaction(CALENDAR_DOCUMENT_STORE, "readonly");
+    const request = tx.objectStore(CALENDAR_DOCUMENT_STORE).get(CALENDAR_DOCUMENT_ID);
     let documentRecord = null;
-    let attachmentRecords = [];
-
-    documentRequest.onsuccess = () => { documentRecord = documentRequest.result || null; };
-    documentRequest.onerror = () => reject(documentRequest.error);
-    attachmentsRequest.onsuccess = () => { attachmentRecords = attachmentsRequest.result || []; };
-    attachmentsRequest.onerror = () => reject(attachmentsRequest.error);
+    request.onsuccess = () => { documentRecord = request.result || null; };
+    request.onerror = () => reject(request.error);
     tx.oncomplete = () => {
       db.close();
-      const doc = documentRecord?.bytes
-        ? loadCalendarDocument(documentRecord.bytes)
-        : createCalendarDocument();
-      resolve({ doc, localAttachments: attachmentsById(attachmentRecords) });
+      resolve(documentRecord?.bytes ? loadCalendarDocument(documentRecord.bytes) : createCalendarDocument());
     };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
-    tx.onabort = () => {
-      db.close();
-      reject(tx.error || new Error("IndexedDB transaction aborted"));
-    };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.onabort = () => { db.close(); reject(tx.error || new Error("IndexedDB transaction aborted")); };
   }));
 }
 
-function writeState(mutator, attachments = []) {
+function writeState(mutator) {
   return openDb().then((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction([CALENDAR_DOCUMENT_STORE, CALENDAR_ATTACHMENT_STORE], "readwrite");
-    const documentStore = tx.objectStore(CALENDAR_DOCUMENT_STORE);
-    const attachmentStore = tx.objectStore(CALENDAR_ATTACHMENT_STORE);
-    const documentRequest = documentStore.get(CALENDAR_DOCUMENT_ID);
-    const attachmentsRequest = attachmentStore.getAll();
-    let documentRecord = null;
-    let attachmentRecords = [];
-    let documentReady = false;
-    let attachmentsReady = false;
+    const tx = db.transaction(CALENDAR_DOCUMENT_STORE, "readwrite");
+    const store = tx.objectStore(CALENDAR_DOCUMENT_STORE);
+    const request = store.get(CALENDAR_DOCUMENT_ID);
     let result;
-    let applied = false;
-
-    const apply = () => {
-      if (applied || !documentReady || !attachmentsReady) return;
-      applied = true;
+    request.onsuccess = () => {
       try {
-        const currentDoc = documentRecord?.bytes
-          ? loadCalendarDocument(documentRecord.bytes)
-          : createCalendarDocument();
-        const localAttachments = attachmentsById(attachmentRecords);
-        for (const attachment of attachments || []) {
-          if (!attachment?.id || !(attachment.blob instanceof Blob)) continue;
-          localAttachments.set(attachment.id, attachment.blob);
-          attachmentStore.put({ id: attachment.id, blob: attachment.blob });
-        }
-        const outcome = mutator(currentDoc, localAttachments);
+        const doc = request.result?.bytes ? loadCalendarDocument(request.result.bytes) : createCalendarDocument();
+        const outcome = mutator(doc);
         if (!outcome?.doc) throw new Error("Automerge storage mutation must return a document.");
-        documentStore.put({ id: CALENDAR_DOCUMENT_ID, bytes: saveCalendarDocument(outcome.doc) });
+        store.put({ id: CALENDAR_DOCUMENT_ID, bytes: saveCalendarDocument(outcome.doc) });
         result = outcome.result;
       } catch (error) {
         try { tx.abort(); } catch {}
         reject(error);
       }
     };
-
-    documentRequest.onsuccess = () => {
-      documentRecord = documentRequest.result || null;
-      documentReady = true;
-      apply();
-    };
-    documentRequest.onerror = () => reject(documentRequest.error);
-    attachmentsRequest.onsuccess = () => {
-      attachmentRecords = attachmentsRequest.result || [];
-      attachmentsReady = true;
-      apply();
-    };
-    attachmentsRequest.onerror = () => reject(attachmentsRequest.error);
-    tx.oncomplete = () => {
-      db.close();
-      resolve(result);
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
-    tx.onabort = () => {
-      db.close();
-      reject(tx.error || new Error("IndexedDB transaction aborted"));
-    };
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => { db.close(); resolve(result); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.onabort = () => { db.close(); reject(tx.error || new Error("IndexedDB transaction aborted")); };
   }));
 }
 
-export async function listLegacyLocalAttachments() {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(CALENDAR_ATTACHMENT_STORE, "readonly");
-    const request = tx.objectStore(CALENDAR_ATTACHMENT_STORE).getAll();
-    let records = [];
-    request.onsuccess = () => { records = request.result || []; };
-    request.onerror = () => reject(request.error);
-    tx.oncomplete = () => {
-      db.close();
-      resolve(records.filter((record) => record?.id && record.blob instanceof Blob));
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
-    tx.onabort = () => {
-      db.close();
-      reject(tx.error || new Error("IndexedDB transaction aborted"));
-    };
-  });
-}
-
-export async function deleteLegacyLocalAttachments(ids) {
-  const uniqueIds = [...new Set((ids || []).filter(Boolean))];
-  if (!uniqueIds.length) return;
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(CALENDAR_ATTACHMENT_STORE, "readwrite");
-    const store = tx.objectStore(CALENDAR_ATTACHMENT_STORE);
-    for (const id of uniqueIds) store.delete(id);
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
-    tx.onabort = () => {
-      db.close();
-      reject(tx.error || new Error("IndexedDB transaction aborted"));
-    };
-  });
-}
-
 export async function listLocalItems() {
-  const { doc, localAttachments } = await readState();
-  return hydrateItems(materializeItems(doc), localAttachments, Automerge.getHeads(doc));
+  const doc = await readState();
+  return hydrateItems(materializeItems(doc), Automerge.getHeads(doc));
 }
 
 export async function getLocalItem(id) {
-  const { doc, localAttachments } = await readState();
-  return hydrateItem(materializeItem(doc, id), localAttachments, Automerge.getHeads(doc));
+  const doc = await readState();
+  return hydrateItem(materializeItem(doc, id), Automerge.getHeads(doc));
 }
 
 export function putLocalItem(item, baseline = null) {
-  const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
   const baselineHeads = baseline?.[ITEM_HEADS] || null;
-  return writeState((doc, localAttachments) => {
+  return writeState((doc) => {
     const currentHeads = Automerge.getHeads(doc);
-    const before = hydrateItem(materializeItem(doc, item.id), localAttachments, currentHeads);
+    const before = hydrateItem(materializeItem(doc, item.id), currentHeads);
     const current = materializeItem(doc, item.id, { includeDeleted: true });
-    const historicalEdit = baseline && baselineHeads
-      ? applyItemIntentAtHeads(doc, baselineHeads, baseline, item)
-      : null;
-    let nextDoc = historicalEdit || applyItemIntent(
-      doc,
-      baseline || current,
-      item,
-      { restoreDeleted: baseline == null },
-    );
-    if (baseline && baseline.kind !== item.kind) {
-      nextDoc = enforceMaterializedKindShape(nextDoc, item.id);
-    }
-    const after = hydrateItem(
-      materializeItem(nextDoc, item.id),
-      localAttachments,
-      Automerge.getHeads(nextDoc),
-    );
+    const historicalEdit = baseline && baselineHeads ? applyItemIntentAtHeads(doc, baselineHeads, baseline, item) : null;
+    let nextDoc = historicalEdit || applyItemIntent(doc, baseline || current, item, { restoreDeleted: baseline == null });
+    if (baseline && baseline.kind !== item.kind) nextDoc = enforceMaterializedKindShape(nextDoc, item.id);
+    const after = hydrateItem(materializeItem(nextDoc, item.id), Automerge.getHeads(nextDoc));
     return { doc: nextDoc, result: { before, after } };
-  }, attachments);
+  });
 }
 
 export function deleteLocalItem(id, deletedAt = new Date().toISOString()) {
-  return writeState((doc, localAttachments) => {
-    const before = hydrateItem(materializeItem(doc, id), localAttachments, Automerge.getHeads(doc));
+  return writeState((doc) => {
+    const before = hydrateItem(materializeItem(doc, id), Automerge.getHeads(doc));
     if (!before) return { doc, result: { before: null, after: null } };
     const nextDoc = tombstoneItem(doc, id, deletedAt);
     return { doc: nextDoc, result: { before, after: null } };
@@ -633,34 +416,26 @@ export function deleteLocalItem(id, deletedAt = new Date().toISOString()) {
 }
 
 export function applyLocalHistoryChange(change, side) {
-  const target = side === "before" ? change.before : change.after;
-  const attachments = Array.isArray(target?.attachments) ? target.attachments : [];
-  return writeState((doc, localAttachments) => {
+  return writeState((doc) => {
     const nextDoc = applyHistoryDelta(doc, change.before, change.after, side);
-    const after = hydrateItem(
-      materializeItem(nextDoc, change.id),
-      localAttachments,
-      Automerge.getHeads(nextDoc),
-    );
+    const after = hydrateItem(materializeItem(nextDoc, change.id), Automerge.getHeads(nextDoc));
     return { doc: nextDoc, result: after };
-  }, attachments);
+  });
 }
 
 export async function readLocalSyncSnapshot() {
-  const { doc } = await readState();
-  return saveCalendarDocument(doc);
+  return saveCalendarDocument(await readState());
 }
 
 export function mergeLocalSyncSnapshot(incomingBytes) {
-  return writeState((doc, localAttachments) => {
+  return writeState((doc) => {
     const remote = loadCalendarDocument(incomingBytes);
     const merged = mergeCalendarDocuments(doc, remote);
-    const items = hydrateItems(materializeItems(merged), localAttachments, Automerge.getHeads(merged));
+    const items = hydrateItems(materializeItems(merged), Automerge.getHeads(merged));
     return { doc: merged, result: items };
   });
 }
 
 export async function getLocalItemFieldConflicts(id, field) {
-  const { doc } = await readState();
-  return getItemFieldConflicts(doc, id, field);
+  return getItemFieldConflicts(await readState(), id, field);
 }
