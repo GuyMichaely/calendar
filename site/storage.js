@@ -1,9 +1,7 @@
 import {
   applyLocalHistoryChange,
-  deleteLegacyLocalAttachments,
   deleteLocalItem,
   getLocalItem,
-  listLegacyLocalAttachments,
   listLocalItems,
   mergeLocalSyncSnapshot,
   putLocalItem,
@@ -213,21 +211,6 @@ export async function listItems() {
 
 export async function listItemsSnapshot() {
   return (await listLocalItems()).map(withoutAttachmentBytes);
-}
-
-export async function migrateLegacyAttachmentBlobs() {
-  const records = await listLegacyLocalAttachments();
-  if (!records.length) return { uploaded: 0, removed: 0 };
-
-  const items = await listLocalItems();
-  const referencedIds = new Set(
-    items.flatMap((item) => (item.attachments || []).map((attachment) => attachment.id).filter(Boolean)),
-  );
-  const referencedRecords = records.filter((record) => referencedIds.has(record.id));
-
-  await uploadAttachmentsBeforePersist(referencedRecords);
-  await deleteLegacyLocalAttachments(records.map((record) => record.id));
-  return { uploaded: referencedRecords.length, removed: records.length };
 }
 
 export async function putItem(item, baseline = null) {
