@@ -49,6 +49,14 @@ test("Solid dialogs protect dirty edits and preserve attachment and sleep feedba
   assert.match(shortcuts, /Discard your unsaved changes\?/);
 });
 
+test("Solid shortcut dialog keeps standard dialog inset and modal overlay does not blur the page", () => {
+  const keyboardCss = source("site/keyboard.css");
+  const solidCss = source("solid/src/solid.css");
+  assert.match(keyboardCss, /\.shortcut-dialog\s*\{[^}]*padding:\s*20px;/su);
+  const backdrop = /\.solid-dialog-backdrop\s*\{([^}]*)\}/su.exec(solidCss)?.[1] || "";
+  assert.doesNotMatch(backdrop, /backdrop-filter\s*:/u);
+});
+
 test("Solid shell keeps vanilla calendar search, today navigation, and menu wording", () => {
   const app = source("solid/src/App.tsx");
   assert.match(app, /placeholder=\{view\(\) === "calendar" \? "Search calendar" : "Search tasks"\}/);
