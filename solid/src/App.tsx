@@ -27,6 +27,7 @@ import {
   configuredBackendUrl,
   createRemoteCalendarClient,
   createRemoteSyncQueue,
+  saveConfiguredBackendUrl,
   type RemoteSession,
 } from "./remote-sync";
 import { KeyboardShortcutsDialog, loadShortcuts, type Shortcuts } from "./shortcuts";
@@ -52,6 +53,7 @@ export function App() {
   if (!["#tasks", "#calendar"].includes(location.hash)) history.replaceState(null, "", "#tasks");
   const backendUrl = configuredBackendUrl();
   const remote = backendUrl ? createRemoteCalendarClient({ backendUrl, storage: { readSnapshot: readSyncSnapshot, mergeSnapshot: mergeSyncSnapshot } }) : null;
+  const [remoteUrlDraft, setRemoteUrlDraft] = createSignal(backendUrl);
   const [items, setItems] = createSignal<Item[]>([]);
   const [loadingError, setLoadingError] = createSignal("");
   const [view, setView] = createSignal<View>(readView());
@@ -83,6 +85,16 @@ export function App() {
     if (!message) return;
     const id = ++toastSequence;
     setToasts((current) => [...current, { id, message }]);
+  };
+  const saveRemoteServer = () => {
+    try {
+      const normalized = saveConfiguredBackendUrl(remoteUrlDraft());
+      setRemoteUrlDraft(normalized);
+      menuRef.open = false;
+      window.location.reload();
+    } catch (error) {
+      showToast(errorMessage(error, "Invalid remote sync URL."));
+    }
   };
   const refresh = async () => { const next = await listItems(); setItems([...next]); };
   const remoteQueue = remote ? createRemoteSyncQueue({
@@ -236,6 +248,21 @@ export function App() {
                 <button class="text-button" onClick={() => void exportBackup()}>Export backup</button>
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>
                 <button class="text-button" onClick={() => { menuRef.open = false; openShortcuts(); }}>Keyboard shortcuts…</button>
+                <div class="solid-menu-divider" />
+                <form class="solid-menu-remote" onSubmit={(event) => { event.preventDefault(); saveRemoteServer(); }}>
+                  <label>
+                    <span>Remote sync server</span>
+                    <input
+                      type="url"
+                      inputmode="url"
+                      placeholder="https://your-app.azurewebsites.net/"
+                      value={remoteUrlDraft()}
+                      onInput={(event) => setRemoteUrlDraft(event.currentTarget.value)}
+                    />
+                  </label>
+                  <div class="solid-menu-status">Paste the backend base URL. Leave blank to disable remote sync.</div>
+                  <button class="text-button" type="submit">Save sync server</button>
+                </form>
                 <Show when={remote}>
                   <div class="solid-menu-divider" />
                   <Show when={remoteSession() !== null} fallback={<button class="text-button" disabled={!remoteError()} onClick={() => void checkRemoteSession()}>{remoteError() ? "Retry remote connection" : "Checking remote…"}</button>}>
