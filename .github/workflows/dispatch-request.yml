@@ -1,0 +1,126 @@
+name: Dispatch Action Request
+run-name: Dispatch request from ${{ inputs.request_commit }}
+
+on:
+  workflow_call:
+    inputs:
+      request_commit:
+        description: Exact action-trigger commit containing action-request.json
+        required: true
+        type: string
+
+jobs:
+  resolve:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    outputs:
+      operation: ${{ steps.request.outputs.operation }}
+      unit: ${{ steps.request.outputs.unit }}
+      revision: ${{ steps.request.outputs.revision }}
+      sha: ${{ steps.request.outputs.sha }}
+    steps:
+      - name: Validate request commit
+        shell: bash
+        env:
+          REQUEST_COMMIT: ${{ inputs.request_commit }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$REQUEST_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "request_commit must be an exact 40-character commit SHA." >&2
+            exit 1
+          fi
+
+      - name: Check out exact request commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.request_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate request and resolve revision
+        id: request
+        shell: bash
+        env:
+          REQUEST_COMMIT: ${{ inputs.request_commit }}
+        run: |
+          set -euo pipefail
+
+          ACTUAL_REQUEST_COMMIT="$(git rev-parse HEAD)"
+          if [[ "${ACTUAL_REQUEST_COMMIT,,}" != "${REQUEST_COMMIT,,}" ]]; then
+            echo "Checked out request commit does not match request_commit." >&2
+            exit 1
+          fi
+
+          if ! jq -e 'type == "object" and (.operation | type == "string") and (.unit | type == "string") and (.revision | type == "string")' action-request.json >/dev/null; then
+            echo "action-request.json must contain string operation, unit, and revision fields." >&2
+            exit 1
+          fi
+
+          OPERATION="$(jq -r '.operation' action-request.json)"
+          UNIT="$(jq -r '.unit' action-request.json)"
+          REVISION="$(jq -r '.revision' action-request.json)"
+
+          case "$OPERATION" in
+            test|deploy) ;;
+            *) echo "Unknown operation: $OPERATION. Expected test or deploy." >&2; exit 1 ;;
+          esac
+
+          case "$UNIT" in
+            root|old|vanilla) ;;
+            *) echo "Unknown unit: $UNIT. Expected root, old, or vanilla." >&2; exit 1 ;;
+          esac
+
+          if [[ -z "$REVISION" || "$REVISION" == -* ]]; then
+            echo "revision must be a non-empty Git revision and may not begin with '-'." >&2
+            exit 1
+          fi
+
+          git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+
+          SHA=""
+          if SHA="$(git rev-parse --verify "$REVISION^{commit}" 2>/dev/null)"; then
+            :
+          elif SHA="$(git rev-parse --verify "origin/$REVISION^{commit}" 2>/dev/null)"; then
+            :
+          else
+            echo "Could not resolve revision '$REVISION' to a commit." >&2
+            exit 1
+          fi
+
+          SHA="${SHA,,}"
+          if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Resolved revision did not produce an exact commit SHA." >&2
+            exit 1
+          fi
+
+          echo "Requested revision: $REVISION"
+          echo "Resolved commit: $SHA"
+          echo "Operation: $OPERATION"
+          echo "Unit: $UNIT"
+
+          echo "operation=$OPERATION" >> "$GITHUB_OUTPUT"
+          echo "unit=$UNIT" >> "$GITHUB_OUTPUT"
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: resolve
+    if: needs.resolve.outputs.operation == 'test'
+    permissions:
+      contents: read
+    uses: $/.github/workflows/test-and-build-candidate.yml
+    with:
+      unit: ${{ needs.resolve.outputs.unit }}
+      commit: ${{ needs.resolve.outputs.sha }}
+
+  deploy:
+    needs: resolve
+    if: needs.resolve.outputs.operation == 'deploy'
+    permissions:
+      contents: write
+      actions: write
+    uses: $/.github/workflows/promote-deployment.yml
+    with:
+      unit: ${{ needs.resolve.outputs.unit }}
+      commit: ${{ needs.resolve.outputs.sha }}
