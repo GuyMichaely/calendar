@@ -1,0 +1,67 @@
+name: Validate non-nested deployment paths
+
+on:
+  push:
+    branches:
+      - deployment-control
+    paths:
+      - .github/workflows/validate-non-nested-paths.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: deployment-control
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate sibling and nested layouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="04d65983449bacf9ee236a1e25a592faa13a18a7"
+
+          cat > /tmp/siblings.json <<JSON
+          {
+            "units": {
+              "child1": {"path": "/parent/child1/", "revision": "$SHA"},
+              "child2": {"path": "/parent/child2/", "revision": "$SHA"}
+            }
+          }
+          JSON
+          mkdir -p /tmp/sibling-sources/child1 /tmp/sibling-sources/child2
+          printf 'child1\n' > /tmp/sibling-sources/child1/index.html
+          printf 'child2\n' > /tmp/sibling-sources/child2/index.html
+          node scripts/assemble-pages.mjs /tmp/siblings.json /tmp/sibling-sources /tmp/sibling-output
+          test "$(cat /tmp/sibling-output/parent/child1/index.html)" = "child1"
+          test "$(cat /tmp/sibling-output/parent/child2/index.html)" = "child2"
+          test ! -e /tmp/sibling-output/index.html
+
+          cp /tmp/siblings.json /tmp/promote.json
+          if node scripts/update-manifest.mjs /tmp/promote.json parent "$SHA" /parent/; then
+            echo "Expected promotion to reject a parent path containing existing child units." >&2
+            exit 1
+          fi
+
+          cat > /tmp/nested.json <<JSON
+          {
+            "units": {
+              "parent": {"path": "/parent/", "revision": "$SHA"},
+              "child": {"path": "/parent/child/", "revision": "$SHA"}
+            }
+          }
+          JSON
+          mkdir -p /tmp/nested-sources/parent /tmp/nested-sources/child
+          printf 'parent\n' > /tmp/nested-sources/parent/index.html
+          printf 'child\n' > /tmp/nested-sources/child/index.html
+          if node scripts/assemble-pages.mjs /tmp/nested.json /tmp/nested-sources /tmp/nested-output; then
+            echo "Expected assembly to reject nested deployment unit paths." >&2
+            exit 1
+          fi
