@@ -169,6 +169,15 @@ export function App() {
     }
   };
 
+  const refreshRemoteOnResume = () => {
+    if (!remote) return;
+    if (remoteSession()?.authenticated) {
+      void requestRemoteSync();
+    } else if (remoteSession() === null && remoteError()) {
+      void checkRemoteSession();
+    }
+  };
+
   const signOutRemote = async () => {
     if (!remote) return;
     try {
@@ -349,6 +358,9 @@ export function App() {
     }, 30_000);
 
     const syncLocation = () => setView(readView());
+    const syncRemoteWhenVisible = () => {
+      if (document.visibilityState === "visible") refreshRemoteOnResume();
+    };
     const syncHistory = (event: Event) => {
       const detail = (event as CustomEvent<Partial<HistoryState>>).detail || {};
       setHistoryState({
@@ -384,14 +396,18 @@ export function App() {
 
     window.addEventListener("hashchange", syncLocation);
     window.addEventListener("popstate", syncLocation);
+    window.addEventListener("online", refreshRemoteOnResume);
     window.addEventListener("calendar:history-state", syncHistory);
+    document.addEventListener("visibilitychange", syncRemoteWhenVisible);
     document.addEventListener("keydown", onKeyDown);
 
     onCleanup(() => {
       window.clearInterval(clockTimer);
       window.removeEventListener("hashchange", syncLocation);
       window.removeEventListener("popstate", syncLocation);
+      window.removeEventListener("online", refreshRemoteOnResume);
       window.removeEventListener("calendar:history-state", syncHistory);
+      document.removeEventListener("visibilitychange", syncRemoteWhenVisible);
       document.removeEventListener("keydown", onKeyDown);
     });
   });
