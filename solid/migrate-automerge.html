@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#151a17" />
+    <title>Calendar data migration</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #151a17; color: #eef2ef; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+      main { width: min(680px, calc(100% - 32px)); background: #202621; border: 1px solid #39423b; border-radius: 12px; padding: 24px; box-sizing: border-box; }
+      h1 { margin-top: 0; font-size: 1.4rem; }
+      p { line-height: 1.5; }
+      button, a { font: inherit; }
+      button { border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer; background: #d8e7dc; color: #111714; font-weight: 650; }
+      button:disabled { cursor: not-allowed; opacity: 0.55; }
+      #status { white-space: pre-wrap; padding: 12px; border-radius: 8px; background: #151a17; min-height: 24px; }
+      .error { color: #ffb4ab; }
+      .success { color: #b8f2c8; }
+      a { color: #b7d7c0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Calendar data migration</h1>
+      <p>This one-off migration copies legacy task and event data from <code>calendar-app</code> into the current Automerge store. The legacy database is left unchanged.</p>
+      <p>Use this page in the same browser profile that contains the old calendar data. Do not continue if the current Automerge store already contains items.</p>
+      <p id="status">Inspecting local calendar data…</p>
+      <button id="migrate" type="button" disabled>Migrate data</button>
+      <p><a href="./">Return to Calendar</a></p>
+    </main>
+    <script type="module" src="/src/migrate-automerge.ts"></script>
+  </body>
+</html>
