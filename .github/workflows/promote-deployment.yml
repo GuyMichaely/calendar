@@ -12,6 +12,11 @@ on:
         description: Exact candidate 40-character commit SHA
         required: true
         type: string
+      path:
+        description: Optional Pages path; required when creating a new unit
+        required: false
+        default: ""
+        type: string
   workflow_dispatch:
     inputs:
       unit:
@@ -21,6 +26,11 @@ on:
       commit:
         description: Exact candidate 40-character commit SHA
         required: true
+        type: string
+      path:
+        description: Optional Pages path; required when creating a new unit
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -72,11 +82,18 @@ jobs:
           "${{ steps.candidate.outputs.sha }}"
 
       - name: Update deployment manifest
-        run: >-
-          node scripts/update-manifest.mjs
-          deployment.json
-          "${{ inputs.unit }}"
-          "${{ steps.candidate.outputs.sha }}"
+        shell: bash
+        env:
+          UNIT: ${{ inputs.unit }}
+          SHA: ${{ steps.candidate.outputs.sha }}
+          DEPLOY_PATH: ${{ inputs.path }}
+        run: |
+          set -euo pipefail
+          args=(deployment.json "$UNIT" "$SHA")
+          if [[ -n "$DEPLOY_PATH" ]]; then
+            args+=("$DEPLOY_PATH")
+          fi
+          node scripts/update-manifest.mjs "${args[@]}"
 
       - name: Commit manifest
         id: commit
@@ -84,7 +101,7 @@ jobs:
         run: |
           if git diff --quiet -- deployment.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Deployment manifest already contains this exact revision."
+            echo "Deployment manifest already contains this exact revision and path."
             exit 0
           fi
 
