@@ -78,7 +78,11 @@ jobs:
       - name: Root tests
         if: inputs.unit == 'root'
         working-directory: .candidate
-        run: npm test
+        shell: bash
+        run: |
+          for FILE in tests/*.test.js; do
+            node --test "$FILE"
+          done
 
       - name: Solid tests
         id: solid_tests
