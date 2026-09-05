@@ -213,12 +213,6 @@ export async function listItemsSnapshot() {
   return (await listLocalItems()).map(withoutAttachmentBytes);
 }
 
-// Temporary inert export until the Solid import is removed. Legacy attachment
-// migration is intentionally no longer performed by application runtime code.
-export async function migrateLegacyAttachmentBlobs() {
-  return { uploaded: 0, removed: 0 };
-}
-
 export async function putItem(item, baseline = null) {
   const uploads = uploadableAttachments(item);
   await uploadAttachmentsBeforePersist(uploads);
