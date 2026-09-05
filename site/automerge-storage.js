@@ -27,6 +27,43 @@ export const CALENDAR_DOCUMENT_STORE = "documents";
 export const CALENDAR_ATTACHMENT_STORE = "attachments";
 export const CALENDAR_DOCUMENT_ID = "primary";
 
+const COMMON_ITEM_FIELDS = new Set([
+  "id",
+  "kind",
+  "title",
+  "notes",
+  "tags",
+  "attachments",
+  "createdAt",
+  "updatedAt",
+  "deletedAt",
+]);
+const TASK_ITEM_FIELDS = new Set([
+  ...COMMON_ITEM_FIELDS,
+  "state",
+  "availableFrom",
+  "deadline",
+  "latestStart",
+  "sleep",
+  "availabilitySchedule",
+  "completedAt",
+  "history",
+]);
+const EVENT_ITEM_FIELDS = new Set([
+  ...COMMON_ITEM_FIELDS,
+  "start",
+  "end",
+]);
+const SPECIAL_DELTA_FIELDS = new Set([
+  "id",
+  "title",
+  "notes",
+  "tags",
+  "attachments",
+  "history",
+  "deletedAt",
+]);
+
 function openDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(CALENDAR_DATA_DB_NAME, CALENDAR_DATA_DB_VERSION);
@@ -92,54 +129,77 @@ function listDifference(left = [], right = []) {
   return result;
 }
 
-function reconcileItem(doc, item) {
-  const next = itemForSync(item);
+function allowedFieldsForKind(kind) {
+  if (kind === "task") return TASK_ITEM_FIELDS;
+  if (kind === "event") return EVENT_ITEM_FIELDS;
+  throw new Error(`Unknown item kind ${kind}.`);
+}
+
+function applyItemIntent(doc, baselineItem, nextItem, { restoreDeleted = false } = {}) {
+  const next = itemForSync(nextItem);
   let current = materializeItem(doc, next.id, { includeDeleted: true });
   if (!current) return putDocumentItem(doc, next);
 
-  if (current.deletedAt) {
+  if (restoreDeleted && current.deletedAt) {
     doc = restoreItem(doc, next.id);
     current = materializeItem(doc, next.id, { includeDeleted: true });
   }
 
+  const baseline = baselineItem ? itemForSync(baselineItem) : itemForSync(current);
+  if (baseline.id !== next.id) throw new Error("Item edit baseline must use the same id as the submitted item.");
+
   for (const field of ["title", "notes"]) {
-    const nextValue = String(next[field] ?? "");
-    if (String(current[field] ?? "") !== nextValue) {
-      doc = updateItemText(doc, next.id, field, nextValue);
-      current = materializeItem(doc, next.id, { includeDeleted: true });
+    if (sameValue(baseline[field], next[field])) continue;
+    if (!Object.hasOwn(next, field)) {
+      doc = deleteItemField(doc, next.id, field, `Clear ${field} for ${next.id}`);
+    } else {
+      doc = updateItemText(doc, next.id, field, String(next[field] ?? ""));
     }
   }
 
-  const currentTags = new Set(current.tags || []);
-  const nextTags = new Set(next.tags || []);
-  for (const tag of currentTags) {
-    if (!nextTags.has(tag)) doc = removeTag(doc, next.id, tag);
+  for (const tag of listDifference(baseline.tags || [], next.tags || [])) {
+    doc = removeTag(doc, next.id, tag);
   }
-  for (const tag of nextTags) {
-    if (!currentTags.has(tag)) doc = addTag(doc, next.id, tag);
+  for (const tag of listDifference(next.tags || [], baseline.tags || [])) {
+    doc = addTag(doc, next.id, tag);
   }
-  current = materializeItem(doc, next.id, { includeDeleted: true });
 
-  for (const attachment of next.attachments || []) {
-    const existing = (current.attachments || []).find((candidate) => candidate.id === attachment.id);
-    if (!existing || !sameValue(existing, attachment)) {
+  const baselineAttachments = new Map((baseline.attachments || []).map((attachment) => [attachment.id, attachment]));
+  const nextAttachments = new Map((next.attachments || []).map((attachment) => [attachment.id, attachment]));
+  for (const [attachmentId] of baselineAttachments) {
+    if (!nextAttachments.has(attachmentId)) {
+      doc = removeAttachmentMetadata(doc, next.id, attachmentId);
+    }
+  }
+  for (const [attachmentId, attachment] of nextAttachments) {
+    const beforeAttachment = baselineAttachments.get(attachmentId);
+    if (!beforeAttachment || !sameValue(beforeAttachment, attachment)) {
       doc = addAttachmentMetadata(doc, next.id, attachment);
     }
   }
-  current = materializeItem(doc, next.id, { includeDeleted: true });
 
-  const currentHistory = current.history || [];
-  for (const entry of listDifference(next.history || [], currentHistory)) {
+  for (const entry of listDifference(baseline.history || [], next.history || [])) {
+    doc = removeHistoryEntry(doc, next.id, entry);
+  }
+  for (const entry of listDifference(next.history || [], baseline.history || [])) {
     doc = addHistoryEntry(doc, next.id, entry);
   }
-  current = materializeItem(doc, next.id, { includeDeleted: true });
 
-  const specialFields = new Set(["id", "title", "notes", "tags", "attachments", "history", "deletedAt"]);
-  for (const [field, value] of Object.entries(next)) {
-    if (specialFields.has(field)) continue;
-    if (!sameValue(current[field], value)) {
-      doc = patchItem(doc, next.id, { [field]: value });
-      current = materializeItem(doc, next.id, { includeDeleted: true });
+  const fields = new Set([...Object.keys(baseline), ...Object.keys(next)]);
+  for (const field of fields) {
+    if (SPECIAL_DELTA_FIELDS.has(field) || sameValue(baseline[field], next[field])) continue;
+    if (!Object.hasOwn(next, field)) {
+      doc = deleteItemField(doc, next.id, field);
+    } else {
+      doc = patchItem(doc, next.id, { [field]: next[field] });
+    }
+  }
+
+  if (baseline.kind !== next.kind) {
+    const allowed = allowedFieldsForKind(next.kind);
+    current = materializeItem(doc, next.id, { includeDeleted: true });
+    for (const field of Object.keys(current)) {
+      if (!allowed.has(field)) doc = deleteItemField(doc, next.id, field, `Remove ${field} after kind conversion for ${next.id}`);
     }
   }
 
@@ -167,7 +227,8 @@ function applyHistoryDelta(doc, before, after, side) {
     if (sameValue(source[field], target[field])) continue;
     current = materializeItem(doc, id, { includeDeleted: true });
     if (sameValue(current?.[field], source[field])) {
-      doc = updateItemText(doc, id, field, String(target[field] ?? ""), `History ${field} for ${id}`);
+      if (!Object.hasOwn(target, field)) doc = deleteItemField(doc, id, field, `History clear ${field} for ${id}`);
+      else doc = updateItemText(doc, id, field, String(target[field] ?? ""), `History ${field} for ${id}`);
     }
   }
 
@@ -201,13 +262,12 @@ function applyHistoryDelta(doc, before, after, side) {
     doc = addHistoryEntry(doc, id, entry, `History add audit entry for ${id}`);
   }
 
-  const specialFields = new Set(["id", "title", "notes", "tags", "attachments", "history", "deletedAt"]);
   const fields = new Set([...Object.keys(source), ...Object.keys(target)]);
   for (const field of fields) {
-    if (specialFields.has(field) || sameValue(source[field], target[field])) continue;
+    if (SPECIAL_DELTA_FIELDS.has(field) || sameValue(source[field], target[field])) continue;
     current = materializeItem(doc, id, { includeDeleted: true });
     if (!sameValue(current?.[field], source[field])) continue;
-    if (target[field] === undefined) doc = deleteItemField(doc, id, field, `History clear ${field} for ${id}`);
+    if (!Object.hasOwn(target, field)) doc = deleteItemField(doc, id, field, `History clear ${field} for ${id}`);
     else doc = patchItem(doc, id, { [field]: target[field] }, `History ${field} for ${id}`);
   }
 
@@ -318,11 +378,17 @@ export async function getLocalItem(id) {
   return hydrateItem(materializeItem(doc, id), localAttachments);
 }
 
-export function putLocalItem(item) {
+export function putLocalItem(item, baseline = null) {
   const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
   return writeState((doc, localAttachments) => {
     const before = hydrateItem(materializeItem(doc, item.id), localAttachments);
-    const nextDoc = reconcileItem(doc, item);
+    const current = materializeItem(doc, item.id, { includeDeleted: true });
+    const nextDoc = applyItemIntent(
+      doc,
+      baseline || current,
+      item,
+      { restoreDeleted: baseline == null },
+    );
     const after = hydrateItem(materializeItem(nextDoc, item.id), localAttachments);
     return { doc: nextDoc, result: { before, after } };
   }, attachments);
