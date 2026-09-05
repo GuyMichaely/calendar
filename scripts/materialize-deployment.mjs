@@ -15,7 +15,7 @@ const token = process.env.GITHUB_TOKEN;
 if (!repository || !token) throw new Error("GITHUB_REPOSITORY and GITHUB_TOKEN are required.");
 
 const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
-if (manifest.version !== 1 || !manifest.units) throw new Error("Unsupported deployment manifest.");
+if (!manifest.units) throw new Error("Deployment manifest is missing units.");
 
 const outputDir = path.resolve(rawOutputDir);
 rmSync(outputDir, { recursive: true, force: true });
@@ -35,12 +35,6 @@ function run(command, args, cwd = process.cwd()) {
   }
 }
 
-function recordedExpiryPassed(entry) {
-  const expiresAt = Date.parse(entry.artifact?.expiresAt || "");
-  if (!Number.isFinite(expiresAt)) throw new Error("Manifest artifact has an invalid expiresAt value.");
-  return Date.now() >= expiresAt;
-}
-
 async function artifactMetadata(id) {
   const response = await fetch(
     `https://api.github.com/repos/${repository}/actions/artifacts/${id}`,
@@ -54,36 +48,18 @@ async function artifactMetadata(id) {
   return { state: "found", artifact: await response.json() };
 }
 
-function validateMetadata(unit, entry, artifact) {
-  const expected = entry.artifact;
-  if (
-    artifact.id !== expected.id ||
-    artifact.name !== expected.name ||
-    artifact.workflow_run?.id !== expected.verificationRunId
-  ) {
-    throw new Error(`Artifact provenance mismatch for ${unit}.`);
-  }
-  if (expected.digest && artifact.digest && artifact.digest !== expected.digest) {
-    throw new Error(`Artifact digest metadata mismatch for ${unit}.`);
-  }
-}
-
-async function downloadArtifact(unit, entry, target) {
+async function downloadArtifact(id, target) {
   const response = await fetch(
-    `https://api.github.com/repos/${repository}/actions/artifacts/${entry.artifact.id}/zip`,
+    `https://api.github.com/repos/${repository}/actions/artifacts/${id}/zip`,
     { headers, redirect: "follow" },
   );
 
-  if (response.status === 410) return false;
-  if (response.status === 404) {
-    if (recordedExpiryPassed(entry)) return false;
-    throw new Error(`Verified artifact for ${unit} disappeared before its recorded expiry.`);
-  }
+  if (response.status === 404 || response.status === 410) return false;
   if (!response.ok) {
-    throw new Error(`Artifact download failed for ${unit}: ${response.status} ${await response.text()}`);
+    throw new Error(`Artifact download failed: ${response.status} ${await response.text()}`);
   }
 
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), `calendar-artifact-${unit}-`));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "calendar-artifact-"));
   try {
     const zipFile = path.join(tempDir, "artifact.zip");
     writeFileSync(zipFile, Buffer.from(await response.arrayBuffer()));
@@ -97,7 +73,7 @@ async function downloadArtifact(unit, entry, target) {
 }
 
 function rebuildUnit(unit, entry, target) {
-  console.log(`Rebuilding expired ${unit} artifact for ${entry.sha} without retesting.`);
+  console.log(`Rebuilding ${unit} from ${entry.sha} because its pinned artifact is unavailable.`);
   const tempDir = mkdtempSync(path.join(os.tmpdir(), `calendar-rebuild-${unit}-`));
   const source = path.join(tempDir, "source");
   let worktreeAdded = false;
@@ -121,32 +97,26 @@ for (const unit of ["root", "old", "vanilla"]) {
   const entry = manifest.units[unit];
   if (
     !entry ||
+    typeof entry.path !== "string" ||
     !/^[0-9a-f]{40}$/.test(String(entry.sha || "")) ||
-    !Number.isInteger(entry.artifact?.id) ||
-    !entry.artifact?.name ||
-    !Number.isInteger(entry.artifact?.verificationRunId) ||
-    !entry.artifact?.expiresAt
+    !Number.isInteger(entry.artifact)
   ) {
     throw new Error(`Deployment manifest entry for ${unit} is incomplete.`);
   }
 
   const target = path.join(outputDir, unit);
-  const metadata = await artifactMetadata(entry.artifact.id);
+  const metadata = await artifactMetadata(entry.artifact);
 
   if (metadata.state === "found") {
-    validateMetadata(unit, entry, metadata.artifact);
-    if (!metadata.artifact.expired && await downloadArtifact(unit, entry, target)) {
-      console.log(`Using verified artifact ${entry.artifact.id} for ${unit} ${entry.sha}.`);
+    const expectedName = `deploy-${unit}-${entry.sha}`;
+    if (metadata.artifact.id !== entry.artifact || metadata.artifact.name !== expectedName) {
+      throw new Error(`Pinned artifact does not match ${unit} ${entry.sha}.`);
+    }
+    if (!metadata.artifact.expired && await downloadArtifact(entry.artifact, target)) {
+      console.log(`Using pinned artifact ${entry.artifact} for ${unit} ${entry.sha}.`);
       continue;
     }
-    rebuildUnit(unit, entry, target);
-    continue;
   }
 
-  if (metadata.state === "expired" || recordedExpiryPassed(entry)) {
-    rebuildUnit(unit, entry, target);
-    continue;
-  }
-
-  throw new Error(`Verified artifact for ${unit} is missing before its recorded expiry.`);
+  rebuildUnit(unit, entry, target);
 }
