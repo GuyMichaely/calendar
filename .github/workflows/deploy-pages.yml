@@ -63,12 +63,7 @@ jobs:
         run: node scripts/materialize-deployment.mjs deployment.json .sources
 
       - name: Assemble Pages artifact
-        run: >-
-          node scripts/assemble-pages.mjs
-          .sources/root
-          .sources/old
-          .sources/vanilla
-          .pages-dist
+        run: node scripts/assemble-pages.mjs deployment.json .sources .pages-dist
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
