@@ -8,15 +8,13 @@ This branch contains deployment control only. Application code lives on separate
 - `old`: the pre-refactor application, published at `/calendar/old/`.
 - `vanilla`: the vanilla refactor retained at `/calendar/vanilla/`.
 
-The control branch itself is not an application source.
-
 ## Deployment state
 
-`deployment.json` on `deployment-control` is authoritative. Each deploy unit records the deployed application commit plus the Actions artifact and candidate-build run that produced its deployable output.
+`deployment.json` is authoritative. Each deploy unit records the deployed application commit plus the Actions artifact and candidate-build run that produced its deployable output.
 
 ## Agent action requests
 
-Agents that cannot invoke `workflow_dispatch` directly use the dedicated `action-trigger` branch. That branch contains only the push listener, request file, and branch documentation.
+Agents that cannot invoke `workflow_dispatch` directly should use the dedicated `action-trigger` branch. That branch has a workflow that listens for push and invokes the `dispatch-request` workflow in this branch.
 
 The request format is:
 
@@ -28,21 +26,15 @@ The request format is:
 }
 ```
 
-`operation` is `test` or `deploy`. `unit` is `root`, `old`, or `vanilla`. `revision` may be a branch name, tag, full or abbreviated commit ID, or another Git revision that resolves unambiguously to a commit in this repository.
-
-When `action-request.json` changes, `.github/workflows/action-request.yml` on `action-trigger` passes the exact trigger commit SHA to `.github/workflows/dispatch-request.yml` on this branch. The dispatcher reads the request from that exact commit, validates it, resolves `revision` immediately to an exact 40-character application commit SHA, and selects the canonical test or promotion workflow.
-
-The trigger branch does not implement parsing, testing, building, promotion, or deployment. Those definitions live here.
-
-The trigger commit itself identifies the request, so the JSON does not need a separate request ID. Repeating the same request requires a new commit so that GitHub receives another push event. Do not rewrite or force-push away `action-trigger` history during normal operation.
+`operation` is `test` or `deploy`. `unit` is a unit name (currently one of `root`, `old`, or `vanilla`). `revision` is a Git revision.
 
 ## Testing
 
-A `test` request runs `.github/workflows/test-and-build-candidate.yml` for the resolved application commit and stores deployable output as `deploy-<unit>-<sha>`. It does not publish anything.
+A `test` request runs `.github/workflows/test-and-build-candidate.yml` for the resolved application commit and stores deployable output as `deploy-<unit>-<sha>`
 
 ## Deploying
 
-A `deploy` request invokes `.github/workflows/promote-deployment.yml`. Promotion only accepts a candidate with a successful canonical test/build artifact for the same unit and SHA.
+A `deploy` request invokes `.github/workflows/promote-deployment.yml`. Promotion only accepts a candidate with a successful test/build artifact for the same unit and SHA.
 
 Promotion jobs share the `deployment-promotions` concurrency group with `queue: max`, so promotions wait one at a time until previous promotions complete.
 
