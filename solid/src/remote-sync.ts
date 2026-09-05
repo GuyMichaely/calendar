@@ -25,6 +25,13 @@ type RemoteClientOptions = {
   fetch?: typeof fetch;
 };
 
+type RemoteSyncQueueOptions = {
+  sync: () => Promise<unknown>;
+  onBusyChange?: (busy: boolean) => void;
+  onSynced?: () => void;
+  onError?: (error: unknown) => void;
+};
+
 function normalizeBaseUrl(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "";
@@ -35,7 +42,7 @@ function normalizeBaseUrl(value: string) {
   return url.href;
 }
 
-export function configuredBackendUrl(value = import.meta.env.VITE_CALENDAR_BACKEND_URL || "") {
+export function configuredBackendUrl(value = import.meta.env?.VITE_CALENDAR_BACKEND_URL || "") {
   return normalizeBaseUrl(value);
 }
 
@@ -77,6 +84,40 @@ export function createRemoteCalendarClient({ backendUrl, storage, fetch: fetchIm
         credentials: "include",
         signal,
       });
+    },
+  };
+}
+
+export function createRemoteSyncQueue({ sync, onBusyChange, onSynced, onError }: RemoteSyncQueueOptions) {
+  let pending = false;
+  let current: Promise<void> | null = null;
+
+  const drain = async () => {
+    onBusyChange?.(true);
+    try {
+      while (pending) {
+        pending = false;
+        await sync();
+        onSynced?.();
+      }
+    } catch (error) {
+      pending = false;
+      onError?.(error);
+      throw error;
+    } finally {
+      onBusyChange?.(false);
+      current = null;
+    }
+  };
+
+  return {
+    request() {
+      pending = true;
+      current ||= drain();
+      return current;
+    },
+    get running() {
+      return current !== null;
     },
   };
 }
