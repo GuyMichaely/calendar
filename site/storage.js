@@ -213,6 +213,12 @@ export async function listItemsSnapshot() {
   return (await listLocalItems()).map(withoutAttachmentBytes);
 }
 
+// Temporary inert export until the Solid import is removed. Legacy attachment
+// migration is intentionally no longer performed by application runtime code.
+export async function migrateLegacyAttachmentBlobs() {
+  return { uploaded: 0, removed: 0 };
+}
+
 export async function putItem(item, baseline = null) {
   const uploads = uploadableAttachments(item);
   await uploadAttachmentsBeforePersist(uploads);
@@ -243,21 +249,10 @@ export async function deleteItem(id) {
   });
 }
 
-export function canUndo() {
-  return undoStack.length > 0;
-}
-
-export function canRedo() {
-  return redoStack.length > 0;
-}
-
-export function undoLabel() {
-  return undoStack.at(-1)?.label || "";
-}
-
-export function redoLabel() {
-  return redoStack.at(-1)?.label || "";
-}
+export function canUndo() { return undoStack.length > 0; }
+export function canRedo() { return redoStack.length > 0; }
+export function undoLabel() { return undoStack.at(-1)?.label || ""; }
+export function redoLabel() { return redoStack.at(-1)?.label || ""; }
 
 async function applySnapshot(change, side) {
   const cleanChange = {
@@ -273,14 +268,12 @@ export async function undo() {
   await historyReady;
   const entry = undoStack.pop();
   if (!entry) return false;
-
   applyingHistory = true;
   try {
     for (const change of [...entry.changes].reverse()) await applySnapshot(change, "before");
   } finally {
     applyingHistory = false;
   }
-
   redoStack.push(entry);
   await persistHistorySafely();
   emitHistoryState();
@@ -291,14 +284,12 @@ export async function redo() {
   await historyReady;
   const entry = redoStack.pop();
   if (!entry) return false;
-
   applyingHistory = true;
   try {
     for (const change of entry.changes) await applySnapshot(change, "after");
   } finally {
     applyingHistory = false;
   }
-
   undoStack.push(entry);
   await persistHistorySafely();
   emitHistoryState();
@@ -334,7 +325,6 @@ export async function importData(text) {
   if (items.some((item) => (item?.attachments || []).some((attachment) => attachment?.dataUrl || attachment?.blob))) {
     throw new Error("This backup contains browser-stored attachment bytes and must be migrated to server attachment storage before import.");
   }
-
   await beginBatch("Import backup");
   let imported = 0;
   try {
@@ -349,9 +339,7 @@ export async function importData(text) {
   return imported;
 }
 
-export function readSyncSnapshot() {
-  return readLocalSyncSnapshot();
-}
+export function readSyncSnapshot() { return readLocalSyncSnapshot(); }
 
 export async function mergeSyncSnapshot(bytes) {
   const items = (await mergeLocalSyncSnapshot(bytes)).map(withoutAttachmentBytes);
