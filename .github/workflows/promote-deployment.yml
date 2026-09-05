@@ -5,7 +5,7 @@ on:
   workflow_call:
     inputs:
       unit:
-        description: Deploy unit
+        description: Deploy unit label
         required: true
         type: string
       commit:
@@ -15,13 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       unit:
-        description: Deploy unit
+        description: Deploy unit label
         required: true
-        type: choice
-        options:
-          - root
-          - old
-          - vanilla
+        type: string
       commit:
         description: Exact candidate 40-character commit SHA
         required: true
@@ -43,8 +39,13 @@ jobs:
         id: candidate
         shell: bash
         env:
+          UNIT: ${{ inputs.unit }}
           RAW_SHA: ${{ inputs.commit }}
         run: |
+          if [[ ! "$UNIT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "Invalid unit name. Use letters, numbers, '.', '_', and '-' only, starting with an alphanumeric character." >&2
+            exit 1
+          fi
           SHA="${RAW_SHA,,}"
           if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "Commit must be an exact 40-character SHA." >&2
