@@ -9,6 +9,7 @@ import {
   materializeItem,
   patchItem,
   saveCalendarDocument,
+  updateItemText,
 } from "../sync/automerge-document.js";
 
 globalThis.indexedDB = indexedDB;
@@ -146,6 +147,30 @@ test("a stale Solid item save applies only the user's delta to the latest merged
   assert.equal(current.tags.includes("remote"), true);
   assert.equal(current.tags.includes("local"), false);
   assert.equal(current.history.some((entry) => entry.type === "remote-edit"), true);
+});
+
+test("a stale editor text change is made at its captured heads so concurrent remote text survives", async () => {
+  const id = "task-storage-text";
+  await storage.putItem(task({ id, notes: "hello world" }));
+
+  const baseline = (await storage.listItems()).find((item) => item.id === id);
+  const baseDocument = loadCalendarDocument(await storage.readSyncSnapshot());
+  const remoteDocument = updateItemText(
+    forkCalendarDocument(baseDocument),
+    id,
+    "notes",
+    "hello world!",
+  );
+  await storage.mergeSyncSnapshot(saveCalendarDocument(remoteDocument));
+
+  await storage.putItem({
+    ...baseline,
+    notes: "hello brave world",
+    updatedAt: "2026-09-04T13:30:00.000Z",
+  }, baseline);
+
+  const current = (await storage.listItems()).find((item) => item.id === id);
+  assert.equal(current.notes, "hello brave world!");
 });
 
 test("kind conversion removes obsolete source-kind fields without overwriting untouched shared remote edits", async () => {
