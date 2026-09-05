@@ -8,97 +8,11 @@ on:
     paths:
       - action-request.json
 
-permissions:
-  contents: read
-
 jobs:
-  resolve:
-    runs-on: ubuntu-latest
-    outputs:
-      operation: ${{ steps.request.outputs.operation }}
-      unit: ${{ steps.request.outputs.unit }}
-      sha: ${{ steps.request.outputs.sha }}
-      revision: ${{ steps.request.outputs.revision }}
-    steps:
-      - name: Check out request
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Validate request and resolve revision
-        id: request
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if ! jq -e 'type == "object" and (.operation | type == "string") and (.unit | type == "string") and (.revision | type == "string")' action-request.json >/dev/null; then
-            echo "action-request.json must contain string operation, unit, and revision fields." >&2
-            exit 1
-          fi
-
-          OPERATION="$(jq -r '.operation' action-request.json)"
-          UNIT="$(jq -r '.unit' action-request.json)"
-          REVISION="$(jq -r '.revision' action-request.json)"
-
-          case "$OPERATION" in
-            test|deploy) ;;
-            *) echo "Unknown operation: $OPERATION. Expected test or deploy." >&2; exit 1 ;;
-          esac
-
-          case "$UNIT" in
-            root|old|vanilla) ;;
-            *) echo "Unknown unit: $UNIT. Expected root, old, or vanilla." >&2; exit 1 ;;
-          esac
-
-          if [[ -z "$REVISION" || "$REVISION" == -* ]]; then
-            echo "revision must be a non-empty Git revision and may not begin with '-'." >&2
-            exit 1
-          fi
-
-          git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
-
-          SHA=""
-          if SHA="$(git rev-parse --verify "$REVISION^{commit}" 2>/dev/null)"; then
-            :
-          elif SHA="$(git rev-parse --verify "origin/$REVISION^{commit}" 2>/dev/null)"; then
-            :
-          else
-            echo "Could not resolve revision '$REVISION' to a commit." >&2
-            exit 1
-          fi
-
-          if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Resolved revision did not produce an exact commit SHA." >&2
-            exit 1
-          fi
-
-          echo "Requested revision: $REVISION"
-          echo "Resolved commit: $SHA"
-          echo "Operation: $OPERATION"
-          echo "Unit: $UNIT"
-
-          echo "operation=$OPERATION" >> "$GITHUB_OUTPUT"
-          echo "unit=$UNIT" >> "$GITHUB_OUTPUT"
-          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-
-  test:
-    needs: resolve
-    if: needs.resolve.outputs.operation == 'test'
-    permissions:
-      contents: read
-    uses: GuyMichaely/calendar/.github/workflows/test-and-build-candidate.yml@deployment-control
-    with:
-      unit: ${{ needs.resolve.outputs.unit }}
-      commit: ${{ needs.resolve.outputs.sha }}
-
-  deploy:
-    needs: resolve
-    if: needs.resolve.outputs.operation == 'deploy'
+  dispatch:
     permissions:
       contents: write
       actions: write
-    uses: GuyMichaely/calendar/.github/workflows/promote-deployment.yml@deployment-control
+    uses: GuyMichaely/calendar/.github/workflows/dispatch-request.yml@deployment-control
     with:
-      unit: ${{ needs.resolve.outputs.unit }}
-      commit: ${{ needs.resolve.outputs.sha }}
+      request_commit: ${{ github.sha }}
