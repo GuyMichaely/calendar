@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 import { buildDeployUnit } from "./build-deploy-unit.mjs";
+import { findVerification } from "./find-verification.mjs";
 
 const [manifestFile, rawOutputDir] = process.argv.slice(2);
 if (!manifestFile || !rawOutputDir) {
@@ -35,19 +36,6 @@ function run(command, args, cwd = process.cwd()) {
   }
 }
 
-async function artifactMetadata(id) {
-  const response = await fetch(
-    `https://api.github.com/repos/${repository}/actions/artifacts/${id}`,
-    { headers },
-  );
-  if (response.status === 404) return { state: "missing" };
-  if (response.status === 410) return { state: "expired" };
-  if (!response.ok) {
-    throw new Error(`Artifact metadata lookup failed: ${response.status} ${await response.text()}`);
-  }
-  return { state: "found", artifact: await response.json() };
-}
-
 async function downloadArtifact(id, target) {
   const response = await fetch(
     `https://api.github.com/repos/${repository}/actions/artifacts/${id}/zip`,
@@ -72,14 +60,14 @@ async function downloadArtifact(id, target) {
   return true;
 }
 
-function rebuildUnit(unit, entry, target) {
-  console.log(`Rebuilding ${unit} from ${entry.sha} because its pinned artifact is unavailable.`);
+function rebuildUnit(unit, revision, target) {
+  console.log(`Rebuilding ${unit} from ${revision} because no verified artifact is available.`);
   const tempDir = mkdtempSync(path.join(os.tmpdir(), `calendar-rebuild-${unit}-`));
   const source = path.join(tempDir, "source");
   let worktreeAdded = false;
   try {
-    run("git", ["fetch", "--no-tags", "--depth=1", "origin", entry.sha]);
-    run("git", ["worktree", "add", "--detach", source, entry.sha]);
+    run("git", ["fetch", "--no-tags", "--depth=1", "origin", revision]);
+    run("git", ["worktree", "add", "--detach", source, revision]);
     worktreeAdded = true;
     buildDeployUnit({
       unit,
@@ -95,26 +83,22 @@ function rebuildUnit(unit, entry, target) {
 
 for (const unit of ["root", "old", "vanilla"]) {
   const entry = manifest.units[unit];
+  const revision = String(entry?.revision || "").toLowerCase();
   if (
     !entry ||
     typeof entry.path !== "string" ||
-    !/^[0-9a-f]{40}$/.test(String(entry.sha || "")) ||
-    !Number.isInteger(entry.artifact)
+    !/^[0-9a-f]{40}$/.test(revision)
   ) {
     throw new Error(`Deployment manifest entry for ${unit} is incomplete.`);
   }
 
   const target = path.join(outputDir, unit);
-  const metadata = await artifactMetadata(entry.artifact);
+  const verification = await findVerification(unit, revision);
 
-  if (
-    metadata.state === "found" &&
-    !metadata.artifact.expired &&
-    await downloadArtifact(entry.artifact, target)
-  ) {
-    console.log(`Using pinned artifact ${entry.artifact} for ${unit} ${entry.sha}.`);
+  if (verification && await downloadArtifact(verification.id, target)) {
+    console.log(`Using verified artifact ${verification.id} for ${unit} ${revision}.`);
     continue;
   }
 
-  rebuildUnit(unit, entry, target);
+  rebuildUnit(unit, revision, target);
 }
