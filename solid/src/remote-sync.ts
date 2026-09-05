@@ -1,3 +1,4 @@
+import { putLocalAttachmentBlob } from "../../site/attachment-storage.js";
 import { syncCalendarStorage } from "../../sync/client.js";
 
 export type RemoteIdentity = {
@@ -29,7 +30,6 @@ type RemoteItem = {
 type RemoteStorage = {
   readSnapshot: () => Promise<Uint8Array>;
   mergeSnapshot: (bytes: Uint8Array) => Promise<unknown>;
-  listItems?: () => Promise<RemoteItem[]>;
   putAttachmentBlob?: (id: string, blob: Blob) => Promise<void>;
 };
 
@@ -82,11 +82,10 @@ export function createRemoteCalendarClient({ backendUrl, storage, fetch: fetchIm
   if (typeof fetchImpl !== "function") throw new Error("Remote calendar client requires Fetch API support.");
 
   const endpoint = (path: string) => new URL(path.replace(/^\//u, ""), baseUrl).href;
+  const putAttachmentBlob = storage.putAttachmentBlob || putLocalAttachmentBlob;
 
-  const syncAttachments = async (signal?: AbortSignal) => {
-    if (!storage.listItems || !storage.putAttachmentBlob) return;
-    const attachments = uniqueAttachments(await storage.listItems());
-    for (const attachment of attachments) {
+  const syncAttachments = async (items: RemoteItem[], signal?: AbortSignal) => {
+    for (const attachment of uniqueAttachments(items)) {
       const url = endpoint(`attachments/${encodeURIComponent(attachment.id)}`);
       if (attachment.blob instanceof Blob) {
         const existing = await fetchImpl(url, { method: "HEAD", credentials: "include", signal });
@@ -108,7 +107,7 @@ export function createRemoteCalendarClient({ backendUrl, storage, fetch: fetchIm
       if (!download.ok) throw requestError("Could not download attachment", download.status);
       const contentType = download.headers.get("content-type") || attachment.type || "application/octet-stream";
       const blob = new Blob([await download.arrayBuffer()], { type: contentType });
-      await storage.putAttachmentBlob(attachment.id, blob);
+      await putAttachmentBlob(attachment.id, blob);
     }
   };
 
@@ -143,8 +142,8 @@ export function createRemoteCalendarClient({ backendUrl, storage, fetch: fetchIm
         credentials: "include",
         signal,
       });
-      await syncAttachments(signal);
-      return storage.listItems ? storage.listItems() : result;
+      if (Array.isArray(result)) await syncAttachments(result as RemoteItem[], signal);
+      return result;
     },
   };
 }
