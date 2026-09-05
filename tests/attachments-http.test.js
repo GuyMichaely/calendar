@@ -50,15 +50,21 @@ test("attachment service stores, probes, and downloads immutable blobs under a p
   assert.equal((await handler(request("/attachments/file%201"))).status, 404);
 });
 
-test("attachment service rejects empty and oversized uploads", async () => {
+test("attachment service rejects an empty upload but has no application-defined size ceiling", async () => {
   const handler = createAttachmentHandler({
     authenticate: authenticated,
     blobStore: createMemoryBlobStore(),
-    maxAttachmentBytes: 3,
   });
   assert.equal((await handler(request("/attachments/empty", { method: "PUT" }))).status, 400);
-  assert.equal((await handler(request("/attachments/large", {
-    method: "PUT",
-    body: new Uint8Array([1, 2, 3, 4]),
-  }))).status, 413);
+
+  const bytes = new Uint8Array(1024 * 1024 + 3);
+  bytes[0] = 7;
+  bytes[bytes.length - 1] = 11;
+  const upload = await handler(request("/attachments/large", { method: "PUT", body: bytes }));
+  assert.equal(upload.status, 204);
+  const download = await handler(request("/attachments/large"));
+  const returned = new Uint8Array(await download.arrayBuffer());
+  assert.equal(returned.byteLength, bytes.byteLength);
+  assert.equal(returned[0], 7);
+  assert.equal(returned.at(-1), 11);
 });
