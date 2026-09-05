@@ -5,7 +5,7 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "dev:solid": "vite --config solid/vite.config.ts",
-    "dev:backend": "node backend/node-dev.js",
+    "dev:backend": "bun backend/bun-dev.js",
     "test:solid": "node --test solid/test/*.test.ts",
     "typecheck:solid": "tsc -p solid/tsconfig.json --noEmit",
     "build:solid": "vite build --config solid/vite.config.ts"
