@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { downloadAttachmentOnDemand, uploadAttachmentsBeforePersist } from "../../site/attachment-remote.js";
 import {
   createCalendarDocument,
   loadCalendarDocument,
@@ -98,75 +99,55 @@ test("remote sync sends current serialized storage and delegates the response to
   assert.deepEqual(items, [materializeItem(document, "task-remote-client")]);
 });
 
-test("remote sync uploads referenced local attachment blobs that the server does not have", async () => {
-  const document = createCalendarDocument([{
-    ...task(),
-    attachments: [{ id: "attachment-local", name: "note.txt", type: "text/plain", size: 5 }],
-  }]);
-  const bytes = saveCalendarDocument(document);
+test("new attachment bytes are uploaded before local metadata persistence", async () => {
   const localBlob = new Blob(["hello"], { type: "text/plain" });
   let uploaded = "";
-  const client = createRemoteCalendarClient({
+  createRemoteCalendarClient({
     backendUrl: "https://sync.example/calendar-api/",
     storage: {
-      readSnapshot: async () => bytes,
-      mergeSnapshot: async () => [{
-        ...task(),
-        attachments: [{ id: "attachment-local", name: "note.txt", type: "text/plain", size: 5, blob: localBlob }],
-      }],
+      readSnapshot: async () => new Uint8Array([1]),
+      mergeSnapshot: async () => null,
     },
     fetch: async (input, init) => {
-      const url = String(input);
-      if (url.endsWith("/sync")) {
-        return new Response(bytes, { status: 200, headers: { "content-type": AUTOMERGE_MEDIA_TYPE } });
-      }
-      assert.equal(url, "https://sync.example/calendar-api/attachments/attachment-local");
+      assert.equal(String(input), "https://sync.example/calendar-api/attachments/attachment-local");
       assert.equal(init?.credentials, "include");
       if (init?.method === "HEAD") return new Response(null, { status: 404 });
       assert.equal(init?.method, "PUT");
-      assert.equal((init?.headers as Record<string, string>)["content-type"], "text/plain");
       uploaded = await new Response(init?.body as BodyInit).text();
       return new Response(null, { status: 204 });
     },
   });
 
-  await client.sync();
+  await uploadAttachmentsBeforePersist([{
+    id: "attachment-local",
+    name: "note.txt",
+    type: "text/plain",
+    size: 5,
+    blob: localBlob,
+  }]);
   assert.equal(uploaded, "hello");
 });
 
-test("remote sync downloads referenced attachment blobs missing from local IndexedDB", async () => {
-  const document = createCalendarDocument([{
-    ...task(),
-    attachments: [{ id: "attachment-remote", name: "remote.txt", type: "text/plain", size: 6 }],
-  }]);
-  const bytes = saveCalendarDocument(document);
-  let stored: { id: string; text: string; type: string } | null = null;
-  const client = createRemoteCalendarClient({
+test("attachment download fetches bytes on demand without a browser persistence callback", async () => {
+  let calls = 0;
+  createRemoteCalendarClient({
     backendUrl: "https://sync.example/",
     storage: {
-      readSnapshot: async () => bytes,
-      mergeSnapshot: async () => [{
-        ...task(),
-        attachments: [{ id: "attachment-remote", name: "remote.txt", type: "text/plain", size: 6 }],
-      }],
-      putAttachmentBlob: async (id, blob) => {
-        stored = { id, text: await blob.text(), type: blob.type };
-      },
+      readSnapshot: async () => new Uint8Array([1]),
+      mergeSnapshot: async () => null,
     },
     fetch: async (input, init) => {
-      const url = String(input);
-      if (url.endsWith("/sync")) {
-        return new Response(bytes, { status: 200, headers: { "content-type": AUTOMERGE_MEDIA_TYPE } });
-      }
-      assert.equal(url, "https://sync.example/attachments/attachment-remote");
+      calls += 1;
+      assert.equal(String(input), "https://sync.example/attachments/attachment-remote");
       assert.equal(init?.credentials, "include");
-      assert.equal(init?.method, undefined);
       return new Response("remote", { status: 200, headers: { "content-type": "text/plain" } });
     },
   });
 
-  await client.sync();
-  assert.deepEqual(stored, { id: "attachment-remote", text: "remote", type: "text/plain" });
+  const blob = await downloadAttachmentOnDemand({ id: "attachment-remote", name: "remote.txt", type: "text/plain" });
+  assert.equal(await blob.text(), "remote");
+  assert.equal(blob.type, "text/plain");
+  assert.equal(calls, 1);
 });
 
 test("remote logout is credentialed and requires a successful response", async () => {
