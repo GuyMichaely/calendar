@@ -11,6 +11,8 @@ This branch contains deployment control only. Application code lives on separate
 
 Normal changes should go through `promote-deployment.yml`. Promotion can update an existing unit's revision, change its path when a path is supplied, or create a new unit when both a previously unused unit label and a path are supplied.
 
+Deployment paths must be unique, but they may share parents or be nested. For example, `/parent/child1/` and `/parent/child2/` are valid, as are `/parent/` and `/parent/child/`. A unit at `/` is optional.
+
 ## Agent action requests
 
 Agents that cannot invoke `workflow_dispatch` directly should use the dedicated `action-trigger` branch. That branch has a workflow that listens for push and invokes the `dispatch-request` workflow in this branch.
@@ -51,8 +53,6 @@ If the candidate passes, deployable output is stored as `deploy-<unit>-<sha>`. A
 A `deploy` request invokes `.github/workflows/promote-deployment.yml`. Promotion accepts any syntactically valid unit label and confirms that the exact unit-SHA candidate artifact exists and came from `test-and-build-candidate.yml`.
 
 If the unit already exists and no `path` is supplied, promotion preserves its current path and updates only its revision. If `path` is supplied, promotion writes that path; this can also create a previously unknown unit. A new unit without a path fails because there is no deployment location to record.
-
-The resulting manifest must still have unique, non-nested deployment paths and exactly one unit at `/`.
 
 Promotion jobs share the `deployment-promotions` concurrency group with `queue: max`, so promotions wait one at a time until previous promotions complete.
 
