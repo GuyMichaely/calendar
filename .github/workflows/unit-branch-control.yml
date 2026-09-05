@@ -1,0 +1,27 @@
+name: Root branch control
+
+on:
+  push:
+    branches:
+      - main
+      - deploy/root
+
+jobs:
+  test-and-build:
+    if: github.ref_name == 'main'
+    permissions:
+      contents: read
+    uses: GuyMichaely/calendar/.github/workflows/test-and-build-candidate.yml@deployment-control
+    with:
+      unit: root
+      commit: ${{ github.sha }}
+
+  promote:
+    if: github.ref_name == 'deploy/root'
+    permissions:
+      contents: write
+      actions: write
+    uses: GuyMichaely/calendar/.github/workflows/promote-deployment.yml@deployment-control
+    with:
+      unit: root
+      commit: ${{ github.sha }}
