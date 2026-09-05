@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { indexedDB } from "fake-indexeddb";
 import {
+  addHistoryEntry,
   addTag,
   forkCalendarDocument,
   loadCalendarDocument,
   materializeItem,
+  patchItem,
   saveCalendarDocument,
 } from "../sync/automerge-document.js";
 
@@ -74,7 +76,7 @@ test("Solid persistence uses Automerge while keeping blobs and undo history loca
     title: "Plan pool swim",
     tags: [...items[0].tags, "local"],
     updatedAt: "2026-09-04T13:00:00.000Z",
-  });
+  }, items[0]);
 
   await storage.mergeSyncSnapshot(saveCalendarDocument(remoteDocument));
   items = await storage.listItems();
@@ -104,4 +106,84 @@ test("Solid persistence uses Automerge while keeping blobs and undo history loca
   items = await storage.listItems();
   assert.equal(items.length, 1);
   assert.equal(await items[0].attachments[0].blob.text(), "local attachment");
+});
+
+test("a stale Solid item save applies only the user's delta to the latest merged document", async () => {
+  const id = "task-storage-stale";
+  const initial = task({ id, deadline: "2026-09-10T17:00:00.000Z" });
+  await storage.putItem(initial);
+
+  const baseline = (await storage.listItems()).find((item) => item.id === id);
+  const baseDocument = loadCalendarDocument(await storage.readSyncSnapshot());
+  let remoteDocument = forkCalendarDocument(baseDocument);
+  remoteDocument = patchItem(remoteDocument, id, {
+    deadline: "2026-10-02T17:00:00.000Z",
+    notes: "remote notes",
+  });
+  remoteDocument = addTag(remoteDocument, id, "remote");
+  remoteDocument = addHistoryEntry(remoteDocument, id, {
+    at: "2026-09-04T12:30:00.000Z",
+    type: "remote-edit",
+  });
+  await storage.mergeSyncSnapshot(saveCalendarDocument(remoteDocument));
+
+  await storage.putItem({
+    ...baseline,
+    tags: [...baseline.tags, "local"],
+    updatedAt: "2026-09-04T13:00:00.000Z",
+  }, baseline);
+
+  let current = (await storage.listItems()).find((item) => item.id === id);
+  assert.equal(current.deadline, "2026-10-02T17:00:00.000Z");
+  assert.equal(current.notes, "remote notes");
+  assert.deepEqual(new Set(current.tags), new Set(["planning", "remote", "local"]));
+  assert.equal(current.history.some((entry) => entry.type === "remote-edit"), true);
+
+  assert.equal(await storage.undo(), true);
+  current = (await storage.listItems()).find((item) => item.id === id);
+  assert.equal(current.deadline, "2026-10-02T17:00:00.000Z");
+  assert.equal(current.notes, "remote notes");
+  assert.equal(current.tags.includes("remote"), true);
+  assert.equal(current.tags.includes("local"), false);
+  assert.equal(current.history.some((entry) => entry.type === "remote-edit"), true);
+});
+
+test("kind conversion removes obsolete source-kind fields without overwriting untouched shared remote edits", async () => {
+  const id = "task-storage-convert";
+  const initial = task({
+    id,
+    deadline: "2026-09-10T17:00:00.000Z",
+    sleep: { until: "2026-09-08T12:00:00.000Z", startedAt: "2026-09-04T12:00:00.000Z" },
+  });
+  await storage.putItem(initial);
+
+  const baseline = (await storage.listItems()).find((item) => item.id === id);
+  const baseDocument = loadCalendarDocument(await storage.readSyncSnapshot());
+  let remoteDocument = patchItem(forkCalendarDocument(baseDocument), id, {
+    deadline: "2026-10-05T17:00:00.000Z",
+  });
+  remoteDocument = addTag(remoteDocument, id, "remote");
+  await storage.mergeSyncSnapshot(saveCalendarDocument(remoteDocument));
+
+  await storage.putItem({
+    id,
+    kind: "event",
+    title: baseline.title,
+    notes: baseline.notes,
+    tags: baseline.tags,
+    attachments: baseline.attachments,
+    start: "2026-09-20T13:00:00.000Z",
+    end: "2026-09-20T14:00:00.000Z",
+    createdAt: baseline.createdAt,
+    updatedAt: "2026-09-04T14:00:00.000Z",
+  }, baseline);
+
+  const current = (await storage.listItems()).find((item) => item.id === id);
+  assert.equal(current.kind, "event");
+  assert.equal(current.tags.includes("remote"), true);
+  assert.equal(current.start, "2026-09-20T13:00:00.000Z");
+  assert.equal("state" in current, false);
+  assert.equal("deadline" in current, false);
+  assert.equal("sleep" in current, false);
+  assert.equal("history" in current, false);
 });
