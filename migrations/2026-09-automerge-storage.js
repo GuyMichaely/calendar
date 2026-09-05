@@ -2,10 +2,14 @@
 // Solid app's Automerge-backed `calendar-automerge` database.
 //
 // This file is never loaded by the application. Back up first, then paste it
-// into DevTools on guymichaely.com/calendar/ (or /calendar/old/) and run once.
-// The old database is left untouched so /calendar/old/ remains a rollback path.
-// Undo history is intentionally not migrated; a new local history session starts
-// after reload.
+// into DevTools on guymichaely.com/calendar/old/ and run once before switching
+// that browser profile to the current Solid app. The old database is left
+// untouched so /calendar/old/ remains a rollback path. Undo history is
+// intentionally not migrated; a new local history session starts after reload.
+//
+// This migration also folds the old waiting/ignored task fields into the current
+// sleep/availability model, so the separate sleep-schema migration does not need
+// to be run first.
 
 (async () => {
   const OLD_DB = "calendar-app";
@@ -13,7 +17,6 @@
   const NEW_DB = "calendar-automerge";
   const NEW_VERSION = 1;
   const DOCUMENT_STORE = "documents";
-  const ATTACHMENT_STORE = "attachments";
   const DOCUMENT_ID = "primary";
   const FORCE = false;
 
@@ -59,9 +62,6 @@
         if (!db.objectStoreNames.contains(DOCUMENT_STORE)) {
           db.createObjectStore(DOCUMENT_STORE, { keyPath: "id" });
         }
-        if (!db.objectStoreNames.contains(ATTACHMENT_STORE)) {
-          db.createObjectStore(ATTACHMENT_STORE, { keyPath: "id" });
-        }
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
@@ -77,32 +77,67 @@
     });
   }
 
-  function cleanItem(item) {
-    const copy = structuredClone(item);
+  function validDate(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function migrateTaskSchema(item, nowDate, now) {
+    if (item.kind !== "task") return item;
+    const updated = { ...item };
+    const history = [...(updated.history || [])];
+
+    if (updated.state === "waiting") {
+      const wake = validDate(updated.wakeAt);
+      const available = validDate(updated.availableFrom);
+      const wasOldTomorrow = history.some((entry) => entry?.type === "deferred");
+      updated.state = "open";
+      if (wake && wasOldTomorrow) {
+        updated.sleep = { until: wake.toISOString(), startedAt: now };
+      } else if (wake && (!available || wake > available)) {
+        updated.availableFrom = wake.toISOString();
+      }
+    }
+
+    if (Object.hasOwn(updated, "ignoredUntil")) {
+      const ignoredUntil = validDate(updated.ignoredUntil);
+      if (!updated.sleep && ignoredUntil && ignoredUntil > nowDate) {
+        updated.sleep = { until: ignoredUntil.toISOString(), startedAt: now };
+      }
+      delete updated.ignoredUntil;
+    }
+
+    delete updated.wakeAt;
+    return updated;
+  }
+
+  function cleanItem(item, nowDate, now) {
+    const copy = migrateTaskSchema(structuredClone(item), nowDate, now);
     if (Array.isArray(copy.attachments)) {
+      for (const attachment of copy.attachments) {
+        if (attachment?.blob instanceof Blob || attachment?.dataUrl || attachment?.file instanceof Blob) {
+          throw new Error(
+            `Item ${copy.id} contains legacy attachment bytes. This migration intentionally does not discard them.`,
+          );
+        }
+      }
       copy.attachments = copy.attachments.map((attachment) => {
         const metadata = { ...attachment };
         delete metadata.blob;
         delete metadata.dataUrl;
         delete metadata.file;
+        delete metadata.url;
         return metadata;
       });
     }
     return copy;
   }
 
-  function writeNewState(db, bytes, items) {
+  function writeNewDocument(db, bytes) {
     return new Promise((resolve, reject) => {
-      const tx = db.transaction([DOCUMENT_STORE, ATTACHMENT_STORE], "readwrite");
+      const tx = db.transaction(DOCUMENT_STORE, "readwrite");
       tx.objectStore(DOCUMENT_STORE).put({ id: DOCUMENT_ID, bytes });
-      const attachments = tx.objectStore(ATTACHMENT_STORE);
-      for (const item of items) {
-        for (const attachment of item.attachments || []) {
-          if (attachment?.id && attachment.blob instanceof Blob) {
-            attachments.put({ id: attachment.id, blob: attachment.blob });
-          }
-        }
-      }
       tx.oncomplete = () => {
         db.close();
         resolve();
@@ -120,10 +155,12 @@
 
   const oldDb = await openOldDb();
   const oldItems = await readOldItems(oldDb);
+  const nowDate = new Date();
+  const now = nowDate.toISOString();
   const initialItems = Object.fromEntries(
     oldItems
       .filter((item) => item?.id && item?.kind)
-      .map((item) => [item.id, cleanItem(item)]),
+      .map((item) => [item.id, cleanItem(item, nowDate, now)]),
   );
   const document = Automerge.from({ schemaVersion: 1, items: initialItems });
   const bytes = Automerge.save(document);
@@ -141,7 +178,7 @@
     }
   }
 
-  await writeNewState(newDb, bytes, oldItems);
+  await writeNewDocument(newDb, bytes);
   sessionStorage.removeItem("calendar.historySessionId");
   console.log(
     `Migrated ${Object.keys(initialItems).length} items to ${NEW_DB}. ` +
