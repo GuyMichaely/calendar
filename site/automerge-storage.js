@@ -151,6 +151,19 @@ function allowedFieldsForKind(kind) {
   throw new Error(`Unknown item kind ${kind}.`);
 }
 
+function enforceMaterializedKindShape(doc, id) {
+  let current = materializeItem(doc, id, { includeDeleted: true });
+  if (!current?.kind) return doc;
+  const allowed = allowedFieldsForKind(current.kind);
+  for (const field of Object.keys(current)) {
+    if (!allowed.has(field)) {
+      doc = deleteItemField(doc, id, field, `Remove ${field} after ${current.kind} conversion for ${id}`);
+      current = materializeItem(doc, id, { includeDeleted: true });
+    }
+  }
+  return doc;
+}
+
 function getPathParent(root, path) {
   let parent = root;
   for (const segment of path.slice(0, -1)) parent = parent[segment];
@@ -546,12 +559,15 @@ export function putLocalItem(item, baseline = null) {
     const historicalEdit = baseline && baselineHeads
       ? applyItemIntentAtHeads(doc, baselineHeads, baseline, item)
       : null;
-    const nextDoc = historicalEdit || applyItemIntent(
+    let nextDoc = historicalEdit || applyItemIntent(
       doc,
       baseline || current,
       item,
       { restoreDeleted: baseline == null },
     );
+    if (baseline && baseline.kind !== item.kind) {
+      nextDoc = enforceMaterializedKindShape(nextDoc, item.id);
+    }
     const after = hydrateItem(
       materializeItem(nextDoc, item.id),
       localAttachments,
