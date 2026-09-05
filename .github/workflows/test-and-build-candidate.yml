@@ -76,48 +76,36 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Root tests
-        id: root_tests
+        if: inputs.unit == 'root'
+        working-directory: .candidate
+        run: npm test
+
+      - name: Solid tests
+        id: solid_tests
         if: inputs.unit == 'root'
         working-directory: .candidate
         shell: bash
         run: |
           FAILED=""
-          CASE=""
-          for FILE in tests/*.test.js; do
-            set +e
-            OUTPUT="$(node --test "$FILE" 2>&1)"
-            STATUS=$?
-            set -e
-            printf '%s\n' "$OUTPUT"
-            if [[ $STATUS -ne 0 ]]; then
+          for FILE in solid/test/*.test.ts; do
+            if ! node --test "$FILE"; then
               FAILED="$(basename "$FILE")"
-              CASE="$(printf '%s\n' "$OUTPUT" | sed -n 's/^[[:space:]]*not ok [0-9][0-9]* - //p' | head -n 1)"
               break
             fi
           done
-          SLUG="$(printf '%s' "$CASE" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//' | cut -c1-100)"
           echo "failure=$FAILED" >> "$GITHUB_OUTPUT"
-          echo "case=${SLUG:-unknown}" >> "$GITHUB_OUTPUT"
 
-      - name: Record failing root test
-        if: inputs.unit == 'root' && steps.root_tests.outputs.failure != ''
+      - name: Record failing Solid test
+        if: inputs.unit == 'root' && steps.solid_tests.outputs.failure != ''
         uses: actions/upload-artifact@v4
         with:
-          name: root-test-failure-${{ steps.root_tests.outputs.failure }}-${{ steps.root_tests.outputs.case }}
+          name: solid-test-failure-${{ steps.solid_tests.outputs.failure }}
           path: .candidate/package.json
           retention-days: 1
 
-      - name: Fail root tests
-        if: inputs.unit == 'root' && steps.root_tests.outputs.failure != ''
-        shell: bash
-        run: |
-          echo "Root test failed: ${{ steps.root_tests.outputs.failure }} / ${{ steps.root_tests.outputs.case }}" >&2
-          exit 1
-
-      - name: Solid tests
-        if: inputs.unit == 'root'
-        working-directory: .candidate
-        run: npm run test:solid
+      - name: Fail Solid tests
+        if: inputs.unit == 'root' && steps.solid_tests.outputs.failure != ''
+        run: exit 1
 
       - name: Solid typecheck
         if: inputs.unit == 'root'
