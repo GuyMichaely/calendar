@@ -65,16 +65,7 @@ for (const artifact of candidates) {
   const run = await api(`/actions/runs/${runId}`);
   if (!isAcceptedCandidateRun(run)) continue;
 
-  writeFileSync(
-    outputFile,
-    `${JSON.stringify({
-      id: artifact.id,
-      name: artifact.name,
-      verificationRunId: runId,
-      expiresAt: artifact.expires_at,
-      digest: artifact.digest || null,
-    }, null, 2)}\n`,
-  );
+  writeFileSync(outputFile, `${JSON.stringify({ id: artifact.id }, null, 2)}\n`);
   console.log(`Found successful candidate build run ${runId} and artifact ${artifact.id}.`);
   process.exit(0);
 }
