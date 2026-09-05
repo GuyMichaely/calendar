@@ -13,7 +13,9 @@ import {
   exportData,
   importData,
   listItems,
+  mergeSyncSnapshot,
   putItem,
+  readSyncSnapshot,
   redo,
   redoLabel,
   undo,
@@ -21,6 +23,12 @@ import {
 } from "../../site/storage.js";
 import { CalendarView } from "./CalendarView";
 import { ItemEditor, SleepDialog, type EditorRequest } from "./ItemEditor";
+import {
+  configuredBackendUrl,
+  createRemoteCalendarClient,
+  createRemoteSyncQueue,
+  type RemoteSession,
+} from "./remote-sync";
 import { KeyboardShortcutsDialog, loadShortcuts, type Shortcuts } from "./shortcuts";
 import { currentRovingTaskCard, focusBoundaryTask, TasksView } from "./TasksView";
 import { ToastStack, type ToastMessage } from "./ToastStack";
@@ -49,6 +57,10 @@ function editableTarget(target: EventTarget | null) {
   return target instanceof Element && !!target.closest("input, textarea, select, [contenteditable='true']");
 }
 
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 type HistoryState = {
   canUndo: boolean;
   canRedo: boolean;
@@ -58,6 +70,14 @@ type HistoryState = {
 
 export function App() {
   if (!["#tasks", "#calendar"].includes(location.hash)) history.replaceState(null, "", "#tasks");
+
+  const backendUrl = configuredBackendUrl();
+  const remote = backendUrl
+    ? createRemoteCalendarClient({
+      backendUrl,
+      storage: { readSnapshot: readSyncSnapshot, mergeSnapshot: mergeSyncSnapshot },
+    })
+    : null;
 
   const [items, setItems] = createSignal<Item[]>([]);
   const [loadingError, setLoadingError] = createSignal("");
@@ -75,6 +95,10 @@ export function App() {
   const [toasts, setToasts] = createSignal<ToastMessage[]>([]);
   const [shortcuts, setShortcuts] = createSignal<Shortcuts>(loadShortcuts());
   const [showShortcutDialog, setShowShortcutDialog] = createSignal(false);
+  const [remoteSession, setRemoteSession] = createSignal<RemoteSession | null>(null);
+  const [remoteBusy, setRemoteBusy] = createSignal(false);
+  const [remoteError, setRemoteError] = createSignal("");
+  const [lastSyncedAt, setLastSyncedAt] = createSignal<Date | null>(null);
   const [historyState, setHistoryState] = createSignal<HistoryState>({
     canUndo: canUndo(),
     canRedo: canRedo(),
@@ -99,6 +123,70 @@ export function App() {
   const refresh = async () => {
     const next = await listItems();
     setItems([...next]);
+  };
+
+  const remoteQueue = remote
+    ? createRemoteSyncQueue({
+      sync: () => remote.sync(),
+      onBusyChange: setRemoteBusy,
+      onSynced: async () => {
+        await refresh();
+        setRemoteError("");
+        setLastSyncedAt(new Date());
+      },
+      onError: (error) => {
+        const status = typeof error === "object" && error !== null && "status" in error
+          ? (error as { status?: unknown }).status
+          : null;
+        if (status === 401) setRemoteSession({ authenticated: false, identity: null });
+        setRemoteError(errorMessage(error, "Remote sync failed."));
+      },
+    })
+    : null;
+
+  const requestRemoteSync = async (announce = false) => {
+    if (!remoteQueue || !remoteSession()?.authenticated) return false;
+    try {
+      await remoteQueue.request();
+      if (announce) showToast("Synced");
+      return true;
+    } catch (error) {
+      if (announce) showToast(errorMessage(error, "Remote sync failed."));
+      return false;
+    }
+  };
+
+  const checkRemoteSession = async () => {
+    if (!remote) return;
+    setRemoteError("");
+    try {
+      const session = await remote.session();
+      setRemoteSession(session);
+      if (session.authenticated) await requestRemoteSync();
+    } catch (error) {
+      setRemoteSession(null);
+      setRemoteError(errorMessage(error, "Could not reach calendar sync."));
+    }
+  };
+
+  const signOutRemote = async () => {
+    if (!remote) return;
+    try {
+      await remote.logout();
+      setRemoteSession({ authenticated: false, identity: null });
+      setRemoteError("");
+      setLastSyncedAt(null);
+      showToast("Signed out");
+    } catch (error) {
+      showToast(errorMessage(error, "Could not sign out."));
+    } finally {
+      menuRef.open = false;
+    }
+  };
+
+  const remoteIdentityLabel = () => {
+    const identity = remoteSession()?.identity;
+    return identity?.name || identity?.email || identity?.subject || "Signed in";
   };
 
   const navigate = (next: View) => {
@@ -126,6 +214,7 @@ export function App() {
     };
     await putItem(next, task);
     await refresh();
+    void requestRemoteSync();
     showToast(message);
   };
 
@@ -141,6 +230,7 @@ export function App() {
     };
     await putItem(next, task);
     await refresh();
+    void requestRemoteSync();
     showToast("Task completed");
   };
 
@@ -196,6 +286,7 @@ export function App() {
     const label = undoLabel();
     if (!(await undo())) return;
     await refresh();
+    void requestRemoteSync();
     showToast(`Undo${label ? ` ${label}` : ""}`);
   };
 
@@ -203,6 +294,7 @@ export function App() {
     const label = redoLabel();
     if (!(await redo())) return;
     await refresh();
+    void requestRemoteSync();
     showToast(`Redo${label ? ` ${label}` : ""}`);
   };
 
@@ -222,6 +314,7 @@ export function App() {
     try {
       const count = await importData(await file.text());
       await refresh();
+      void requestRemoteSync();
       showToast(`Imported ${count} items`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Import failed");
@@ -241,7 +334,15 @@ export function App() {
   };
 
   onMount(() => {
-    void refresh().catch((error: Error) => setLoadingError(error.message || "Could not open local storage."));
+    void (async () => {
+      try {
+        await refresh();
+      } catch (error) {
+        setLoadingError(errorMessage(error, "Could not open local storage."));
+        return;
+      }
+      if (remote) await checkRemoteSession();
+    })();
 
     const clockTimer = window.setInterval(() => {
       if (!document.querySelector(".solid-dialog-backdrop")) setClock(new Date());
@@ -312,6 +413,55 @@ export function App() {
                 <button class="text-button" onClick={() => void exportBackup()}>Export backup</button>
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>
                 <button class="text-button" onClick={() => { menuRef.open = false; openShortcuts(); }}>Keyboard shortcuts…</button>
+                <Show when={remote}>
+                  <div class="solid-menu-divider" />
+                  <Show
+                    when={remoteSession() !== null}
+                    fallback={
+                      <button
+                        class="text-button"
+                        disabled={!remoteError()}
+                        onClick={() => void checkRemoteSession()}
+                      >
+                        {remoteError() ? "Retry remote connection" : "Checking remote…"}
+                      </button>
+                    }
+                  >
+                    <Show
+                      when={remoteSession()?.authenticated}
+                      fallback={
+                        <button
+                          class="text-button"
+                          onClick={() => {
+                            menuRef.open = false;
+                            window.location.assign(remote!.loginUrl("google"));
+                          }}
+                        >
+                          Sign in with Google
+                        </button>
+                      }
+                    >
+                      <div class="solid-menu-status">Signed in as {remoteIdentityLabel()}</div>
+                      <button
+                        class="text-button"
+                        disabled={remoteBusy()}
+                        onClick={() => {
+                          menuRef.open = false;
+                          void requestRemoteSync(true);
+                        }}
+                      >
+                        {remoteBusy() ? "Syncing…" : "Sync now"}
+                      </button>
+                      <button class="text-button" onClick={() => void signOutRemote()}>Sign out</button>
+                      <Show when={lastSyncedAt()} keyed>{(syncedAt) => (
+                        <div class="solid-menu-status">Last synced {syncedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</div>
+                      )}</Show>
+                    </Show>
+                  </Show>
+                  <Show when={remoteError()} keyed>{(message) => (
+                    <div class="solid-menu-error">{message}</div>
+                  )}</Show>
+                </Show>
               </div>
             </details>
             <nav class="primary-nav" aria-label="Primary">
@@ -411,12 +561,14 @@ export function App() {
               await deleteItem(item.id);
               setEditor(null);
               await refresh();
+              void requestRemoteSync();
               showToast("Deleted");
             }}
             onSave={async (item, created) => {
               await putItem(item, request.item);
               setEditor(null);
               await refresh();
+              void requestRemoteSync();
               showToast(created ? `${item.kind === "task" ? "Task" : "Event"} created` : "Saved");
             }}
             onError={showToast}
