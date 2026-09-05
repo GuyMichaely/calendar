@@ -7,11 +7,11 @@ This branch contains deployment control only. Application code lives on separate
 `deployment.json` controls deployment. Each key under `units` defines one deployed unit:
 
 - `path`: deployment path relative to the Pages site root
-- `revision`: the revision to deploy
+- `revision`: exact application commit currently pinned for that unit
 
-Changes to `deployment.json` automatically initiate builds. Normal changes should be done via `promote-deployment.yml`. Edit `deployment.json` directly at your own risk.
+Changes to `deployment.json` automatically initiate Pages deployment. Normal changes should be done via `promote-deployment.yml`. Edit `deployment.json` directly at your own risk.
 
-Deployment paths must be unique and may share parent directories. For example, `/parent/child1/` and `/parent/child2/` are valid. One unit may not own a path that contains another unit's path, so `/parent/` and `/parent/child/` cannot both be deployment units.
+Deployment paths must be unique and may share parent directories. For example, `/parent/child1/` and `/parent/child2/` are valid. A non-root unit may not own a path that contains another unit's path, so `/parent/` and `/parent/child/` cannot both be deployment units. A unit at `/` may coexist with subpath units.
 
 ## Agent action requests
 
@@ -38,11 +38,11 @@ A deploy request may also include `path`:
 }
 ```
 
-`operation` is `test` or `deploy`. `unit` is an arbitrary string unit label. `revision` is a Git revision resolving to a commit. The dispatcher resolves the revision to a committo pin against. `path` is only valid for deploy requests and is optional when promoting an existing unit.
+`operation` is `test` or `deploy`. `unit` is a syntactically valid unit label. `revision` is a Git revision resolving to a commit. The dispatcher resolves the revision to an exact commit SHA to pin against. `path` is only valid for deploy requests and is optional when promoting an existing unit.
 
 ## Testing and building
 
-A `test` request runs `.github/workflows/test-and-build-candidate.yml`. The workflow builds a deploy ready artifact if all tests succeed. Supply an previously unused unit label to this workflow if you want to create a new deploy unit to use with the deployment workflow.
+A `test` request runs `.github/workflows/test-and-build-candidate.yml`. The workflow builds a deploy-ready artifact if all tests succeed. Supply a previously unused unit label if you want to prepare a new deploy unit for a later deployment.
 
 The candidate revision itself determines how it is built. Revisions with a `build:solid` package script are built from `site/solid`; other revisions use `site`. Tests and typechecking are run when the corresponding package scripts exist.
 
