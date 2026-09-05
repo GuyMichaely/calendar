@@ -1,6 +1,6 @@
 {
   "units": {
-    "root": {
+    "prod": {
       "path": "/",
       "revision": "fe03ddf5191af2872e779366e40dfa95346edc94"
     },
