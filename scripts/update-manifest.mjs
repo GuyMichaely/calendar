@@ -10,28 +10,19 @@ if (!manifestFile || !units.has(unit) || !/^[0-9a-f]{40}$/.test(sha) || !verific
 
 const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
 const verification = JSON.parse(readFileSync(verificationFile, "utf8"));
+const current = manifest.units?.[unit];
 
-if (manifest.version !== 1 || !manifest.units || !manifest.units[unit]) {
-  throw new Error("Unsupported or incomplete deployment manifest.");
+if (!current || typeof current.path !== "string") {
+  throw new Error("Deployment manifest is missing the requested unit or its path.");
 }
-if (
-  !Number.isInteger(verification.id) ||
-  !verification.name ||
-  !Number.isInteger(verification.verificationRunId) ||
-  !verification.expiresAt
-) {
-  throw new Error("Verification metadata is incomplete.");
+if (!Number.isInteger(verification.id)) {
+  throw new Error("Verification metadata is missing the artifact id.");
 }
 
 manifest.units[unit] = {
+  path: current.path,
   sha,
-  artifact: {
-    id: verification.id,
-    name: verification.name,
-    verificationRunId: verification.verificationRunId,
-    expiresAt: verification.expiresAt,
-    digest: verification.digest || null,
-  },
+  artifact: verification.id,
 };
 
 writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
