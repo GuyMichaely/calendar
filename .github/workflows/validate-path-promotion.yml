@@ -1,0 +1,49 @@
+name: Validate path-aware promotion
+
+on:
+  push:
+    branches:
+      - deployment-control
+    paths:
+      - .github/workflows/validate-path-promotion.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: deployment-control
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate manifest update cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="04d65983449bacf9ee236a1e25a592faa13a18a7"
+
+          cp deployment.json /tmp/existing.json
+          node scripts/update-manifest.mjs /tmp/existing.json vanilla "$SHA"
+          test "$(jq -r '.units.vanilla.path' /tmp/existing.json)" = "/vanilla/"
+          test "$(jq -r '.units.vanilla.revision' /tmp/existing.json)" = "$SHA"
+
+          cp deployment.json /tmp/new.json
+          node scripts/update-manifest.mjs /tmp/new.json preview "$SHA" /preview/
+          test "$(jq -r '.units.preview.path' /tmp/new.json)" = "/preview/"
+          test "$(jq -r '.units.preview.revision' /tmp/new.json)" = "$SHA"
+
+          cp deployment.json /tmp/change-path.json
+          node scripts/update-manifest.mjs /tmp/change-path.json vanilla "$SHA" /vanilla-next/
+          test "$(jq -r '.units.vanilla.path' /tmp/change-path.json)" = "/vanilla-next/"
+
+          cp deployment.json /tmp/missing-path.json
+          if node scripts/update-manifest.mjs /tmp/missing-path.json preview "$SHA"; then
+            echo "Expected unknown unit without a path to fail." >&2
+            exit 1
+          fi
