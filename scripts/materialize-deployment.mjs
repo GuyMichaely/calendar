@@ -16,7 +16,12 @@ const token = process.env.GITHUB_TOKEN;
 if (!repository || !token) throw new Error("GITHUB_REPOSITORY and GITHUB_TOKEN are required.");
 
 const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
-if (!manifest.units) throw new Error("Deployment manifest is missing units.");
+if (!manifest.units || typeof manifest.units !== "object" || Array.isArray(manifest.units)) {
+  throw new Error("Deployment manifest is missing units.");
+}
+
+const units = Object.entries(manifest.units);
+if (units.length === 0) throw new Error("Deployment manifest has no units.");
 
 const outputDir = path.resolve(rawOutputDir);
 rmSync(outputDir, { recursive: true, force: true });
@@ -81,15 +86,15 @@ function rebuildUnit(unit, revision, target) {
   }
 }
 
-for (const unit of ["root", "old", "vanilla"]) {
-  const entry = manifest.units[unit];
+for (const [unit, entry] of units) {
   const revision = String(entry?.revision || "").toLowerCase();
   if (
+    !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(unit) ||
     !entry ||
     typeof entry.path !== "string" ||
     !/^[0-9a-f]{40}$/.test(revision)
   ) {
-    throw new Error(`Deployment manifest entry for ${unit} is incomplete.`);
+    throw new Error(`Deployment manifest entry for ${unit} is incomplete or invalid.`);
   }
 
   const target = path.join(outputDir, unit);
