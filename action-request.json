@@ -1,5 +1,5 @@
 {
   "operation": "test",
-  "unit": "vanilla",
-  "revision": "vanilla-refactor"
+  "unit": "prod",
+  "revision": "main"
 }
