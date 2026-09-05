@@ -1,0 +1,27 @@
+name: Vanilla branch control
+
+on:
+  push:
+    branches:
+      - agent/vanilla-refactor
+      - deploy/vanilla
+
+jobs:
+  test-and-build:
+    if: github.ref_name == 'agent/vanilla-refactor'
+    permissions:
+      contents: read
+    uses: GuyMichaely/calendar/.github/workflows/test-and-build-candidate.yml@deployment-control
+    with:
+      unit: vanilla
+      commit: ${{ github.sha }}
+
+  promote:
+    if: github.ref_name == 'deploy/vanilla'
+    permissions:
+      contents: write
+      actions: write
+    uses: GuyMichaely/calendar/.github/workflows/promote-deployment.yml@deployment-control
+    with:
+      unit: vanilla
+      commit: ${{ github.sha }}
