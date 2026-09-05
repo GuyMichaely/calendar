@@ -7,7 +7,7 @@ import {
   saveCalendarDocument,
 } from "../../sync/automerge-document.js";
 import { AUTOMERGE_MEDIA_TYPE } from "../../sync/http.js";
-import { configuredBackendUrl, createRemoteCalendarClient } from "../src/remote-sync";
+import { configuredBackendUrl, createRemoteCalendarClient, createRemoteSyncQueue } from "../src/remote-sync";
 
 function task() {
   return {
@@ -117,4 +117,52 @@ test("remote logout is credentialed and requires a successful response", async (
   await client.logout();
   status = 500;
   await assert.rejects(client.logout(), /Could not sign out/u);
+});
+
+test("remote sync queue serializes requests and performs a follow-up sync for edits queued in flight", async () => {
+  let calls = 0;
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const busy: boolean[] = [];
+  let synced = 0;
+  const queue = createRemoteSyncQueue({
+    sync: async () => {
+      calls += 1;
+      if (calls === 1) await firstGate;
+    },
+    onBusyChange: (value) => busy.push(value),
+    onSynced: () => { synced += 1; },
+  });
+
+  const first = queue.request();
+  assert.equal(queue.running, true);
+  const second = queue.request();
+  assert.equal(first, second);
+  assert.equal(calls, 1);
+
+  releaseFirst();
+  await first;
+
+  assert.equal(calls, 2);
+  assert.equal(synced, 2);
+  assert.deepEqual(busy, [true, false]);
+  assert.equal(queue.running, false);
+});
+
+test("remote sync queue reports failures and accepts a later retry", async () => {
+  let calls = 0;
+  const errors: unknown[] = [];
+  const queue = createRemoteSyncQueue({
+    sync: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("offline");
+    },
+    onError: (error) => errors.push(error),
+  });
+
+  await assert.rejects(queue.request(), /offline/u);
+  assert.equal(queue.running, false);
+  assert.equal(errors.length, 1);
+  await queue.request();
+  assert.equal(calls, 2);
 });
