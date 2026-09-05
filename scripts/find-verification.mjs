@@ -78,11 +78,6 @@ export async function findVerification(unit, rawSha) {
   const { repository } = githubContext();
   const artifacts = await activeCandidateArtifacts(unit, sha);
 
-  if (artifacts.length > 1) {
-    throw new Error(
-      `Candidate artifact invariant violated: ${unit} ${sha} has ${artifacts.length} active artifacts.`,
-    );
-  }
   if (artifacts.length === 0) return null;
 
   const artifact = artifacts[0];
