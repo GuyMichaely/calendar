@@ -12,7 +12,7 @@ To request an action, commit a new `action-request.json` with this shape:
 }
 ```
 
-Allowed operations are `test` and `deploy`. Allowed units are the units specified in `deployment.json` in the `deployment-control` branch. `revision` may be any Git revision that resolves to a commit in this repository.
+Allowed operations are `test` and `deploy`. Allowed units are currently `root`, `old`, and `vanilla`, matching the units in `deployment.json` on the `deployment-control` branch. `revision` may be any Git revision that resolves to a commit in this repository.
 
 When `action-request.json` changes, the `action-request` workflow passes the updating commit SHA to the `dispatch-request.yml` workflow on `deployment-control`. The deployment-control dispatcher reads `action-request.json` from the given commit and parses it to execute the command requested inside.
 
