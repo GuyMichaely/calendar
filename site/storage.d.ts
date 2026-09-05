@@ -2,7 +2,6 @@ import type { Item } from "./model";
 
 export function listItems(): Promise<Item[]>;
 export function listItemsSnapshot(): Promise<Item[]>;
-export function migrateLegacyAttachmentBlobs(): Promise<{ uploaded: number; removed: number }>;
 export function putItem(item: Item, baseline?: Item | null): Promise<void>;
 export function deleteItem(id: string): Promise<void>;
 export function canUndo(): boolean;
