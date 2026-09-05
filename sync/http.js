@@ -39,6 +39,17 @@ export function createMemoryDocumentStore(initial = {}) {
   };
 }
 
+function normalizeBasePath(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "/") return "";
+  const prefixed = raw.startsWith("/") ? raw : `/${raw}`;
+  return prefixed.replace(/\/+$/u, "");
+}
+
+function syncPath(basePath) {
+  return `${normalizeBasePath(basePath)}/sync` || "/sync";
+}
+
 function contentLength(request) {
   const raw = request.headers.get("content-length");
   if (!raw) return null;
@@ -86,13 +97,15 @@ export function createSyncHandler({
   documentStore,
   documentKey = "calendar:primary",
   maxSyncBytes = DEFAULT_MAX_SYNC_BYTES,
+  basePath = "",
 }) {
   if (typeof authenticate !== "function") throw new Error("Sync requires an authenticate(request) function.");
   if (!documentStore?.update) throw new Error("Sync requires a document store with atomic update(key, fn).");
+  const endpointPath = syncPath(basePath);
 
   return async function handleSync(request) {
     const url = new URL(request.url);
-    if (url.pathname !== "/sync") return new Response("Not found", { status: 404 });
+    if (url.pathname !== endpointPath) return new Response("Not found", { status: 404 });
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
     }
