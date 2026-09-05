@@ -19,6 +19,7 @@ jobs:
       unit: ${{ steps.request.outputs.unit }}
       revision: ${{ steps.request.outputs.revision }}
       sha: ${{ steps.request.outputs.sha }}
+      path: ${{ steps.request.outputs.path }}
     steps:
       - name: Validate request commit
         shell: bash
@@ -52,14 +53,21 @@ jobs:
             exit 1
           fi
 
-          if ! jq -e 'type == "object" and (.operation | type == "string") and (.unit | type == "string") and (.revision | type == "string")' action-request.json >/dev/null; then
-            echo "action-request.json must contain string operation, unit, and revision fields." >&2
+          if ! jq -e '
+            type == "object" and
+            (.operation | type == "string") and
+            (.unit | type == "string") and
+            (.revision | type == "string") and
+            ((has("path") | not) or (.path | type == "string"))
+          ' action-request.json >/dev/null; then
+            echo "action-request.json must contain string operation, unit, and revision fields; optional path must be a string." >&2
             exit 1
           fi
 
           OPERATION="$(jq -r '.operation' action-request.json)"
           UNIT="$(jq -r '.unit' action-request.json)"
           REVISION="$(jq -r '.revision' action-request.json)"
+          DEPLOY_PATH="$(jq -r '.path // ""' action-request.json)"
 
           case "$OPERATION" in
             test|deploy) ;;
@@ -73,6 +81,15 @@ jobs:
 
           if [[ -z "$REVISION" || "$REVISION" == -* ]]; then
             echo "revision must be a non-empty Git revision and may not begin with '-'." >&2
+            exit 1
+          fi
+
+          if [[ "$OPERATION" == "test" && -n "$DEPLOY_PATH" ]]; then
+            echo "path is only valid for deploy requests." >&2
+            exit 1
+          fi
+          if [[ "$DEPLOY_PATH" == *$'\n'* || "$DEPLOY_PATH" == *$'\r'* ]]; then
+            echo "path may not contain line breaks." >&2
             exit 1
           fi
 
@@ -98,11 +115,13 @@ jobs:
           echo "Resolved commit: $SHA"
           echo "Operation: $OPERATION"
           echo "Unit: $UNIT"
+          if [[ -n "$DEPLOY_PATH" ]]; then echo "Deployment path: $DEPLOY_PATH"; fi
 
           echo "operation=$OPERATION" >> "$GITHUB_OUTPUT"
           echo "unit=$UNIT" >> "$GITHUB_OUTPUT"
           echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "path=$DEPLOY_PATH" >> "$GITHUB_OUTPUT"
 
   test:
     needs: resolve
@@ -125,3 +144,4 @@ jobs:
     with:
       unit: ${{ needs.resolve.outputs.unit }}
       commit: ${{ needs.resolve.outputs.sha }}
+      path: ${{ needs.resolve.outputs.path }}
