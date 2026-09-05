@@ -1,12 +1,10 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import process from "node:process";
 
-const deployUnits = JSON.parse(readFileSync(new URL("../deploy-units.json", import.meta.url), "utf8"));
 const [unit, rawSha, outputFile] = process.argv.slice(2);
 const sha = String(rawSha || "").toLowerCase();
-const unitConfig = deployUnits.units?.[unit];
 
-if (!unitConfig || !/^[0-9a-f]{40}$/.test(sha) || !outputFile) {
+if (!["root", "old", "vanilla"].includes(unit) || !/^[0-9a-f]{40}$/.test(sha) || !outputFile) {
   throw new Error("Usage: node scripts/find-verification.mjs <root|old|vanilla> <40-char-sha> <output-json>");
 }
 
@@ -28,6 +26,12 @@ async function api(path) {
   return response.json();
 }
 
+function usedCanonicalCandidateWorkflow(run) {
+  return (run.referenced_workflows || []).some((workflow) =>
+    workflow.path === `${repository}/.github/workflows/test-and-build-candidate.yml@deployment-control`,
+  );
+}
+
 function isAcceptedCandidateRun(run) {
   if (run.status !== "completed" || run.conclusion !== "success") return false;
 
@@ -35,13 +39,13 @@ function isAcceptedCandidateRun(run) {
     run.event === "workflow_dispatch" &&
     run.path === ".github/workflows/test-and-build-candidate.yml";
 
-  const automatic =
+  const requested =
     run.event === "push" &&
-    run.path === ".github/workflows/unit-branch-control.yml" &&
-    run.head_branch === unitConfig.developmentBranch &&
-    String(run.head_sha || "").toLowerCase() === sha;
+    run.path === ".github/workflows/action-request.yml" &&
+    run.head_branch === "action-trigger" &&
+    usedCanonicalCandidateWorkflow(run);
 
-  return manual || automatic;
+  return manual || requested;
 }
 
 const artifactName = `deploy-${unit}-${sha}`;
