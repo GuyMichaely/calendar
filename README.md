@@ -17,5 +17,3 @@ To request an action, commit a new `action-request.json` with this shape:
 Allowed operations are `test` and `deploy`. Allowed units are `root`, `old`, and `vanilla`. `revision` may be any Git revision that resolves unambiguously to a commit in this repository, including a branch, tag, full SHA, or abbreviated SHA.
 
 `.github/workflows/action-request.yml` resolves the requested revision to an exact 40-character SHA before invoking canonical reusable workflows on `deployment-control`. The resolved SHA is what the build or deployment operates on.
-
-The trigger commit itself is the request identifier. Do not add a request ID to the JSON merely to make requests unique. To repeat an identical request, create another commit. Preserve this branch's history so the request commits remain available for audit.
