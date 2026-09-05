@@ -12,9 +12,9 @@ const handleRequest = createCalendarBackendHandler({
   ...stores,
 });
 
-const publicUrl = new URL(config.publicBaseUrl);
-const port = Number(Bun.env.PORT || publicUrl.port || (publicUrl.protocol === "https:" ? 443 : 80));
+const port = Number(Bun.env.PORT || 8787);
 const hostname = Bun.env.HOST || "127.0.0.1";
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT must be an integer from 1 through 65535.");
 
 Bun.serve({
   hostname,
@@ -22,7 +22,8 @@ Bun.serve({
   fetch: handleRequest,
 });
 
-console.log(`Calendar backend listening at ${config.publicBaseUrl}`);
+console.log(`Calendar backend listening on http://${hostname}:${port}`);
+console.log(`Public backend URL: ${config.publicBaseUrl}`);
 console.log(`Allowed app origin: ${config.allowedOrigins[0]}`);
 console.log(`Persistent backend data: ${dataDirectory}`);
 console.log("Filesystem document updates are serialized within this process. Do not run multiple backend processes against the same data directory.");
