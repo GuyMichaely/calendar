@@ -60,20 +60,22 @@ export function authCookieNames({ secureCookies = true } = {}) {
     : { flow: "calendar_auth_flow", session: "calendar_session" };
 }
 
-function cookie(name, value, { secure, maxAge }) {
+function cookie(name, value, { secure, maxAge, sameSite = "Lax" }) {
+  if (!["Lax", "Strict", "None"].includes(sameSite)) throw new Error(`Unsupported SameSite value ${sameSite}.`);
+  if (sameSite === "None" && !secure) throw new Error("SameSite=None cookies must be Secure.");
   const attributes = [
     `${name}=${encodeURIComponent(value)}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    `SameSite=${sameSite}`,
     `Max-Age=${Math.max(0, Math.floor(maxAge))}`,
   ];
   if (secure) attributes.push("Secure");
   return attributes.join("; ");
 }
 
-function clearCookie(name, secure) {
-  return cookie(name, "", { secure, maxAge: 0 });
+function clearCookie(name, secure, sameSite = "Lax") {
+  return cookie(name, "", { secure, maxAge: 0, sameSite });
 }
 
 function json(value, status = 200, headers = {}) {
@@ -166,6 +168,7 @@ export function createAuthHandler({
   const applicationUrl = new URL(appUrl).href;
   const authBaseUrl = normalizePublicBaseUrl(publicBaseUrl);
   const names = authCookieNames({ secureCookies });
+  const sessionSameSite = secureCookies ? "None" : "Lax";
 
   return async function handleAuth(request) {
     const url = new URL(request.url);
@@ -233,7 +236,7 @@ export function createAuthHandler({
         );
         return redirect(applicationUrl, [
           clearCookie(names.flow, secureCookies),
-          cookie(names.session, sessionId, { secure: secureCookies, maxAge: sessionTtlMs / 1000 }),
+          cookie(names.session, sessionId, { secure: secureCookies, maxAge: sessionTtlMs / 1000, sameSite: sessionSameSite }),
         ]);
       } catch (error) {
         console.error("OIDC callback failed", error);
@@ -254,7 +257,7 @@ export function createAuthHandler({
       if (sessionId) await store.delete(sessionStoreKey(sessionId));
       return new Response(null, {
         status: 204,
-        headers: { "set-cookie": clearCookie(names.session, secureCookies) },
+        headers: { "set-cookie": clearCookie(names.session, secureCookies, sessionSameSite) },
       });
     }
 
