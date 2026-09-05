@@ -2,18 +2,15 @@
   "units": {
     "root": {
       "path": "/",
-      "sha": "fe03ddf5191af2872e779366e40dfa95346edc94",
-      "artifact": 9956317540
+      "revision": "fe03ddf5191af2872e779366e40dfa95346edc94"
     },
     "old": {
       "path": "/old/",
-      "sha": "bfd64a4770a715517ca68d1a663a30f8c07012cf",
-      "artifact": 9956310228
+      "revision": "bfd64a4770a715517ca68d1a663a30f8c07012cf"
     },
     "vanilla": {
       "path": "/vanilla/",
-      "sha": "04d65983449bacf9ee236a1e25a592faa13a18a7",
-      "artifact": 9956310278
+      "revision": "04d65983449bacf9ee236a1e25a592faa13a18a7"
     }
   }
 }
