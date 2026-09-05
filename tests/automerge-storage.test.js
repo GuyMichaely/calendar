@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { indexedDB } from "fake-indexeddb";
+import { configureRemoteAttachments } from "../site/attachment-remote.js";
 import {
   addHistoryEntry,
   addTag,
@@ -32,6 +33,11 @@ if (typeof globalThis.CustomEvent === "undefined") {
   };
 }
 
+const uploadedAttachments = [];
+configureRemoteAttachments({
+  upload: async (attachments) => uploadedAttachments.push(...attachments),
+  download: async () => new Blob(),
+});
 const storage = await import("../site/storage.js");
 
 function task(overrides = {}) {
@@ -55,23 +61,40 @@ function task(overrides = {}) {
   };
 }
 
-test("Solid persistence uses Automerge while keeping blobs and undo history local", async () => {
+test("Solid persistence uploads attachment bytes before storing metadata-only Automerge state", async () => {
   const localBlob = new Blob(["local attachment"], { type: "text/plain" });
   const initial = task({
     attachments: [{ id: "attachment-1", name: "plan.txt", type: "text/plain", size: 16, blob: localBlob }],
   });
 
   await storage.putItem(initial);
+  assert.equal(uploadedAttachments.length, 1);
+  assert.equal(uploadedAttachments[0].id, "attachment-1");
+  assert.equal(await uploadedAttachments[0].blob.text(), "local attachment");
+
   let items = await storage.listItems();
   assert.equal(items.length, 1);
-  assert.equal(await items[0].attachments[0].blob.text(), "local attachment");
+  assert.equal("blob" in items[0].attachments[0], false);
 
   const baseBytes = await storage.readSyncSnapshot();
   const baseDocument = loadCalendarDocument(baseBytes);
   assert.equal("blob" in materializeItem(baseDocument, initial.id).attachments[0], false);
 
-  const remoteDocument = addTag(forkCalendarDocument(baseDocument), initial.id, "remote");
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open("calendar-automerge", 1);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const storedAttachmentCount = await new Promise((resolve, reject) => {
+    const tx = db.transaction("attachments", "readonly");
+    const request = tx.objectStore("attachments").count();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  assert.equal(storedAttachmentCount, 0);
 
+  const remoteDocument = addTag(forkCalendarDocument(baseDocument), initial.id, "remote");
   await storage.putItem({
     ...items[0],
     title: "Plan pool swim",
@@ -83,14 +106,14 @@ test("Solid persistence uses Automerge while keeping blobs and undo history loca
   items = await storage.listItems();
   assert.equal(items[0].title, "Plan pool swim");
   assert.deepEqual(new Set(items[0].tags), new Set(["planning", "local", "remote"]));
-  assert.equal(await items[0].attachments[0].blob.text(), "local attachment");
+  assert.equal("blob" in items[0].attachments[0], false);
 
   assert.equal(storage.canUndo(), true);
   assert.equal(await storage.undo(), true);
   items = await storage.listItems();
   assert.equal(items[0].title, "Plan swim");
   assert.equal(items[0].tags.includes("remote"), true);
-  assert.equal(await items[0].attachments[0].blob.text(), "local attachment");
+  assert.equal("blob" in items[0].attachments[0], false);
 
   assert.equal(await storage.redo(), true);
   items = await storage.listItems();
@@ -106,7 +129,7 @@ test("Solid persistence uses Automerge while keeping blobs and undo history loca
   assert.equal(await storage.undo(), true);
   items = await storage.listItems();
   assert.equal(items.length, 1);
-  assert.equal(await items[0].attachments[0].blob.text(), "local attachment");
+  assert.equal("blob" in items[0].attachments[0], false);
 });
 
 test("a stale Solid item save applies only the user's delta to the latest merged document", async () => {
