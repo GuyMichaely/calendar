@@ -119,8 +119,24 @@ export async function readAuthSession(request, { store, secureCookies = true, no
   return { id: sessionId, ...session };
 }
 
+function normalizePublicBaseUrl(value) {
+  const url = new URL(value);
+  url.search = "";
+  url.hash = "";
+  if (!url.pathname.endsWith("/")) url.pathname += "/";
+  return url;
+}
+
+function pathWithinBase(url, baseUrl) {
+  const prefix = baseUrl.pathname.replace(/\/+$/u, "");
+  if (!prefix) return url.pathname;
+  if (url.pathname === prefix) return "/";
+  if (!url.pathname.startsWith(`${prefix}/`)) return null;
+  return url.pathname.slice(prefix.length);
+}
+
 function callbackUrl(publicBaseUrl, providerId) {
-  return new URL(`/auth/callback/${encodeURIComponent(providerId)}`, publicBaseUrl).href;
+  return new URL(`auth/callback/${encodeURIComponent(providerId)}`, publicBaseUrl).href;
 }
 
 function redirect(location, cookies = []) {
@@ -148,13 +164,15 @@ export function createAuthHandler({
   }
   if (!store?.get || !store?.set || !store?.delete) throw new Error("Auth requires a get/set/delete store.");
   const applicationUrl = new URL(appUrl).href;
-  const authBaseUrl = new URL(publicBaseUrl).href;
+  const authBaseUrl = normalizePublicBaseUrl(publicBaseUrl);
   const names = authCookieNames({ secureCookies });
 
   return async function handleAuth(request) {
     const url = new URL(request.url);
-    const loginMatch = /^\/auth\/login\/([^/]+)$/u.exec(url.pathname);
-    const callbackMatch = /^\/auth\/callback\/([^/]+)$/u.exec(url.pathname);
+    const path = pathWithinBase(url, authBaseUrl);
+    if (path == null) return new Response("Not found", { status: 404 });
+    const loginMatch = /^\/auth\/login\/([^/]+)$/u.exec(path);
+    const callbackMatch = /^\/auth\/callback\/([^/]+)$/u.exec(path);
 
     if (request.method === "GET" && loginMatch) {
       const providerId = decodeURIComponent(loginMatch[1]);
@@ -226,12 +244,12 @@ export function createAuthHandler({
       }
     }
 
-    if (request.method === "GET" && url.pathname === "/auth/me") {
+    if (request.method === "GET" && path === "/auth/me") {
       const session = await readAuthSession(request, { store, secureCookies, now });
       return session ? json({ authenticated: true, identity: session.identity }) : json({ authenticated: false }, 401);
     }
 
-    if (request.method === "POST" && url.pathname === "/auth/logout") {
+    if (request.method === "POST" && path === "/auth/logout") {
       const sessionId = parseCookies(request)[names.session];
       if (sessionId) await store.delete(sessionStoreKey(sessionId));
       return new Response(null, {
