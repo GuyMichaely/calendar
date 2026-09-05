@@ -1,0 +1,60 @@
+name: Diagnose persistent backend
+
+on:
+  push:
+    branches:
+      - deployment-control
+    paths:
+      - .github/workflows/diagnose-persistent-backend.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Start persistent backend
+        env:
+          CALENDAR_APP_URL: http://localhost:5173/calendar/
+          CALENDAR_PUBLIC_BASE_URL: http://127.0.0.1:8787/
+          CALENDAR_DATA_DIR: ${{ runner.temp }}/calendar-data
+          CALENDAR_OIDC_PROVIDERS_JSON: '[{"id":"test","issuer":"https://issuer.example","clientId":"test-client"}]'
+          CALENDAR_ALLOWED_IDENTITIES_JSON: '[{"issuer":"https://issuer.example","subject":"test-user"}]'
+          HOST: 127.0.0.1
+          PORT: '8787'
+        run: |
+          set -euo pipefail
+          bun backend/bun-server.js >backend.log 2>&1 &
+          echo $! >backend.pid
+          for i in $(seq 1 40); do
+            if curl --silent --fail-with-body --output /tmp/me --write-out '%{http_code}' http://127.0.0.1:8787/auth/me | grep -qx 401; then
+              break
+            fi
+            sleep 0.25
+          done
+          test "$(curl --silent --output /tmp/me --write-out '%{http_code}' http://127.0.0.1:8787/auth/me)" = 401
+          grep -q '"authenticated":false' /tmp/me
+          test -d "${CALENDAR_DATA_DIR}"
+          kill "$(cat backend.pid)"
+          wait "$(cat backend.pid)" || true
+          cat backend.log
+
+      - name: Upload backend log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: persistent-backend-smoke-log
+          path: backend.log
+          retention-days: 1
