@@ -71,12 +71,24 @@ jobs:
           node-version: 22
 
       - name: Test and build candidate
-        run: >-
-          node scripts/build-deploy-unit.mjs
-          --unit "${{ inputs.unit }}"
-          --source .candidate
-          --output artifact-output
-          --verify
+        shell: bash
+        run: |
+          set +e
+          node scripts/build-deploy-unit.mjs \
+            --unit "${{ inputs.unit }}" \
+            --source .candidate \
+            --output artifact-output \
+            --verify 2>&1 | tee candidate-build.log
+          STATUS=${PIPESTATUS[0]}
+          if [[ $STATUS -ne 0 ]]; then
+            {
+              echo '### Candidate test/build failure'
+              echo '```text'
+              tail -n 120 candidate-build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $STATUS
 
       - name: Upload deploy artifact
         uses: actions/upload-artifact@v4
