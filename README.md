@@ -31,9 +31,7 @@ The application stores one Automerge document in the `calendar-automerge` Indexe
 
 Calendar item updates are represented as fine-grained Automerge changes where practical. Title and notes use collaborative text operations; tags, attachment metadata, task fields, and tombstones have separate operations. Deletion uses an application-level `deletedAt` tombstone so an offline edit cannot accidentally resurrect a deleted item.
 
-Attachment bytes are not stored in the Automerge document and normal application writes no longer persist attachment blobs in IndexedDB. Attachment metadata participates in the CRDT. New attachment bytes are uploaded to the configured backend before their metadata is persisted locally, and remote attachment bytes are fetched on demand when opened.
-
-Older Automerge-backed clients may have blobs in the legacy `calendar-automerge/attachments` object store. Once an authenticated remote backend is available, the current client uploads referenced legacy blobs before sync and removes the legacy local records only after the uploads succeed. Failed uploads leave the local records intact for a later retry.
+Attachment bytes are not stored in the Automerge document and normal application writes do not persist attachment blobs in IndexedDB. Attachment metadata participates in the CRDT. New attachment bytes are uploaded to the configured backend before their metadata is persisted locally, and remote attachment bytes are fetched on demand when opened.
 
 JSON backup/export is metadata-only for attachments. A backup containing embedded legacy attachment bytes is rejected rather than silently discarding those bytes.
 
@@ -70,15 +68,15 @@ Actual remote enablement still requires the public backend URL/ingress, OIDC cre
 
 Application runtime code assumes the current data model rather than maintaining general compatibility with old schemas.
 
-The original `calendar-app/items` format has a one-off migration:
+The original `calendar-app/items` task and event data has a one-off migration:
 
 ```text
 migrations/2026-09-automerge-storage.js
 ```
 
-Run it explicitly in DevTools on the calendar origin before using an Automerge-backed build with existing pre-Automerge data. Back up first. The migration writes a versioned Automerge document and leaves the old database intact for the pre-refactor snapshot.
+Run it explicitly in DevTools on the calendar origin before using an Automerge-backed build with existing pre-Automerge data. Back up first. It converts the old waiting/ignored task fields to the current sleep/availability model, strips no attachment bytes silently, writes the current Automerge document, and leaves the old database intact as a rollback copy. The separate `2026-09-sleep-schema.js` migration is only needed for old non-Automerge builds that must remain on the old IndexedDB format; it does not need to run before the Automerge migration.
 
-The later transition away from browser-persisted attachment blobs is handled separately as described above: legacy blobs from the Automerge attachment object store are uploaded and cleared only after authenticated remote storage is available.
+The Automerge migration intentionally stops if it encounters embedded legacy attachment bytes rather than losing them. The current owner data is known not to contain attachments, so no attachment-data migration is required for the intended production transition.
 
 ## Local development
 
