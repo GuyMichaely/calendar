@@ -218,7 +218,7 @@ export function ItemEditor(props: {
   const attachmentHint = createMemo(() => attachedNames()
     ? `Attached: ${attachedNames()}. New files are added to these.`
     : kind() === "task"
-      ? "Files stay on this device until cloud sync is added."
+      ? "Files are stored locally and sync when remote sync is configured."
       : "Drop files here or use Choose Files.");
 
   return (
