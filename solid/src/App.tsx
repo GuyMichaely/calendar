@@ -14,6 +14,7 @@ import {
   importData,
   listItems,
   mergeSyncSnapshot,
+  migrateLegacyAttachmentBlobs,
   putItem,
   readSyncSnapshot,
   redo,
@@ -147,11 +148,14 @@ export function App() {
   const requestRemoteSync = async (announce = false) => {
     if (!remoteQueue || !remoteSession()?.authenticated) return false;
     try {
+      await migrateLegacyAttachmentBlobs();
       await remoteQueue.request();
       if (announce) showToast("Synced");
       return true;
     } catch (error) {
-      if (announce) showToast(errorMessage(error, "Remote sync failed."));
+      const message = errorMessage(error, "Remote sync failed.");
+      setRemoteError(message);
+      if (announce) showToast(message);
       return false;
     }
   };
