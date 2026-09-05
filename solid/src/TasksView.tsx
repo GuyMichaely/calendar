@@ -1,4 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
 import {
   actionability,
   formatDateTime,
@@ -317,11 +318,19 @@ function TaskCard(props: {
       : result().reason;
   });
 
-  const openAttachment = (attachment: Attachment) => {
-    if (!attachment.blob) return;
-    const url = URL.createObjectURL(attachment.blob);
-    window.open(url, "_blank", "noopener,noreferrer");
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+  const openAttachment = async (attachment: Attachment) => {
+    try {
+      const blob = await downloadAttachmentOnDemand(attachment);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = attachment.name || "attachment";
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      console.error(error);
+      window.alert(error instanceof Error ? error.message : "Could not download attachment.");
+    }
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -376,7 +385,7 @@ function TaskCard(props: {
           <Show when={props.row.task.notes}><p class="notes">{props.row.task.notes}</p></Show>
           <Show when={timing().length}><div class="timing"><For each={timing()}>{(value) => <span>{value}</span>}</For></div></Show>
           <Show when={props.row.task.tags?.length}><div class="tags"><For each={props.row.task.tags}>{(tag) => <span class="tag">{tag}</span>}</For></div></Show>
-          <Show when={props.row.task.attachments?.length}><div class="attachments"><For each={props.row.task.attachments}>{(attachment) => <button class="attachment" onClick={() => openAttachment(attachment)}>Attachment: {attachment.name || "Attachment"}</button>}</For></div></Show>
+          <Show when={props.row.task.attachments?.length}><div class="attachments"><For each={props.row.task.attachments}>{(attachment) => <button class="attachment" onClick={() => void openAttachment(attachment)}>Attachment: {attachment.name || "Attachment"}</button>}</For></div></Show>
         </div>
       </div>
       <Show when={!closed()}>
