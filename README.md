@@ -4,7 +4,7 @@ This branch contains deployment control only. Application code lives on separate
 
 ## Deployment state
 
-`deployment.json` controls deployment and should only be edited via the `promote-deployment.yml` workflow:
+`deployment.json` controls deployment. For deploying, this file shouldn't be edited directly and instead the `promote-deployment.yml` workflow should be invoked:
 
 - `path`: deployment path relative to the Pages site root
 - `revision`: commit to deploy
@@ -25,9 +25,9 @@ The request format is:
 
 `operation` is `test` or `deploy`. `unit` is a unit name. `revision` is a Git revision.
 
-## Testing
+## Testing and Building
 
-A `test` request runs `.github/workflows/test-and-build-candidate.yml` for the resolved application commit and stores deployable output as `deploy-<unit>-<sha>`.
+A `test` request runs `.github/workflows/test-and-build-candidate.yml` for the resolved application commit and, if tests pass, builds and stores deployable output as `deploy-<unit>-<sha>`.
 
 ## Deploying
 
