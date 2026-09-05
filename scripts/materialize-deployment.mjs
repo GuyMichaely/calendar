@@ -107,15 +107,13 @@ for (const unit of ["root", "old", "vanilla"]) {
   const target = path.join(outputDir, unit);
   const metadata = await artifactMetadata(entry.artifact);
 
-  if (metadata.state === "found") {
-    const expectedName = `deploy-${unit}-${entry.sha}`;
-    if (metadata.artifact.id !== entry.artifact || metadata.artifact.name !== expectedName) {
-      throw new Error(`Pinned artifact does not match ${unit} ${entry.sha}.`);
-    }
-    if (!metadata.artifact.expired && await downloadArtifact(entry.artifact, target)) {
-      console.log(`Using pinned artifact ${entry.artifact} for ${unit} ${entry.sha}.`);
-      continue;
-    }
+  if (
+    metadata.state === "found" &&
+    !metadata.artifact.expired &&
+    await downloadArtifact(entry.artifact, target)
+  ) {
+    console.log(`Using pinned artifact ${entry.artifact} for ${unit} ${entry.sha}.`);
+    continue;
   }
 
   rebuildUnit(unit, entry, target);
