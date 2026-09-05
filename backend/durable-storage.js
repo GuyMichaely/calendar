@@ -81,16 +81,22 @@ async function writeDocument(storage, key, value, previousChunkCount, chunkBytes
   });
 }
 
-export function createDurableAuthStore(storage) {
+export function createDurableAuthStore(storage, { now = () => Date.now() } = {}) {
   if (!storage?.get || !storage?.put || !storage?.delete) {
     throw new Error("Durable auth storage requires get/put/delete operations.");
   }
   return {
     async get(key) {
-      return clone(await storage.get(key));
+      const entry = await storage.get(key);
+      if (!entry) return null;
+      if (entry.expiresAt != null && entry.expiresAt <= now()) {
+        await storage.delete(key);
+        return null;
+      }
+      return clone(entry.value);
     },
-    async set(key, value) {
-      await storage.put(key, clone(value));
+    async set(key, value, { expiresAt = null } = {}) {
+      await storage.put(key, { value: clone(value), expiresAt });
     },
     async delete(key) {
       await storage.delete(key);
