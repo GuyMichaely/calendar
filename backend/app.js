@@ -1,11 +1,13 @@
 import { createAuthHandler, readAuthSession } from "../auth/http.js";
-import { createCalendarBackend } from "./http.js";
+import { createAttachmentHandler } from "../sync/attachments-http.js";
 import { createSyncHandler } from "../sync/http.js";
+import { createCalendarBackend } from "./http.js";
 
 export function createCalendarBackendHandler({
   config,
   authStore,
   documentStore,
+  blobStore = null,
   secureCookies = new URL(config?.publicBaseUrl || "http://localhost").protocol === "https:",
   oidcClient,
   fetch: fetchImpl,
@@ -17,6 +19,7 @@ export function createCalendarBackendHandler({
   if (!authStore) throw new Error("Backend handler requires an auth store.");
   if (!documentStore) throw new Error("Backend handler requires a document store.");
 
+  const authenticate = (request) => readAuthSession(request, { store: authStore, secureCookies, now });
   const authHandler = createAuthHandler({
     providers: config.providers,
     allowedIdentities: config.allowedIdentities,
@@ -29,13 +32,17 @@ export function createCalendarBackendHandler({
     ...(fetchImpl ? { fetch: fetchImpl } : {}),
   });
   const syncHandler = createSyncHandler({
-    authenticate: (request) => readAuthSession(request, { store: authStore, secureCookies, now }),
+    authenticate,
     documentStore,
     basePath: config.basePath || "",
   });
+  const attachmentHandler = blobStore
+    ? createAttachmentHandler({ authenticate, blobStore, basePath: config.basePath || "" })
+    : null;
   return createCalendarBackend({
     authHandler,
     syncHandler,
+    attachmentHandler,
     allowedOrigins: config.allowedOrigins || [new URL(config.appUrl).origin],
     basePath: config.basePath || "",
   });
