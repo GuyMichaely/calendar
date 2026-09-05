@@ -2,14 +2,21 @@ import { writeFileSync } from "node:fs";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-const UNITS = new Set(["root", "old", "vanilla"]);
+function normalizeUnit(unit) {
+  const value = String(unit || "");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)) {
+    throw new Error("Unit names must start with an alphanumeric character and contain only letters, numbers, '.', '_', or '-'.");
+  }
+  return value;
+}
 
 function normalizeCandidate(unit, rawSha) {
+  const normalizedUnit = normalizeUnit(unit);
   const sha = String(rawSha || "").toLowerCase();
-  if (!UNITS.has(unit) || !/^[0-9a-f]{40}$/.test(sha)) {
-    throw new Error("Candidate must be a known unit and exact 40-character SHA.");
+  if (!/^[0-9a-f]{40}$/.test(sha)) {
+    throw new Error("Candidate revision must be an exact 40-character SHA.");
   }
-  return sha;
+  return { unit: normalizedUnit, sha };
 }
 
 function githubContext() {
@@ -60,8 +67,8 @@ function isAcceptedCandidateRun(run, repository) {
 }
 
 export function candidateArtifactName(unit, rawSha) {
-  const sha = normalizeCandidate(unit, rawSha);
-  return `deploy-${unit}-${sha}`;
+  const candidate = normalizeCandidate(unit, rawSha);
+  return `deploy-${candidate.unit}-${candidate.sha}`;
 }
 
 export async function activeCandidateArtifacts(unit, rawSha) {
@@ -74,9 +81,9 @@ export async function activeCandidateArtifacts(unit, rawSha) {
 }
 
 export async function findVerification(unit, rawSha) {
-  const sha = normalizeCandidate(unit, rawSha);
+  const candidate = normalizeCandidate(unit, rawSha);
   const { repository } = githubContext();
-  const artifacts = await activeCandidateArtifacts(unit, sha);
+  const artifacts = await activeCandidateArtifacts(candidate.unit, candidate.sha);
 
   if (artifacts.length === 0) return null;
 
@@ -89,7 +96,7 @@ export async function findVerification(unit, rawSha) {
   const run = await api(`/actions/runs/${runId}`);
   if (!isAcceptedCandidateRun(run, repository)) {
     throw new Error(
-      `Candidate artifact ${artifact.id} for ${unit} ${sha} was not produced by an accepted successful candidate build.`,
+      `Candidate artifact ${artifact.id} for ${candidate.unit} ${candidate.sha} was not produced by an accepted successful candidate build.`,
     );
   }
 
@@ -98,10 +105,10 @@ export async function findVerification(unit, rawSha) {
 
 async function main() {
   const [unit, rawSha, outputFile] = process.argv.slice(2);
-  const sha = normalizeCandidate(unit, rawSha);
-  const verification = await findVerification(unit, sha);
+  const candidate = normalizeCandidate(unit, rawSha);
+  const verification = await findVerification(candidate.unit, candidate.sha);
   if (!verification) {
-    throw new Error(`No active successful Test and Build Candidate artifact found for ${unit} ${sha}.`);
+    throw new Error(`No active successful Test and Build Candidate artifact found for ${candidate.unit} ${candidate.sha}.`);
   }
 
   if (outputFile) {
