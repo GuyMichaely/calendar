@@ -172,8 +172,8 @@ export function listItemsSnapshot() {
   return listLocalItems();
 }
 
-export async function putItem(item) {
-  const { before, after } = await putLocalItem(item);
+export async function putItem(item, baseline = null) {
+  const { before, after } = await putLocalItem(item, baseline);
   syncLiveItem(item.id, after);
   if (applyingHistory) return;
   await pushHistory({
