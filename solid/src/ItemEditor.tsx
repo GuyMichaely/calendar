@@ -205,7 +205,7 @@ export function ItemEditor(props: {
       setDirty(false);
     } catch (error) {
       console.error(error);
-      props.onError?.("Could not save item");
+      props.onError?.(error instanceof Error ? error.message : "Could not save item");
     }
   };
 
@@ -217,9 +217,7 @@ export function ItemEditor(props: {
   const attachedNames = createMemo(() => existing?.attachments?.map((attachment) => attachment.name).join(", ") || "");
   const attachmentHint = createMemo(() => attachedNames()
     ? `Attached: ${attachedNames()}. New files are added to these.`
-    : kind() === "task"
-      ? "Files are stored locally and sync when remote sync is configured."
-      : "Drop files here or use Choose Files.");
+    : "Attachment files are stored on the sync server and downloaded on demand.");
 
   return (
     <DialogShell labelledBy="editor-title" onClose={close}>
