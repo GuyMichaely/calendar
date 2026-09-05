@@ -44,6 +44,25 @@
   background: var(--surface-2);
 }
 
+.solid-menu-divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--line);
+}
+
+.solid-menu-status,
+.solid-menu-error {
+  padding: 5px 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.solid-menu-error {
+  color: var(--danger, #c85d5d);
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
