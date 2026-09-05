@@ -52,7 +52,9 @@ The repository contains a host-neutral backend and browser client for remote syn
 - `sync/client.js` exchanges serialized Automerge snapshots and merges responses into current local state;
 - `solid/src/remote-sync.ts` adds browser session handling, queued sync requests, and attachment upload/download;
 - `backend/http.js` composes the routes and enforces the configured browser-origin allowlist;
-- `backend/app.js` composes OIDC, sessions, Automerge sync, and optional attachment storage without choosing a hosting provider.
+- `backend/app.js` composes OIDC, sessions, Automerge sync, and optional attachment storage without coupling the core to one storage provider;
+- `backend/file-stores.js` provides persistent single-process filesystem stores for auth state, Automerge documents, and attachment blobs;
+- `backend/bun-server.js` is the persistent Bun entrypoint using those filesystem stores.
 
 The backend URL may include a path prefix. Auth callback URLs, `/sync`, attachment routes, and the Solid client all preserve that prefix.
 
@@ -60,7 +62,9 @@ The backend URL may include a path prefix. Auth callback URLs, `/sync`, attachme
 
 Google is the first intended OIDC provider, but the auth core remains provider-agnostic. Authorization is based on exact issuer and subject, not email address.
 
-The included Bun development backend uses memory-backed auth, document, and blob stores. Production still requires durable session storage, atomic durable Automerge document storage, durable blob/object storage, OIDC credentials and callback configuration, a Fetch-compatible backend runtime, and `VITE_CALENDAR_BACKEND_URL` in the frontend build.
+`npm run dev:backend` uses memory-backed stores for local testing. `npm run start:backend` provides a persistent single-process server when `CALENDAR_DATA_DIR` is configured. The filesystem document store serializes updates within that process, so it must not be shared by multiple backend processes. A multi-process deployment would need another implementation of the same store contracts.
+
+Actual remote enablement still requires the public backend URL/ingress, OIDC credentials and callback configuration, an exact allowed identity, persistent disk or another durable store provider, and `VITE_CALENDAR_BACKEND_URL` in the frontend build. See `backend/README.md` for runtime configuration.
 
 ## Data migrations
 
