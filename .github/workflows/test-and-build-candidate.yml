@@ -1,0 +1,77 @@
+name: Test and Build Candidate
+run-name: Test and build ${{ inputs.unit }} @ ${{ inputs.commit }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      unit:
+        description: Deploy unit
+        required: true
+        type: choice
+        options:
+          - root
+          - old
+          - vanilla
+      commit:
+        description: Exact 40-character commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Normalize inputs
+        id: candidate
+        shell: bash
+        env:
+          RAW_SHA: ${{ inputs.commit }}
+        run: |
+          SHA="${RAW_SHA,,}"
+          if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Commit must be an exact 40-character SHA." >&2
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check out deployment control
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Check out candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.candidate.outputs.sha }}
+          path: .candidate
+
+      - name: Confirm exact candidate
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.candidate.outputs.sha }}
+        run: |
+          ACTUAL_SHA="$(git -C .candidate rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test and build candidate
+        run: >-
+          node scripts/build-deploy-unit.mjs
+          --unit "${{ inputs.unit }}"
+          --source .candidate
+          --output artifact-output
+          --verify
+
+      - name: Upload deploy artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-${{ inputs.unit }}-${{ steps.candidate.outputs.sha }}
+          path: artifact-output
+          if-no-files-found: error
+          retention-days: 90
