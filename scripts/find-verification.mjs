@@ -59,25 +59,46 @@ function isAcceptedCandidateRun(run, repository) {
   return manual || requested;
 }
 
+export function candidateArtifactName(unit, rawSha) {
+  const sha = normalizeCandidate(unit, rawSha);
+  return `deploy-${unit}-${sha}`;
+}
+
+export async function activeCandidateArtifacts(unit, rawSha) {
+  const artifactName = candidateArtifactName(unit, rawSha);
+  const query = new URLSearchParams({ name: artifactName, per_page: "100" });
+  const { artifacts = [] } = await api(`/actions/artifacts?${query}`);
+  return artifacts.filter(
+    (artifact) => artifact.name === artifactName && !artifact.expired,
+  );
+}
+
 export async function findVerification(unit, rawSha) {
   const sha = normalizeCandidate(unit, rawSha);
   const { repository } = githubContext();
-  const artifactName = `deploy-${unit}-${sha}`;
-  const query = new URLSearchParams({ name: artifactName, per_page: "100" });
-  const { artifacts = [] } = await api(`/actions/artifacts?${query}`);
+  const artifacts = await activeCandidateArtifacts(unit, sha);
 
-  for (const artifact of artifacts) {
-    if (artifact.name !== artifactName || artifact.expired) continue;
-    const runId = artifact.workflow_run?.id;
-    if (!runId) continue;
+  if (artifacts.length > 1) {
+    throw new Error(
+      `Candidate artifact invariant violated: ${unit} ${sha} has ${artifacts.length} active artifacts.`,
+    );
+  }
+  if (artifacts.length === 0) return null;
 
-    const run = await api(`/actions/runs/${runId}`);
-    if (!isAcceptedCandidateRun(run, repository)) continue;
-
-    return { id: artifact.id, name: artifact.name, runId };
+  const artifact = artifacts[0];
+  const runId = artifact.workflow_run?.id;
+  if (!runId) {
+    throw new Error(`Candidate artifact ${artifact.id} has no workflow run.`);
   }
 
-  return null;
+  const run = await api(`/actions/runs/${runId}`);
+  if (!isAcceptedCandidateRun(run, repository)) {
+    throw new Error(
+      `Candidate artifact ${artifact.id} for ${unit} ${sha} was not produced by an accepted successful candidate build.`,
+    );
+  }
+
+  return { id: artifact.id, name: artifact.name, runId };
 }
 
 async function main() {
