@@ -55,7 +55,12 @@ function requestError(message: string, status: number) {
   return Object.assign(new Error(`${message} (${status}).`), { status });
 }
 
-export function configuredBackendUrl(value = import.meta.env?.VITE_CALENDAR_BACKEND_URL || "") {
+function browserBackendUrl() {
+  if (typeof window === "undefined") return "";
+  return import.meta.env?.VITE_CALENDAR_BACKEND_URL || "";
+}
+
+export function configuredBackendUrl(value = browserBackendUrl()) {
   return normalizeBaseUrl(value);
 }
 
