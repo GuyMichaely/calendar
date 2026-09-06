@@ -1,0 +1,28 @@
+name: calendar
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        BUN_VERSION: ${BUN_VERSION:?Use ./scripts/container}
+    env_file:
+      - path: .local/backend.env
+        format: raw
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - backend-data:/data
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
+volumes:
+  backend-data:

@@ -6,7 +6,7 @@ export default defineConfig({
   base: "/calendar/",
   plugins: [solid()],
   build: {
-    outDir: "../site/solid",
+    outDir: "../dist",
     emptyOutDir: true,
     sourcemap: true,
     rollupOptions: {

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
 import test from "node:test";
-import { createNodeHttpServer } from "../backend/node-http.js";
+import { createBunHttpServer } from "../backend/bun-http.js";
 
-test("Node adapter preserves the public URL, request body, response status, and cookies", async () => {
-  const server = createNodeHttpServer({
+test("Bun adapter preserves the public URL, request body, response status, and cookies behind an HTTP tunnel", async () => {
+  const server = createBunHttpServer({
+    port: 0,
     publicBaseUrl: "https://calendar.example/api/",
     handleRequest: async (request) => {
       assert.equal(request.url, "https://calendar.example/api/echo?value=1");
@@ -18,14 +18,11 @@ test("Node adapter preserves the public URL, request body, response status, and 
     },
   });
 
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-
   try {
-    const address = server.address();
-    const response = await fetch(`http://127.0.0.1:${address.port}/api/echo?value=1`, {
+    const response = await fetch(`http://127.0.0.1:${server.port}/api/echo?value=1`, {
       method: "POST",
       body: "hello",
+      headers: { "x-forwarded-host": "untrusted.example", "x-forwarded-proto": "http" },
     });
 
     assert.equal(response.status, 201);
@@ -35,7 +32,6 @@ test("Node adapter preserves the public URL, request body, response status, and 
       "second=2; Path=/",
     ]);
   } finally {
-    server.close();
-    await once(server, "close");
+    await server.stop(true);
   }
 });

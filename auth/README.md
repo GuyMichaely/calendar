@@ -32,7 +32,7 @@ The configured `publicBaseUrl` constructs registered callback URLs and may inclu
 
 The configured `appUrl` is the fixed post-login destination, so request parameters cannot introduce an open redirect.
 
-The local Node development backend uses non-`Secure` cookies when its public URL is HTTP, such as `http://localhost:8787/`.
+The local Bun development backend uses non-`Secure` cookies when its public URL is HTTP, such as `http://localhost:8787/`.
 
 ## Google configuration
 
@@ -48,11 +48,13 @@ A Google provider has this shape:
 }
 ```
 
-The Google OAuth client must register the exact backend callback URL. For the current Azure deployment that is:
+The Google OAuth client must register the exact backend callback URL. For a localhost.run backend that is:
 
 ```text
-https://guymichaely-calendar-sync.azurewebsites.net/auth/callback/google
+https://YOUR-TUNNEL-HOST/auth/callback/google
 ```
+
+See [the backend setup guide](../backend/README.md) for Google registration and a helper that discovers your verified subject ID.
 
 Client secrets and the allowed subject ID belong only in backend configuration or secrets. They must not be committed to this repository or shipped in the browser bundle.
 

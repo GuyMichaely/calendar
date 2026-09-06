@@ -34,62 +34,20 @@ The remote-sync implementation is split into runtime-neutral application pieces:
 - `solid/src/remote-sync.ts`: browser session handling, queued sync, and attachment transfer;
 - `backend/app.js`: composition of auth, sync, attachment storage, and the browser-origin allowlist;
 - `backend/file-stores.js`: persistent single-process filesystem stores;
-- `backend/node-http.js`: Node HTTP to Fetch `Request`/`Response` adapter;
-- `backend/node-server.js`: persistent Node production entrypoint.
+- `backend/bun-http.js`: Bun HTTP listener with the configured public origin for tunneled OAuth callbacks;
+- `backend/bun-server.js`: persistent Bun production entrypoint.
 
 Google is the first configured OIDC provider, but the auth core is provider-agnostic. Authorization is based on exact issuer and subject, not email address.
 
-The filesystem document store serializes writes only within one backend process. The production App Service app must remain at one instance until the filesystem stores are replaced with a multi-process storage implementation.
+The filesystem document store serializes writes only within one backend process. The production backend must remain at one instance until the filesystem stores are replaced with a multi-process storage implementation.
 
 The Solid frontend has a **Remote sync server** field in the hamburger menu. A browser-saved URL takes precedence over the optional `VITE_CALENDAR_BACKEND_URL` build-time default. Saving an empty value explicitly disables remote sync in that browser.
 
 ## Backend deployment
 
-Production backend hosting uses Azure App Service for Linux with the managed Node.js 24 LTS runtime.
+The backend runs as one Bun container with durable storage and a localhost.run SSH tunnel. The frontend remains on GitHub Pages at <https://guymichaely.com/calendar/>; each browser chooses its **Remote sync server** URL. No backend secrets or temporary tunnel URL are baked into frontend builds.
 
-Current resources:
-
-```text
-App Service plan:  parola-plan       (existing B1 Linux plan)
-Resource group:    calendar-sync
-Web App:           guymichaely-calendar-sync
-Backend URL:       https://guymichaely-calendar-sync.azurewebsites.net/
-Persistent data:   /home/calendar-data
-```
-
-The backend uses App Service's persistent `/home` filesystem for auth sessions, the Automerge document, and attachment blobs. `npm start` launches `backend/node-server.js`, and the application listens on the `PORT` supplied by App Service.
-
-Configure the existing Web App from Azure Cloud Shell:
-
-```bash
-curl -fsSLo ~/configure-calendar-app-service.sh \
-  https://raw.githubusercontent.com/GuyMichaely/calendar/main/scripts/configure-azure-app-service.sh
-bash ~/configure-calendar-app-service.sh
-```
-
-Then connect the Web App to `GuyMichaely/calendar`, branch `main`, in Azure Deployment Center. Azure's GitHub Actions integration handles subsequent backend deployments.
-
-Required secret App Service environment variables are:
-
-```text
-GOOGLE_CLIENT_ID
-GOOGLE_CLIENT_SECRET
-ALLOWED_GOOGLE_SUBJECT
-```
-
-The Google OAuth callback URI is:
-
-```text
-https://guymichaely-calendar-sync.azurewebsites.net/auth/callback/google
-```
-
-Verify the deployed backend with:
-
-```bash
-curl https://guymichaely-calendar-sync.azurewebsites.net/healthz
-```
-
-See `backend/README.md` for the complete backend configuration.
+Follow [backend/README.md](backend/README.md) for container startup, the tunnel key, Google registration, and backups. Google credentials are the only application configuration needed before real sign-in and sync can be enabled. Docker Engine with Compose 2.30+ is required on the backend host.
 
 ## Data migrations
 
@@ -107,38 +65,39 @@ The separate `2026-09-sleep-schema.js` migration is only for old non-Automerge b
 
 ## Local development
 
-Install dependencies and run the Solid frontend:
+Use the repository wrapper on Linux or macOS. It downloads the exact Bun version from `.bun-version`, verifies its checked-in SHA-256 checksum, and installs it under `.local/bin`. Dependencies, caches, and temporary files stay in this checkout. It does not install Node, npm, Vite, TypeScript, or Bun globally or edit shell profiles.
 
 ```bash
-npm install
-npm run dev:solid
+./scripts/bun install --frozen-lockfile
+./scripts/bun run dev:solid
 ```
 
-For local auth and remote-sync testing, run the Node development backend in another process. Its auth sessions, Automerge document, and attachment blobs are memory-only and reset when the process exits.
+Open <http://localhost:5173/calendar/>. The selected frontend is Solid + TypeScript + Vite. Vite emits `dist/` with the `/calendar/` asset base, including the migration page. Runtime dependencies are bundled into the frontend; it does not fetch libraries from a CDN.
+
+Run all checks:
 
 ```bash
-CALENDAR_APP_URL=http://localhost:5173/calendar/ \
-CALENDAR_PUBLIC_BASE_URL=http://localhost:8787/ \
-GOOGLE_CLIENT_ID=your-client-id \
-GOOGLE_CLIENT_SECRET=your-client-secret \
-ALLOWED_GOOGLE_SUBJECT=your-google-subject \
-PORT=8787 \
-npm run dev:backend
+./scripts/bun run check
 ```
 
-Then save `http://localhost:8787/` in the frontend's Remote sync server setting or provide the same URL through `VITE_CALENDAR_BACKEND_URL`.
+This runs the backend/domain/storage tests, Solid tests, typechecking, and the production build. To deliberately update dependencies, edit `package.json`, run `./scripts/bun install`, and commit `bun.lock`. A Bun upgrade must update `.bun-version`, `package.json`, and the official release hashes in `scripts/bun-checksums.txt` together. The container and CI read the same `.bun-version`.
 
-The canonical application checks are:
+The wrapper disables automatic dotenv loading. Backend configuration lives in ignored `.local/backend.env` and is passed only to the container. Avoid exporting backend credentials into frontend build shells. Bun runs package binaries with its own runtime, so an unrelated system Node installation is not used.
 
-```bash
-npm test
-npm run test:solid
-npm run typecheck:solid
-npm run build:solid
-```
+`./scripts/bun run dev:backend` is an optional in-memory backend for development with explicitly supplied environment variables. It loses its data when stopped. Use the container for durable storage.
 
 ## Frontend deployment
 
-Frontend deployment infrastructure lives on the separate `deployment-control` branch. That branch is control-plane only and is not application source. Agents that cannot invoke Actions directly submit requests through the `action-trigger` branch.
+`main` is the default branch and the only production deployment stream. `.github/workflows/deploy-pages.yml` verifies each push to `main`, builds and smoke-tests the backend image, then publishes `dist/` to GitHub Pages. Pull requests against `main` run the same checks without publishing. A manual run can republish `main`.
 
-Current public deployment units are defined by `deployment-control/deployment.json`. Normal deployment changes use the promotion workflow documented on that branch rather than branch-owned deployment behavior in `main`.
+The production concurrency group includes the entire workflow; an active deployment is never interrupted. At most one newer run waits, so superseded pending revisions are skipped. The existing domain setup is inherited from the account's Pages site; no `CNAME` or DNS changes are required in this repository.
+
+The old manifest, per-unit candidates, promotion workflows, and action-trigger requests are retired. The former control branches are preserved as archive tags when the migration is applied. Historical app snapshots remain in Git, rather than separate published `/old/` and `/vanilla/` sites. Revert a commit on `main` to roll back through the same tested deployment stream.
+
+Backend updates are explicit on the backend host:
+
+```bash
+./scripts/container up -d --build --wait
+```
+
+The data volume survives container recreation. Keep exactly one backend process; the filesystem store does not coordinate multiple writers. Azure deployment scripts and the Node-specific adapter were removed after restoring Bun; existing Azure resources are not modified by this repository.

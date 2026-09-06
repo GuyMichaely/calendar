@@ -146,7 +146,8 @@ test("attachment download fetches bytes on demand without a browser persistence 
 
   const blob = await downloadAttachmentOnDemand({ id: "attachment-remote", name: "remote.txt", type: "text/plain" });
   assert.equal(await blob.text(), "remote");
-  assert.equal(blob.type, "text/plain");
+  // Bun adds a charset parameter to text Blobs; browsers may omit it.
+  assert.equal(blob.type.split(";")[0], "text/plain");
   assert.equal(calls, 1);
 });
 

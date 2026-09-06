@@ -1,0 +1,8 @@
+[install]
+auto = "disable"
+
+[install.cache]
+dir = ".local/cache/bun"
+
+[run]
+bun = true

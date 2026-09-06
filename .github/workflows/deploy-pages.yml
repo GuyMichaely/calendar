@@ -1,0 +1,59 @@
+name: Verify and deploy Calendar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One production stream, including verification; never interrupt a deployment.
+concurrency:
+  group: calendar-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install locked dependencies
+        run: ./scripts/bun install --frozen-lockfile
+      - name: Test, typecheck, and build
+        run: ./scripts/bun run check
+      - name: Validate container configuration
+        run: |
+          cp backend/.env.example .local/backend.env
+          ./scripts/container config --quiet
+      - name: Build backend container
+        run: docker build --build-arg BUN_VERSION="$(cat .bun-version)" -f backend/Dockerfile -t calendar-backend .
+      - name: Smoke test backend container
+        run: ./scripts/smoke-container
+      - name: Configure Pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+      - name: Upload frontend
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,10 @@
+**/node_modules
+.git
+.local
+dist
+site/solid
+**/.env
+**/.env.*
+**/*.log
+.agents
+.codex

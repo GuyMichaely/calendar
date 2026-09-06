@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Exercise the actual image, including its non-root user and persistent volume.
+set -euo pipefail
+name="calendar-smoke-$$"
+volume="$name-data"
+cleanup() {
+  docker logs "$name" 2>/dev/null || true
+  docker rm -f "$name" >/dev/null 2>&1 || true
+  docker volume rm "$volume" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+docker volume create "$volume" >/dev/null
+docker run -d --name "$name" --read-only --tmpfs /tmp --cap-drop ALL \
+  --security-opt no-new-privileges:true -v "$volume:/data" \
+  -e CALENDAR_APP_URL=https://guymichaely.com/calendar/ \
+  -e CALENDAR_PUBLIC_BASE_URL=https://calendar-smoke.example/ \
+  -e GOOGLE_CLIENT_ID=smoke-client -e GOOGLE_CLIENT_SECRET=smoke-secret \
+  -e ALLOWED_GOOGLE_SUBJECT=smoke-subject calendar-backend >/dev/null
+healthy() {
+  for attempt in $(seq 1 30); do
+    if docker exec "$name" bun --no-env-file -e 'const r = await fetch("http://127.0.0.1:8787/healthz"); process.exit(r.ok && await r.text() === "ok" ? 0 : 1)' 2>/dev/null; then return; fi
+    sleep 1
+  done
+  return 1
+}
+healthy
+docker exec "$name" bun --no-env-file -e '
+  const base = "http://127.0.0.1:8787";
+  const r = await fetch(`${base}/sync`, {method:"POST", headers:{origin:"https://guymichaely.com", "content-type":"application/vnd.automerge"}, body:new Uint8Array([1])});
+  if(r.status !== 401 || r.headers.get("access-control-allow-origin") !== "https://guymichaely.com") throw Error("Auth/CORS check failed");
+  const {createFileBackendStores} = await import("./backend/file-stores.js");
+  const stores = createFileBackendStores({directory:"/data"});
+  await stores.authStore.set("smoke:session", {ok:true});
+  await stores.documentStore.update("smoke:document", async () => ({value:new Uint8Array([1,2]),result:null}));
+  await stores.blobStore.putIfAbsent("smoke-blob", {bytes:new Uint8Array([3,4]),contentType:"text/plain"});
+'
+docker restart "$name" >/dev/null
+healthy
+docker exec "$name" bun --no-env-file -e '
+  import assert from "node:assert/strict";
+  const {createFileBackendStores} = await import("./backend/file-stores.js");
+  const stores = createFileBackendStores({directory:"/data"});
+  assert.deepEqual(await stores.authStore.get("smoke:session"),{ok:true});
+  await stores.documentStore.update("smoke:document", async bytes => {assert.deepEqual([...bytes],[1,2]); return {value:bytes,result:null};});
+  assert.deepEqual([...(await stores.blobStore.get("smoke-blob")).bytes],[3,4]);
+'
