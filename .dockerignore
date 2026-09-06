@@ -1,0 +1,10 @@
+.git
+.github
+deploy
+migrations
+scripts
+site
+solid
+tests
+node_modules
+*.log
