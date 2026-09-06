@@ -1,0 +1,22 @@
+services:
+  calendar:
+    image: ${CALENDAR_IMAGE:-ghcr.io/guymichaely/calendar-backend:main}
+    restart: unless-stopped
+    env_file:
+      - /etc/calendar/calendar.env
+    volumes:
+      - /var/lib/calendar:/data
+    ports:
+      - "127.0.0.1:8787:8787"
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
