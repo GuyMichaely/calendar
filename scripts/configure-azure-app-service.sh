@@ -11,7 +11,13 @@ DATA_DIR="${CALENDAR_DATA_DIR:-/home/calendar-data}"
 
 az webapp show --resource-group "$RG" --name "$APP" >/dev/null
 
-echo "Switching $RG/$APP from a custom container to the Azure Node 24 LTS runtime."
+echo "Removing the placeholder custom-container configuration from $RG/$APP."
+az webapp config container delete \
+  --resource-group "$RG" \
+  --name "$APP" \
+  -o none
+
+echo "Configuring the Azure Node 24 LTS runtime."
 az webapp config set \
   --resource-group "$RG" \
   --name "$APP" \
