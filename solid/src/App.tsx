@@ -255,7 +255,7 @@ export function App() {
                     <input
                       type="url"
                       inputmode="url"
-                      placeholder="https://your-app.azurewebsites.net/"
+                      placeholder="https://your-server.lhr.life/"
                       value={remoteUrlDraft()}
                       onInput={(event) => setRemoteUrlDraft(event.currentTarget.value)}
                     />
