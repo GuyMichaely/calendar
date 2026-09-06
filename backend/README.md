@@ -6,6 +6,16 @@ The backend is a single Bun process serving provider-neutral OIDC auth, Automerg
 
 Use a computer that will stay on while you need sync. Run these commands in this repository on that computer. Docker Engine and Docker Compose **2.30 or newer** are the host prerequisites. Everything else for the backend is in the image. The repository-local Bun wrapper is available for development and Google identity setup.
 
+On this Linux Mint computer, install the distribution's Docker packages first:
+
+```bash
+sudo apt update
+sudo apt install docker.io docker-compose-v2
+sudo systemctl start docker
+```
+
+Use `sudo ./scripts/container ...` for the commands below if your user does not have access to Docker.
+
 The frontend remains on GitHub Pages at `https://guymichaely.com/calendar/`. Add only the `calendar-sync` hostname in Cloudflare; keep the existing apex/Pages records. Old Azure resources, if any, are left untouched. If migrating a populated backend, stop it and copy its complete data directory into the new volume before enabling sync; this setup does not automatically transfer Azure data.
 
 ## 2. Configure the stable Cloudflare hostname
@@ -14,9 +24,10 @@ Use `calendar-sync.guymichaely.com` from the outset. Google registers the public
 
 1. In the [Cloudflare dashboard](https://dash.cloudflare.com/), open **Networking → Tunnels** and create a remotely managed Cloudflare Tunnel named `calendar-sync`.
 2. Choose Docker for the connector. Copy only the tunnel token from the displayed installation command into a new ignored `.local/cloudflare.env` file as `TUNNEL_TOKEN=...`. Use a literal unquoted value. Run `chmod 600 .local/cloudflare.env`. Do not paste the token into chat or commit it.
-3. Add a **Published application** route with subdomain `calendar-sync`, domain `guymichaely.com`, no path filter, and service URL **`http://backend:8787`**. Cloudflare creates the DNS record for this subdomain. `backend` is the Compose service name; `localhost` inside the tunnel container would refer to the tunnel itself.
-4. Keep `CALENDAR_PUBLIC_BASE_URL=https://calendar-sync.guymichaely.com/` and `CALENDAR_APP_URL=https://guymichaely.com/calendar/` in `.local/backend.env`.
-5. After Google configuration below, start both containers with `./scripts/container --profile cloudflare up -d --build --wait`.
+3. Start only the connector: `sudo ./scripts/container --profile cloudflare up -d cloudflared`. It runs independently of the backend, so Google credentials are not needed yet. Wait for Cloudflare to show the connector as connected, then select **Continue**. To inspect startup, run `sudo ./scripts/container --profile cloudflare logs --tail 50 cloudflared`.
+4. Add a **Published application** route with subdomain `calendar-sync`, domain `guymichaely.com`, no path filter, and service URL **`http://backend:8787`**. Cloudflare creates the DNS record for this subdomain. `backend` is the Compose service name; `localhost` inside the tunnel container would refer to the tunnel itself.
+5. Keep `CALENDAR_PUBLIC_BASE_URL=https://calendar-sync.guymichaely.com/` and `CALENDAR_APP_URL=https://guymichaely.com/calendar/` in `.local/backend.env`.
+6. After Google configuration below, start both containers with `./scripts/container --profile cloudflare up -d --build --wait`. The public endpoint will not serve the app until the backend starts; the connector being connected only confirms the tunnel is ready.
 
 The optional profile runs a pinned official `cloudflared` image beside the backend, with no host installation of cloudflared. The tunnel connects outward from whichever machine hosts these containers. Real tunnel connectivity cannot be checked until the Cloudflare token and route exist. This route uses the app's own Google authentication; a separate Cloudflare Access login gate would require additional browser/API integration.
 

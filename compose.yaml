@@ -31,9 +31,6 @@ services:
     env_file:
       - path: .local/cloudflare.env
         format: raw
-    depends_on:
-      backend:
-        condition: service_healthy
     restart: unless-stopped
     read_only: true
     cap_drop:
