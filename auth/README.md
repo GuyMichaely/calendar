@@ -13,7 +13,9 @@ Google is the first intended provider, but the HTTP and session code is not Goog
 5. The backend exchanges the authorization code and validates PKCE, state, nonce, issuer, audience, token signature, and expiry through `openid-client`.
 6. The resulting identity is reduced to `{ issuer, subject, ...displayClaims }`.
 7. Authorization checks the exact `(issuer, subject)` pair against the configured allowlist. Email is display information, not an authorization identifier.
-8. The backend creates a new opaque random calendar session. In production the browser receives only a host-only `HttpOnly; Secure; SameSite=Lax` session cookie. Provider tokens are not used as the calendar API session.
+8. The backend creates a new opaque random calendar session. Provider tokens are not used as the calendar API session.
+
+For HTTPS production, flow and session cookies are host-only, `HttpOnly`, and `Secure`. The flow cookie uses `SameSite=Lax`. The session cookie uses `SameSite=None` because the frontend and backend may be on different sites.
 
 The same model can support additional OIDC providers later. If two provider identities should represent the same person, backend configuration can allow both `(issuer, subject)` pairs without changing the sync protocol.
 
@@ -30,7 +32,7 @@ The configured `publicBaseUrl` constructs registered callback URLs and may inclu
 
 The configured `appUrl` is the fixed post-login destination, so request parameters cannot introduce an open redirect.
 
-The local Bun development backend uses non-`Secure` cookies only when its public URL is HTTP, such as `http://localhost:8787/`. HTTPS production configuration enables the `__Host-` cookie names and `Secure` attribute.
+The local Node development backend uses non-`Secure` cookies when its public URL is HTTP, such as `http://localhost:8787/`.
 
 ## Google configuration
 
@@ -46,7 +48,13 @@ A Google provider has this shape:
 }
 ```
 
-The Google OAuth client must register the exact backend callback URL, for example `https://sync.example.com/auth/callback/google`. Client secrets and the allowed subject ID belong only in backend configuration or secrets. They must not be committed to this repository or shipped in the browser bundle.
+The Google OAuth client must register the exact backend callback URL. For the current Azure deployment that is:
+
+```text
+https://guymichaely-calendar-sync.azurewebsites.net/auth/callback/google
+```
+
+Client secrets and the allowed subject ID belong only in backend configuration or secrets. They must not be committed to this repository or shipped in the browser bundle.
 
 For the current single-user application, authorization can be configured as:
 
