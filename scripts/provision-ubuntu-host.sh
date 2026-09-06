@@ -33,8 +33,10 @@ curl -fsSL "${RAW_BASE}/deploy/compose.yaml" -o /opt/calendar/compose.yaml
 curl -fsSL "${RAW_BASE}/deploy/Caddyfile" -o /etc/caddy/Caddyfile
 curl -fsSL "${RAW_BASE}/deploy/calendar.service" -o /etc/systemd/system/calendar.service
 curl -fsSL "${RAW_BASE}/deploy/caddy-calendar.conf" -o /etc/systemd/system/caddy.service.d/calendar.conf
+curl -fsSL "${RAW_BASE}/scripts/configure-calendar-host.sh" -o /usr/local/sbin/calendar-configure
 
 chmod 0644 /opt/calendar/compose.yaml /etc/caddy/Caddyfile /etc/systemd/system/calendar.service /etc/systemd/system/caddy.service.d/calendar.conf
+chmod 0755 /usr/local/sbin/calendar-configure
 
 printf 'CALENDAR_HOST=%s\n' "$CALENDAR_HOST" > /etc/calendar/caddy.env
 printf 'CALENDAR_IMAGE=%s\n' "$CALENDAR_IMAGE" > /etc/calendar/image.env
@@ -81,12 +83,12 @@ Compose file:      /opt/calendar/compose.yaml
 Caddy config:      /etc/caddy/Caddyfile
 
 The calendar container was not started because OAuth values still need to be configured.
-After filling GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and ALLOWED_GOOGLE_SUBJECT in /etc/calendar/calendar.env, run:
+After creating the Google OAuth client and learning the allowed Google subject, run:
 
-  systemctl start calendar
+  sudo calendar-configure
 
 For later image updates:
 
-  systemctl reload calendar
+  sudo systemctl reload calendar
 
 EOF
