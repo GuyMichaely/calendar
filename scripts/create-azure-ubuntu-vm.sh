@@ -107,9 +107,10 @@ else
       SIZE="$candidate"
       CREATED=1
       break
+    else
+      status=$?
     fi
 
-    status=$?
     if [ "$status" -eq 75 ] && [ "$SIZE_WAS_EXPLICIT" -eq 0 ]; then
       echo "$candidate hit a live Azure capacity restriction. Trying the next small size."
       continue
