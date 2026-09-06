@@ -6,9 +6,63 @@ command -v az >/dev/null || { echo "Azure CLI (az) is required. Run this in Azur
 printf 'Azure account:\n'
 az account show --query '{subscription:name,subscriptionId:id,tenantId:tenantId,user:user.name}' -o table
 
+printf '\nEnabled subscriptions visible to this account:\n'
+az account list --query "[?state=='Enabled'].{subscription:name,id:id,isDefault:isDefault}" -o table
+
+inventory_current_subscription() {
+  printf '\n=== Resource groups ===\n'
+  az group list --query '[].{name:name,location:location,state:properties.provisioningState}' -o table || true
+
+  printf '\n=== All Azure resources ===\n'
+  az resource list --query '[].{name:name,type:type,resourceGroup:resourceGroup,location:location}' -o table || true
+
+  printf '\n=== App Service / Web Apps ===\n'
+  az webapp list --query '[].{name:name,resourceGroup:resourceGroup,state:state,kind:kind,host:defaultHostName,httpsOnly:httpsOnly}' -o table 2>/dev/null || true
+
+  mapfile -t WEBAPPS < <(az webapp list --query "[].join('|',[resourceGroup,name])" -o tsv 2>/dev/null || true)
+  for row in "${WEBAPPS[@]}"; do
+    IFS='|' read -r rg name <<< "$row"
+    [ -n "$name" ] || continue
+    echo "--- webapp $rg/$name ---"
+    az webapp config show -g "$rg" -n "$name" \
+      --query '{linuxFxVersion:linuxFxVersion,alwaysOn:alwaysOn,http20Enabled:http20Enabled,ftpsState:ftpsState}' -o yaml 2>/dev/null || true
+    az webapp config appsettings list -g "$rg" -n "$name" \
+      --query "[?name=='WEBSITES_PORT' || name=='WEBSITES_ENABLE_APP_SERVICE_STORAGE' || starts_with(name,'CALENDAR_') || name=='HOST' || name=='PORT' || name=='GOOGLE_CLIENT_ID' || name=='GOOGLE_CLIENT_SECRET' || name=='ALLOWED_GOOGLE_SUBJECT'].{name:name,value:contains(['GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','ALLOWED_GOOGLE_SUBJECT'],name) && value!='' && '<set>' || value}" \
+      -o table 2>/dev/null || true
+  done
+
+  printf '\n=== Container Apps ===\n'
+  mapfile -t CAPS < <(az resource list --resource-type Microsoft.App/containerApps --query "[].join('|',[resourceGroup,name])" -o tsv 2>/dev/null || true)
+  if [ "${#CAPS[@]}" -eq 0 ]; then
+    echo "No Container Apps found."
+  else
+    for row in "${CAPS[@]}"; do
+      IFS='|' read -r rg name <<< "$row"
+      echo "--- container app $rg/$name ---"
+      az resource show -g "$rg" -n "$name" --resource-type Microsoft.App/containerApps \
+        --query '{fqdn:properties.configuration.ingress.fqdn,external:properties.configuration.ingress.external,targetPort:properties.configuration.ingress.targetPort,images:properties.template.containers[].image}' \
+        -o yaml 2>/dev/null || true
+    done
+  fi
+
+  printf '\n=== Container Instances ===\n'
+  az container list --query '[].{name:name,resourceGroup:resourceGroup,state:instanceView.state,ip:ipAddress.ip,fqdn:ipAddress.fqdn,ports:ipAddress.ports[].port,images:containers[].image}' -o yaml 2>/dev/null || true
+
+  printf '\n=== AKS clusters ===\n'
+  az aks list --query '[].{name:name,resourceGroup:resourceGroup,location:location,fqdn:fqdn,kubernetesVersion:kubernetesVersion}' -o table 2>/dev/null || true
+
+  printf '\n=== Public IP addresses ===\n'
+  az network public-ip list --query '[].{name:name,resourceGroup:resourceGroup,ip:ipAddress,fqdn:dnsSettings.fqdn,allocation:publicIPAllocationMethod,sku:sku.name}' -o table 2>/dev/null || true
+
+  printf '\n=== DNS zones ===\n'
+  az network dns zone list --query '[].{name:name,resourceGroup:resourceGroup,numberOfRecordSets:numberOfRecordSets}' -o table 2>/dev/null || true
+}
+
 mapfile -t VMS < <(az vm list -d --query "[].join('|',[resourceGroup,name,location,powerState,publicIps,privateIps])" -o tsv)
 if [ "${#VMS[@]}" -eq 0 ]; then
   echo "No Azure VMs were found in the current subscription."
+  inventory_current_subscription
+  printf '\nPaste the complete output above into the calendar project chat.\n'
   exit 0
 fi
 
