@@ -48,10 +48,10 @@ A Google provider has this shape:
 }
 ```
 
-The Google OAuth client must register the exact backend callback URL. For a localhost.run backend that is:
+The Google OAuth client must register the exact backend callback URL. For this deployment that is:
 
 ```text
-https://YOUR-TUNNEL-HOST/auth/callback/google
+https://sync.guymichaely.com/auth/callback/google
 ```
 
 See [the backend setup guide](../backend/README.md) for Google registration and a helper that discovers your verified subject ID.

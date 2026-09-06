@@ -16,4 +16,4 @@ exec ssh -F /dev/null \
   -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$PWD/.local/ssh/known_hosts" \
   -o ConnectTimeout=15 -o ExitOnForwardFailure=yes \
   -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-  -T -R 80:127.0.0.1:8787 "$user@localhost.run" -- --output json
+  -T -R 80:127.0.0.1:8787 "$user@localhost.run" -- --output text

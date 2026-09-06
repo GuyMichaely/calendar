@@ -255,7 +255,7 @@ export function App() {
                     <input
                       type="url"
                       inputmode="url"
-                      placeholder="https://your-server.lhr.life/"
+                      placeholder="https://sync.guymichaely.com/"
                       value={remoteUrlDraft()}
                       onInput={(event) => setRemoteUrlDraft(event.currentTarget.value)}
                     />

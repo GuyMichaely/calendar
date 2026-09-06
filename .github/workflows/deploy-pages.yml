@@ -30,6 +30,9 @@ jobs:
         run: |
           cp backend/.env.example .local/backend.env
           ./scripts/container config --quiet
+          printf 'TUNNEL_TOKEN=ci-placeholder\n' > .local/cloudflare.env
+          ./scripts/container --profile cloudflare config --quiet
+          docker run --rm cloudflare/cloudflared:2026.8.3 --version
       - name: Build backend container
         run: docker build --build-arg BUN_VERSION="$(cat .bun-version)" -f backend/Dockerfile -t calendar-backend .
       - name: Smoke test backend container

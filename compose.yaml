@@ -24,5 +24,22 @@ services:
       - no-new-privileges:true
     stop_grace_period: 30s
 
+  cloudflared:
+    profiles: [cloudflare]
+    image: cloudflare/cloudflared:2026.8.3
+    command: [tunnel, --no-autoupdate, run]
+    env_file:
+      - path: .local/cloudflare.env
+        format: raw
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   backend-data:
