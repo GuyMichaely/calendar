@@ -1,6 +1,6 @@
 {
-  "operation": "deploy",
-  "unit": "prod",
-  "revision": "f24dbf2d452d8022551ac58a4ebdf73487881c12",
-  "requestNonce": "2026-09-06T00:12:00Z"
+  "operation": "test",
+  "unit": "backend-host-check",
+  "revision": "40f3db4c83b63f6ced2e3ad8041162dddbef0b6a",
+  "requestNonce": "portable-host-2026-09-06T00:39Z"
 }
