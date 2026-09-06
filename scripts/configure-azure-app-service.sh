@@ -31,6 +31,7 @@ az webapp config appsettings set \
   --name "$APP" \
   --settings \
     WEBSITE_NODE_DEFAULT_VERSION="~24" \
+    WEBSITES_ENABLE_APP_SERVICE_STORAGE="true" \
     CALENDAR_APP_URL="$APP_URL" \
     CALENDAR_PUBLIC_BASE_URL="$PUBLIC_BASE_URL" \
     CALENDAR_DATA_DIR="$DATA_DIR" \
@@ -55,7 +56,7 @@ Google callback:  ${PUBLIC_BASE_URL%/}/auth/callback/google
 
 Still required before the backend can authenticate users:
   1. Connect this Web App to GuyMichaely/calendar, branch main, in Azure Deployment Center.
-  2. Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and ALLOWED_GOOGLE_SUBJECT as App Service environment variables.
+  2. Run scripts/configure-azure-auth.sh from Cloud Shell after obtaining the Google OAuth values.
 
 The backend filesystem store is single-process. Keep this app on one App Service instance.
 EOF
