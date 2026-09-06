@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+export BUN_VERSION
+BUN_VERSION=$(cat .bun-version)
+# Do not read an unrelated shell-level Compose project/file configuration.
+exec docker compose --project-name calendar --project-directory "$PWD" --env-file /dev/null -f compose.yaml "$@"

@@ -87,7 +87,7 @@ test("Solid calendar omits sleep-end markers and Vite targets the root calendar 
   assert.match(calendar, /Untitled event/);
   assert.match(calendar, /Sleeping projections are shown differently\./);
   assert.match(vite, /base: "\/calendar\/"/);
-  assert.match(vite, /outDir: "\.\.\/site\/solid"/);
+  assert.match(vite, /outDir: "\.\.\/dist"/);
 });
 
 test("Solid queued toasts animate out before removal", () => {

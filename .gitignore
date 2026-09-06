@@ -1,0 +1,9 @@
+node_modules/
+dist/
+site/solid/
+.local/
+.env
+.env.*
+!.env.example
+backend/.env
+*.log

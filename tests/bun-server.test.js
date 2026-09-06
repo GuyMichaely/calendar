@@ -33,11 +33,11 @@ async function waitForHealth(url, child) {
   throw lastError || new Error("Backend did not become healthy.");
 }
 
-test("production Node entrypoint starts with persistent storage and serves healthz", async () => {
-  const dataDirectory = await mkdtemp(join(tmpdir(), "calendar-node-server-"));
+test("production Bun entrypoint starts with persistent storage and serves healthz", async () => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "calendar-bun-server-"));
   const port = await reservePort();
   const publicBaseUrl = `http://127.0.0.1:${port}/`;
-  const child = spawn(process.execPath, ["backend/node-server.js"], {
+  const child = spawn(process.execPath, ["--no-env-file", "backend/bun-server.js"], {
     cwd: process.cwd(),
     env: {
       ...process.env,

@@ -3,17 +3,19 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22 <25"
+    "bun": "1.4.2"
   },
+  "packageManager": "bun@1.4.2",
   "scripts": {
-    "start": "node backend/node-server.js",
-    "test": "node --test tests/*.test.js",
+    "start": "bun backend/bun-server.js",
+    "test": "bun test ./tests",
     "dev:solid": "vite --config solid/vite.config.ts",
-    "dev:backend": "node backend/node-dev.js",
-    "start:backend": "node backend/node-server.js",
-    "test:solid": "node --test solid/test/*.test.ts",
+    "dev:backend": "bun backend/bun-dev.js",
+    "start:backend": "bun backend/bun-server.js",
+    "test:solid": "bun test ./solid/test",
     "typecheck:solid": "tsc -p solid/tsconfig.json --noEmit",
-    "build:solid": "vite build --config solid/vite.config.ts"
+    "build:solid": "vite build --config solid/vite.config.ts",
+    "check": "bun run test && bun run test:solid && bun run typecheck:solid && bun run build:solid"
   },
   "dependencies": {
     "@automerge/automerge": "3.4.1",
