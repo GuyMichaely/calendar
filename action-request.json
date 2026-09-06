@@ -1,6 +1,6 @@
 {
   "operation": "test",
-  "unit": "backend-host-check",
-  "revision": "40f3db4c83b63f6ced2e3ad8041162dddbef0b6a",
-  "requestNonce": "portable-host-2026-09-06T00:39Z"
+  "unit": "backend-app-service",
+  "revision": "main",
+  "requestNonce": "node-app-service-2026-09-05T21:35-04:00"
 }
