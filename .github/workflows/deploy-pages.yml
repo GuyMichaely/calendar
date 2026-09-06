@@ -26,6 +26,10 @@ jobs:
         run: ./scripts/bun install --frozen-lockfile
       - name: Test, typecheck, and build
         run: ./scripts/bun run check
+      - name: Validate container configuration
+        run: |
+          cp backend/.env.example .local/backend.env
+          ./scripts/container config --quiet
       - name: Build backend container
         run: docker build --build-arg BUN_VERSION="$(cat .bun-version)" -f backend/Dockerfile -t calendar-backend .
       - name: Smoke test backend container
