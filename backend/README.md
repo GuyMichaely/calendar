@@ -2,37 +2,34 @@
 
 The backend is composed in `app.js` from provider-agnostic OIDC auth, authenticated Automerge sync, attachment routes, and injected storage implementations.
 
-## Development backend
+## Runtime
 
-`npm run dev:backend` runs `bun-dev.js`. It uses in-memory auth, document, and blob stores and loses all server-side state when the process exits.
+Production runs on Azure App Service for Linux with the managed Node.js 24 LTS runtime. `npm start` launches `backend/node-server.js`.
 
-## Persistent single-process backend
-
-`npm run start:backend` runs `bun-server.js`. It requires a persistent filesystem directory and uses `file-stores.js` for sessions, the Automerge document, and attachment blobs.
+The Node listener adapts Node HTTP requests to the Fetch `Request`/`Response` interface used by the backend core. The application still keeps auth, sync, and storage logic independent of the HTTP runtime.
 
 Required deployment values:
 
-- `CALENDAR_APP_URL`: public frontend URL, for example `https://example.com/calendar/`;
-- `CALENDAR_PUBLIC_BASE_URL`: public backend URL as seen by the browser and OIDC provider;
-- `CALENDAR_DATA_DIR`: persistent directory for backend state;
-- OIDC provider and allowed-identity configuration, described below.
+- `CALENDAR_APP_URL`: public frontend URL, currently `https://guymichaely.com/calendar/`;
+- `CALENDAR_PUBLIC_BASE_URL`: public backend URL, currently `https://guymichaely-calendar-sync.azurewebsites.net/`;
+- `CALENDAR_DATA_DIR`: persistent directory for backend state, currently `/home/calendar-data`;
+- OIDC provider and allowed-identity configuration described below.
 
-Optional listener values:
+App Service supplies `PORT`. The production listener binds to `0.0.0.0` and uses that port. For local use, `PORT` defaults to `8080` and `HOST` may override the listener address.
 
-- `HOST`, default `127.0.0.1`;
-- `PORT`, default `8787`.
+## Persistent storage
 
-`CALENDAR_PUBLIC_BASE_URL` is deliberately independent of `HOST` and `PORT`. A reverse proxy such as Caddy can expose an HTTPS public URL while Bun listens on an internal HTTP socket.
+The backend uses filesystem stores for sessions, the Automerge document, and attachment blobs. On Azure App Service, state lives under `/home/calendar-data`. App Service persists `/home` across app restarts and deployments.
 
-The filesystem document store serializes atomic document updates within one backend process and commits new document bytes by atomic rename. Attachment records are assembled in temporary directories and published by rename, so readers do not observe partially written blob records. Do not run multiple backend processes against the same `CALENDAR_DATA_DIR`. A future database/object-store adapter can implement the same injected store contracts when multi-process or multi-host operation is needed.
-
-The data directory contains three subdirectories:
+The data directory contains:
 
 - `auth/`: OIDC flow and opaque session records;
 - `documents/`: serialized Automerge documents;
 - `blobs/`: immutable attachment records containing the bytes and content type.
 
-Back up the entire data directory. For a mutually consistent filesystem copy, stop the backend during the copy or use a filesystem/storage snapshot with equivalent point-in-time semantics.
+The filesystem document store serializes updates only within one backend process. Keep the Web App on one App Service instance. Do not scale it out unless the filesystem stores are replaced with a storage implementation that supports concurrent processes.
+
+Back up the whole data directory as one unit when a mutually consistent copy is required.
 
 ## OIDC configuration
 
@@ -44,7 +41,7 @@ GOOGLE_CLIENT_SECRET
 ALLOWED_GOOGLE_SUBJECT
 ```
 
-The Google issuer is fixed to `https://accounts.google.com`. Authorization is by exact issuer and subject, never by email address.
+The Google issuer is fixed to `https://accounts.google.com`. Authorization is by exact issuer and subject, not by email address.
 
 Provider-agnostic configuration is also available:
 
@@ -55,24 +52,74 @@ CALENDAR_ALLOWED_IDENTITIES_JSON
 
 `CALENDAR_OIDC_PROVIDERS_JSON` is an array of provider objects with `id`, `issuer`, and `clientId`, plus optional `clientSecret` and `scopes`. `CALENDAR_ALLOWED_IDENTITIES_JSON` is an array of objects containing exact `issuer` and `subject` values.
 
-The callback URL for provider `<id>` is `<CALENDAR_PUBLIC_BASE_URL>/auth/callback/<id>`, preserving any path prefix in the configured public base URL.
+For the current Azure Web App, the Google callback URI is:
 
-## Frontend connection
+```text
+https://guymichaely-calendar-sync.azurewebsites.net/auth/callback/google
+```
 
-The Solid frontend has a **Remote sync server** field in the hamburger menu. Saving a URL there stores it in browser local storage and reloads the app with that backend. Clearing the field disables remote sync for that browser.
+## Azure App Service setup
 
-`VITE_CALENDAR_BACKEND_URL` remains available as a build-time default. A browser-saved value takes precedence, including an explicitly saved empty value.
+The existing Web App is `guymichaely-calendar-sync` in resource group `calendar-sync`. It shares the existing Linux B1 App Service plan `parola-plan`.
 
-Browser requests use credentialed CORS and server-side opaque sessions. Secure production session cookies use `SameSite=None; Secure; HttpOnly`, so the frontend may use an HTTPS backend on a different site. The backend still rejects browser requests whose `Origin` is not the configured calendar origin. Browser policies that block third-party cookies entirely can still block a cross-site session cookie.
+From Azure Cloud Shell, configure the Web App for the managed Node runtime:
 
-## Production deployment
+```bash
+curl -fsSLo ~/configure-calendar-app-service.sh \
+  https://raw.githubusercontent.com/GuyMichaely/calendar/main/scripts/configure-azure-app-service.sh
+bash ~/configure-calendar-app-service.sh
+```
 
-`Dockerfile` packages the persistent backend as a host-neutral OCI image. The production layout is an ordinary Ubuntu host with Caddy on the host, Docker Compose for the backend container, and `/var/lib/calendar` bind-mounted into the container at `/data`.
+The script switches the Web App from the nginx placeholder container to Node 24 LTS, keeps Always On enabled, configures `/healthz`, and sets the non-secret application settings.
 
-Pushes to `main` publish the backend image to GitHub Container Registry. Azure is currently used only as the VM provider. The application does not depend on Azure App Service or Azure Container Registry.
+Then configure GitHub deployment in the Azure portal:
 
-See [`../deploy/README.md`](../deploy/README.md) for the host layout, GHCR publishing, Ubuntu provisioning, Azure VM wrapper, OAuth setup, updates, rollback, and backup instructions.
+1. Open `guymichaely-calendar-sync`.
+2. Open **Deployment Center**.
+3. Select **GitHub** as the source and GitHub Actions as the build provider.
+4. Authorize Azure to access GitHub if prompted.
+5. Select repository `GuyMichaely/calendar` and branch `main`.
+6. Prefer the user-assigned identity authentication option when Azure offers it.
+7. Save. Azure creates the GitHub Actions deployment workflow and starts the first deployment.
 
-## Existing-host diagnostics
+Finally, under the Web App's environment variables, add:
 
-If the backend is being installed on an existing Linux host or VM, run `scripts/diagnose-backend-host.sh` from a checkout of this repository. It reports reverse-proxy configuration, listeners, firewall state, candidate systemd services, container/runtime state, calendar configuration files, repository revisions, local health probes, and Azure VM metadata when available. OAuth secrets and private-key paths are redacted.
+```text
+GOOGLE_CLIENT_ID=<Google OAuth web client ID>
+GOOGLE_CLIENT_SECRET=<Google OAuth web client secret>
+ALLOWED_GOOGLE_SUBJECT=<your exact Google OpenID Connect sub>
+```
+
+Restart the Web App after changing auth settings.
+
+Verify:
+
+```bash
+curl https://guymichaely-calendar-sync.azurewebsites.net/healthz
+```
+
+The response should be `ok`.
+
+Then put this URL in the frontend's **Remote sync server** field:
+
+```text
+https://guymichaely-calendar-sync.azurewebsites.net/
+```
+
+## Development backend
+
+`npm run dev:backend` runs `node-dev.js`. It uses in-memory auth, document, and blob stores and loses all server-side state when the process exits.
+
+Example:
+
+```bash
+CALENDAR_APP_URL=http://localhost:5173/calendar/ \
+CALENDAR_PUBLIC_BASE_URL=http://localhost:8787/ \
+GOOGLE_CLIENT_ID=your-client-id \
+GOOGLE_CLIENT_SECRET=your-client-secret \
+ALLOWED_GOOGLE_SUBJECT=your-google-subject \
+PORT=8787 \
+npm run dev:backend
+```
+
+`npm run start:backend` runs the same persistent Node backend used by App Service and requires `CALENDAR_DATA_DIR`.
