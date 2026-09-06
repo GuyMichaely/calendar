@@ -35,7 +35,7 @@ Attachment bytes are not stored in the Automerge document and normal application
 
 JSON backup/export is metadata-only for attachments. A backup containing embedded legacy attachment bytes is rejected rather than silently discarding those bytes.
 
-`readSyncSnapshot()` and `mergeSyncSnapshot()` in `site/storage.js` expose the serialized Automerge boundary used by `sync/client.js`. The Solid frontend enables remote controls only when `VITE_CALENDAR_BACKEND_URL` is configured. Local-only operation remains available.
+`readSyncSnapshot()` and `mergeSyncSnapshot()` in `site/storage.js` expose the serialized Automerge boundary used by `sync/client.js`. The Solid frontend has a Remote sync server setting in the hamburger menu. A browser-saved URL takes precedence over the optional `VITE_CALENDAR_BACKEND_URL` build-time default. Saving an empty value explicitly disables remote sync in that browser.
 
 Undo/redo history is stored separately in the `calendar-history` IndexedDB database and is session-scoped. It is never synchronized. Undo/redo is applied as new CRDT changes rather than replacing the synchronized document wholesale, so unrelated concurrent changes are preserved.
 
@@ -62,21 +62,21 @@ Google is the first intended OIDC provider, but the auth core remains provider-a
 
 `npm run dev:backend` uses memory-backed stores for local testing. `npm run start:backend` provides a persistent single-process server when `CALENDAR_DATA_DIR` is configured. The filesystem document store serializes updates within that process, so it must not be shared by multiple backend processes. A multi-process deployment would need another implementation of the same store contracts.
 
-Actual remote enablement still requires the public backend URL/ingress, OIDC credentials and callback configuration, an exact allowed identity, persistent disk or another durable store provider, and `VITE_CALENDAR_BACKEND_URL` in the frontend build. See `backend/README.md` for runtime configuration.
+Remote enablement requires a public backend URL, OIDC credentials and callback configuration, an exact allowed identity, durable backend storage, and a Remote sync server URL in the browser. See `backend/README.md` and `deploy/README.md` for runtime and host configuration.
 
 ## Data migrations
 
 Application runtime code assumes the current data model rather than maintaining general compatibility with old schemas.
 
-The original `calendar-app/items` task and event data has a one-off migration:
+The original `calendar-app/items` task and event data has a one-off migration implemented by `migrations/2026-09-automerge-storage.js` and exposed through the deployed migration page:
 
 ```text
-migrations/2026-09-automerge-storage.js
+https://guymichaely.com/calendar/migrate-automerge.html
 ```
 
-Run it explicitly in DevTools on the calendar origin before using an Automerge-backed build with existing pre-Automerge data. Back up first. It converts the old waiting/ignored task fields to the current sleep/availability model, strips no attachment bytes silently, writes the current Automerge document, and leaves the old database intact as a rollback copy. The separate `2026-09-sleep-schema.js` migration is only needed for old non-Automerge builds that must remain on the old IndexedDB format; it does not need to run before the Automerge migration.
+Run that page in the browser profile containing the old calendar data before relying on remote sync. The migration converts the old waiting/ignored task fields to the current sleep/availability model, writes the current Automerge document, and leaves the old database intact as a rollback copy. It refuses to overwrite a non-empty current Automerge document. It also stops if it encounters embedded legacy attachment bytes rather than silently discarding them.
 
-The Automerge migration intentionally stops if it encounters embedded legacy attachment bytes rather than losing them. The current owner data is known not to contain attachments, so no attachment-data migration is required for the intended production transition.
+The separate `2026-09-sleep-schema.js` migration is only for old non-Automerge builds that must remain on the old IndexedDB format.
 
 ## Local development
 
@@ -100,7 +100,7 @@ ALLOWED_GOOGLE_SUBJECT=your-google-subject \
 npm run dev:backend
 ```
 
-Then start the Solid frontend with the matching backend URL:
+Then either save `http://localhost:8787/` in the frontend's Remote sync server setting or start the frontend with the same URL as a build-time default:
 
 ```bash
 VITE_CALENDAR_BACKEND_URL=http://localhost:8787/ npm run dev:solid
@@ -119,9 +119,9 @@ npm run typecheck:solid
 npm run build:solid
 ```
 
-## Deployment
+## Frontend deployment
 
-Deployment infrastructure lives on the separate `deployment-control` branch. That branch is control-plane only and is not application source. Agents that cannot invoke Actions directly submit requests through the `action-trigger` branch.
+Frontend deployment infrastructure lives on the separate `deployment-control` branch. That branch is control-plane only and is not application source. Agents that cannot invoke Actions directly submit requests through the `action-trigger` branch.
 
 Current public deployment units are defined by `deployment-control/deployment.json`. At present they are:
 
@@ -133,4 +133,10 @@ A test request accepts any valid unit label and any Git revision that resolves t
 
 A deploy request promotes a tested unit/SHA artifact. Existing units may omit `path` to retain their current path. Supplying `path` can update an existing unit's path or create a new unit in `deployment.json`. Additional fields in `action-request.json` are ignored, so an agent can change an arbitrary nonce-like field to submit the same semantic request again.
 
-See the `deployment-control` and `action-trigger` branch READMEs for the authoritative deployment protocol.
+See the `deployment-control` and `action-trigger` branch READMEs for the authoritative frontend deployment protocol.
+
+## Backend deployment
+
+The backend is packaged as a host-neutral OCI container and published to GitHub Container Registry. Production uses an ordinary Ubuntu host with Caddy on the host, the backend container bound to host loopback, and persistent state under `/var/lib/calendar`.
+
+Azure is currently only the VM provider. The application does not require App Service, Azure Container Registry, or an Azure-specific runtime. See `deploy/README.md` for the complete host layout and provisioning instructions.
