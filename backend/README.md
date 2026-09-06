@@ -22,7 +22,7 @@ Optional listener values:
 - `HOST`, default `127.0.0.1`;
 - `PORT`, default `8787`.
 
-`CALENDAR_PUBLIC_BASE_URL` is deliberately independent of `HOST` and `PORT`. A reverse proxy such as nginx can expose an HTTPS public URL while Bun listens only on a local HTTP socket.
+`CALENDAR_PUBLIC_BASE_URL` is deliberately independent of `HOST` and `PORT`. A reverse proxy such as Caddy can expose an HTTPS public URL while Bun listens on an internal HTTP socket.
 
 The filesystem document store serializes atomic document updates within one backend process and commits new document bytes by atomic rename. Attachment records are assembled in temporary directories and published by rename, so readers do not observe partially written blob records. Do not run multiple backend processes against the same `CALENDAR_DATA_DIR`. A future database/object-store adapter can implement the same injected store contracts when multi-process or multi-host operation is needed.
 
@@ -32,7 +32,7 @@ The data directory contains three subdirectories:
 - `documents/`: serialized Automerge documents;
 - `blobs/`: immutable attachment records containing the bytes and content type.
 
-Back up the entire data directory. For a mutually consistent filesystem copy, stop the backend during the copy or use a filesystem/storage snapshot with equivalent point-in-time semantics. The application does not require any particular backup tool.
+Back up the entire data directory. For a mutually consistent filesystem copy, stop the backend during the copy or use a filesystem/storage snapshot with equivalent point-in-time semantics.
 
 ## OIDC configuration
 
@@ -63,12 +63,16 @@ The Solid frontend has a **Remote sync server** field in the hamburger menu. Sav
 
 `VITE_CALENDAR_BACKEND_URL` remains available as a build-time default. A browser-saved value takes precedence, including an explicitly saved empty value.
 
-Browser requests use credentialed CORS and server-side opaque sessions. Secure production session cookies use `SameSite=None; Secure; HttpOnly`, so the frontend may use an HTTPS backend on a different site, including an Azure-provided hostname. The backend still rejects browser requests whose `Origin` is not the configured calendar origin. Browser policies that block third-party cookies entirely can still block a cross-site session cookie.
+Browser requests use credentialed CORS and server-side opaque sessions. Secure production session cookies use `SameSite=None; Secure; HttpOnly`, so the frontend may use an HTTPS backend on a different site. The backend still rejects browser requests whose `Origin` is not the configured calendar origin. Browser policies that block third-party cookies entirely can still block a cross-site session cookie.
 
-## Azure App Service
+## Production deployment
 
-`Dockerfile` packages the persistent backend for a Linux custom-container App Service deployment. See [`AZURE_APP_SERVICE.md`](./AZURE_APP_SERVICE.md) for the App Service resource layout, persistent `/home` configuration, container build command, public URL choices, and Google callback settings.
+`Dockerfile` packages the persistent backend as a host-neutral OCI image. The production layout is an ordinary Ubuntu host with Caddy on the host, Docker Compose for the backend container, and `/var/lib/calendar` bind-mounted into the container at `/data`.
+
+Pushes to `main` publish the backend image to GitHub Container Registry. Azure is currently used only as the VM provider. The application does not depend on Azure App Service or Azure Container Registry.
+
+See [`../deploy/README.md`](../deploy/README.md) for the host layout, GHCR publishing, Ubuntu provisioning, Azure VM wrapper, OAuth setup, updates, rollback, and backup instructions.
 
 ## Existing-host diagnostics
 
-If the backend is being installed on an existing Linux host or Azure VM, run `scripts/diagnose-backend-host.sh` from a checkout of this repository. It reports nginx, listeners, firewall state, candidate systemd services, container/runtime state, calendar configuration files, repository revisions, local health probes, and Azure VM metadata when available. OAuth secrets and private-key paths are redacted.
+If the backend is being installed on an existing Linux host or VM, run `scripts/diagnose-backend-host.sh` from a checkout of this repository. It reports reverse-proxy configuration, listeners, firewall state, candidate systemd services, container/runtime state, calendar configuration files, repository revisions, local health probes, and Azure VM metadata when available. OAuth secrets and private-key paths are redacted.
