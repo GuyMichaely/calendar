@@ -83,14 +83,16 @@ Defaults:
 
 ```text
 resource group: calendar-sync
-region: eastus
+preferred regions: eastus, eastus2, centralus, northcentralus, southcentralus
 VM: guymichaely-calendar-vm
 preferred sizes: Standard_B1s, then Standard_B1ms, then Standard_B2s
 OS: Ubuntu 24.04 LTS
 admin user: guy
 ```
 
-Azure periodically has regional capacity restrictions for individual VM sizes. Unless `SIZE` is set explicitly, the wrapper checks the preferred small B-series sizes in order and retries the next one when Azure reports live capacity exhaustion. An explicit `SIZE=...` disables that fallback. `LOCATION=eastus2` or another region can be supplied if the preferred sizes are unavailable throughout the default region.
+Azure periodically has regional capacity restrictions for individual VM sizes. Unless `LOCATION` or `SIZE` is set explicitly, the wrapper checks the preferred small B-series sizes across the preferred US regions and uses the first combination Azure reports as unrestricted. It also moves on when the actual create request encounters a live capacity restriction that was not reflected in the SKU listing.
+
+Set `LOCATION=...` to restrict deployment to one region. Set `SIZE=...` to restrict deployment to one size. Setting both disables all automatic capacity fallback.
 
 The Azure wrapper creates a Standard public IP and DNS label, opens ports 80 and 443 in the VM network security group, and invokes the generic Ubuntu provisioner through Azure Run Command. The generated SSH key is kept by Azure Cloud Shell. The script prints the exact SSH command when it finishes.
 
