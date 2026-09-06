@@ -4,11 +4,18 @@ set -euo pipefail
 command -v az >/dev/null || { echo "Azure CLI (az) is required. Run this in Azure Cloud Shell." >&2; exit 1; }
 
 RG="${RG:-calendar-sync}"
-LOCATION="${LOCATION:-eastus}"
 VM="${VM:-guymichaely-calendar-vm}"
 ADMIN_USER="${ADMIN_USER:-guy}"
 IMAGE="${IMAGE:-Canonical:ubuntu-24_04-lts:server:latest}"
 DEPLOY_REVISION="${DEPLOY_REVISION:-main}"
+
+if [ -n "${LOCATION:-}" ]; then
+  LOCATION_CANDIDATES=("$LOCATION")
+  LOCATION_WAS_EXPLICIT=1
+else
+  LOCATION_CANDIDATES=(eastus eastus2 centralus northcentralus southcentralus)
+  LOCATION_WAS_EXPLICIT=0
+fi
 
 if [ -n "${SIZE:-}" ]; then
   SIZE_CANDIDATES=("$SIZE")
@@ -22,15 +29,18 @@ SUB_ID="$(az account show --query id -o tsv)"
 SUB_SHORT="$(printf '%s' "$SUB_ID" | tr -d '-' | cut -c1-8 | tr '[:upper:]' '[:lower:]')"
 DNS_LABEL="${DNS_LABEL:-guy-calendar-${SUB_SHORT}}"
 
-az group create --name "$RG" --location "$LOCATION" -o none
+if [ "$(az group exists --name "$RG")" != "true" ]; then
+  az group create --name "$RG" --location "${LOCATION_CANDIDATES[0]}" -o none
+fi
 
 sku_is_unrestricted() {
-  local candidate="$1"
+  local location="$1"
+  local candidate="$2"
   local match
 
   match="$(
     az vm list-skus \
-      --location "$LOCATION" \
+      --location "$location" \
       --resource-type virtualMachines \
       --size "$candidate" \
       --all \
@@ -42,15 +52,16 @@ sku_is_unrestricted() {
   [ "$match" = "$candidate" ]
 }
 
-create_vm_with_size() {
-  local candidate="$1"
+create_vm() {
+  local location="$1"
+  local candidate="$2"
   local output_file
   output_file="$(mktemp)"
 
   if az vm create \
     --resource-group "$RG" \
     --name "$VM" \
-    --location "$LOCATION" \
+    --location "$location" \
     --image "$IMAGE" \
     --size "$candidate" \
     --admin-username "$ADMIN_USER" \
@@ -77,51 +88,61 @@ create_vm_with_size() {
 
 if az vm show -g "$RG" -n "$VM" >/dev/null 2>&1; then
   SIZE="$(az vm show -g "$RG" -n "$VM" --query hardwareProfile.vmSize -o tsv)"
-  echo "Reusing existing VM $RG/$VM using $SIZE."
+  LOCATION="$(az vm show -g "$RG" -n "$VM" --query location -o tsv)"
+  echo "Reusing existing VM $RG/$VM in $LOCATION using $SIZE."
 else
-  AVAILABLE_CANDIDATES=()
-  for candidate in "${SIZE_CANDIDATES[@]}"; do
-    if sku_is_unrestricted "$candidate"; then
-      AVAILABLE_CANDIDATES+=("$candidate")
-    else
-      echo "Skipping $candidate because Azure reports a restriction in $LOCATION."
-    fi
-  done
-
-  if [ "${#AVAILABLE_CANDIDATES[@]}" -eq 0 ]; then
-    if [ "$SIZE_WAS_EXPLICIT" -eq 1 ]; then
-      echo "Azure reports that $SIZE is restricted in $LOCATION." >&2
-    else
-      echo "Azure reports that none of the preferred small B-series sizes are currently usable in $LOCATION." >&2
-      echo "Retry with another region, for example LOCATION=eastus2, or set SIZE explicitly." >&2
-    fi
-    exit 3
-  fi
-
   CREATED=0
-  for candidate in "${AVAILABLE_CANDIDATES[@]}"; do
-    echo "Creating Ubuntu VM $RG/$VM in $LOCATION using $candidate."
-    echo "This creates billable Azure VM, disk, network, and public-IP resources."
 
-    if create_vm_with_size "$candidate"; then
-      SIZE="$candidate"
-      CREATED=1
-      break
-    else
-      status=$?
-    fi
+  for location in "${LOCATION_CANDIDATES[@]}"; do
+    AVAILABLE_SIZES=()
 
-    if [ "$status" -eq 75 ] && [ "$SIZE_WAS_EXPLICIT" -eq 0 ]; then
-      echo "$candidate hit a live Azure capacity restriction. Trying the next small size."
+    for candidate in "${SIZE_CANDIDATES[@]}"; do
+      if sku_is_unrestricted "$location" "$candidate"; then
+        AVAILABLE_SIZES+=("$candidate")
+      else
+        echo "Skipping $candidate in $location because Azure reports a restriction."
+      fi
+    done
+
+    if [ "${#AVAILABLE_SIZES[@]}" -eq 0 ]; then
       continue
     fi
 
-    exit "$status"
+    for candidate in "${AVAILABLE_SIZES[@]}"; do
+      echo "Creating Ubuntu VM $RG/$VM in $location using $candidate."
+      echo "This creates billable Azure VM, disk, network, and public-IP resources."
+
+      if create_vm "$location" "$candidate"; then
+        LOCATION="$location"
+        SIZE="$candidate"
+        CREATED=1
+        break 2
+      else
+        status=$?
+      fi
+
+      if [ "$status" -eq 75 ] && { [ "$SIZE_WAS_EXPLICIT" -eq 0 ] || [ "$LOCATION_WAS_EXPLICIT" -eq 0 ]; }; then
+        echo "$candidate in $location hit a live Azure capacity restriction. Trying another candidate."
+        continue
+      fi
+
+      exit "$status"
+    done
   done
 
   if [ "$CREATED" -ne 1 ]; then
-    echo "Azure had no live capacity for the preferred sizes in $LOCATION." >&2
-    echo "Retry with another region, for example LOCATION=eastus2." >&2
+    if [ "$LOCATION_WAS_EXPLICIT" -eq 1 ] && [ "$SIZE_WAS_EXPLICIT" -eq 1 ]; then
+      echo "Azure could not provision $SIZE in $LOCATION." >&2
+    elif [ "$LOCATION_WAS_EXPLICIT" -eq 1 ]; then
+      echo "Azure had no usable preferred small VM size in $LOCATION." >&2
+      echo "Retry without LOCATION to allow automatic regional fallback, or set SIZE explicitly." >&2
+    elif [ "$SIZE_WAS_EXPLICIT" -eq 1 ]; then
+      echo "Azure had no usable capacity for $SIZE in the preferred regions." >&2
+      echo "Retry without SIZE to allow automatic size fallback." >&2
+    else
+      echo "Azure had no usable preferred small B-series VM in the preferred US regions." >&2
+      echo "Set LOCATION and/or SIZE explicitly to widen the search." >&2
+    fi
     exit 4
   fi
 fi
@@ -154,6 +175,7 @@ cat <<EOF
 Azure VM ready.
 
 VM:                 $RG/$VM
+Region:             $LOCATION
 Size:               $SIZE
 Public IP:          $PUBLIC_IP
 Public hostname:    $FQDN
