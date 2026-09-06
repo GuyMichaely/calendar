@@ -26,6 +26,7 @@ Only one backend container may use a calendar data directory. The filesystem sto
 - `Caddyfile` exposes the backend over HTTPS.
 - `calendar.service` starts and updates the Compose application through systemd.
 - `scripts/provision-ubuntu-host.sh` installs and configures an Ubuntu 24.04 host.
+- `scripts/configure-calendar-host.sh` writes OAuth secrets on the host and starts the backend.
 - `scripts/create-azure-ubuntu-vm.sh` is a thin Azure CLI wrapper around the generic Ubuntu provisioner.
 
 ## Container image
@@ -61,6 +62,7 @@ It installs Ubuntu packages for Docker, Docker Compose, Caddy, and UFW. It then 
 /var/lib/calendar/
 /etc/caddy/Caddyfile
 /etc/systemd/system/calendar.service
+/usr/local/sbin/calendar-configure
 ```
 
 The firewall allows SSH, HTTP, and HTTPS. Docker publishes the application only to `127.0.0.1:8787`. Caddy obtains and renews the public TLS certificate automatically when the hostname resolves to the server and ports 80 and 443 are reachable.
@@ -100,7 +102,15 @@ The public backend URL determines the Google callback URI. If the host is `calen
 https://calendar.example.com/auth/callback/google
 ```
 
-Then SSH to the host and edit `/etc/calendar/calendar.env`:
+Then SSH to the host and run:
+
+```bash
+sudo calendar-configure
+```
+
+The command prompts for the Google OAuth client ID, client secret, and allowed Google OpenID Connect subject. The secret is not echoed. It writes `/etc/calendar/calendar.env` with mode 600, starts the calendar systemd unit, and verifies local `/healthz` before returning success.
+
+The resulting runtime configuration contains:
 
 ```text
 CALENDAR_APP_URL=https://guymichaely.com/calendar/
@@ -115,15 +125,13 @@ ALLOWED_GOOGLE_SUBJECT=<Google OpenID Connect sub>
 
 `ALLOWED_GOOGLE_SUBJECT` is the stable Google OpenID Connect subject, not an email address.
 
-Start the backend:
+Verify the public endpoint:
 
 ```bash
-sudo systemctl start calendar
-sudo systemctl status calendar
 curl https://calendar.example.com/healthz
 ```
 
-The health response should be `ok`.
+The response should be `ok`.
 
 Configure the Solid frontend's Remote sync server field with the same public backend URL. Then sign in with Google and run the first sync.
 
