@@ -1,3 +1,4 @@
+import * as Automerge from "@automerge/automerge";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -174,4 +175,47 @@ test("replaying the same client snapshot is idempotent at the data level", () =>
     materializeItems(loadCalendarDocument(first.storedBytes), { includeDeleted: true }),
     materializeItems(loadCalendarDocument(second.storedBytes), { includeDeleted: true }),
   );
+});
+
+
+test("independently initialized devices share the root but have distinct editing actors", () => {
+  const emptyA = createCalendarDocument();
+  const emptyB = createCalendarDocument();
+  assert.deepEqual(Automerge.getHeads(emptyA), Automerge.getHeads(emptyB));
+  assert.notEqual(Automerge.getActorId(emptyA), Automerge.getActorId(emptyB));
+  const a = createCalendarDocument([task({ id: "a" })]);
+  const b = createCalendarDocument([task({ id: "b" })]);
+  const merged = mergeCalendarDocuments(a, b);
+  assert.deepEqual(materializeItems(merged).map((item) => item.id).sort(), ["a", "b"]);
+  assert.equal(Object.keys(Automerge.getConflicts(merged, "items") || {}).length, 0);
+  assert.equal(materializeItems(mergeCalendarDocuments(merged, emptyA)).length, 2);
+});
+
+test("legacy root conflicts retain items, late edits, text history and tombstones", () => {
+  const old = Automerge.from({ schemaVersion: 1, items: { "task-1": task() } }, { actor: "aa" });
+  const blank = Automerge.from({ schemaVersion: 1, items: {} }, { actor: "bb" });
+  let merged = mergeCalendarDocuments(old, blank);
+  assert.equal(merged.items["task-1"], undefined); // The formerly hidden root.
+  assert.equal(materializeItems(merged).length, 1);
+  merged = updateItemText(merged, "task-1", "notes", "hello brave world");
+  const late = updateItemText(forkCalendarDocument(old), "task-1", "notes", "hello world!");
+  merged = mergeCalendarDocuments(merged, late);
+  assert.equal(materializeItem(merged, "task-1").notes, "hello brave world!");
+  merged = addTag(merged, "task-1", "recovered");
+  merged = addAttachmentMetadata(merged, "task-1", { id: "file", name: "test.txt" });
+  assert.ok(materializeItem(merged, "task-1").tags.includes("recovered"));
+  assert.equal(materializeItem(merged, "task-1").attachments[0].id, "file");
+  merged = tombstoneItem(merged, "task-1", "2026-09-06T12:00:00Z");
+  merged = mergeCalendarDocuments(merged, late);
+  assert.equal(materializeItems(merged).length, 0);
+  merged = restoreItem(merged, "task-1");
+  assert.equal(materializeItem(loadCalendarDocument(saveCalendarDocument(merged)), "task-1").notes, "hello brave world!");
+  assert.equal(Object.keys(Automerge.getConflicts(merged, "items")).length, 2);
+});
+
+test("duplicate IDs across legacy roots resolve consistently without reviving a tombstone", () => {
+  const a = Automerge.from({ schemaVersion: 1, items: { "task-1": task() } }, { actor: "aa" });
+  const b = Automerge.from({ schemaVersion: 1, items: { "task-1": task({ deletedAt: "2026-09-06T12:00:00Z" }) } }, { actor: "bb" });
+  assert.deepEqual(materializeItems(mergeCalendarDocuments(a, b)), []);
+  assert.deepEqual(materializeItems(mergeCalendarDocuments(b, a)), []);
 });

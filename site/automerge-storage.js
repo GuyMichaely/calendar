@@ -4,6 +4,7 @@ import {
   addHistoryEntry,
   addTag,
   createCalendarDocument,
+  calendarItemMap,
   deleteItemField,
   getItemFieldConflicts,
   itemForSync,
@@ -132,7 +133,7 @@ function getPathParent(root, path) {
 }
 
 function pathUsesCollaborativeText(path, before, after) {
-  return path.length === 3 && path[0] === "items" && ["title", "notes"].includes(path[2])
+  return path.length === 2 && ["title", "notes"].includes(path[1])
     && typeof before === "string" && typeof after === "string";
 }
 
@@ -158,12 +159,13 @@ function applyDraftValue(root, path, before, after, afterPresent = true) {
 }
 
 function mutateDraftFromIntent(draft, baseline, next) {
-  const item = draft.items[next.id];
+  const items = calendarItemMap(draft, next.id);
+  const item = items[next.id];
   if (!item) return;
 
   for (const field of ["title", "notes"]) {
     if (sameValue(baseline[field], next[field])) continue;
-    applyDraftValue(draft, ["items", next.id, field], baseline[field], next[field], Object.hasOwn(next, field));
+    applyDraftValue(items, [next.id, field], baseline[field], next[field], Object.hasOwn(next, field));
   }
 
   if (!sameValue(baseline.tags || [], next.tags || [])) {
@@ -194,8 +196,8 @@ function mutateDraftFromIntent(draft, baseline, next) {
       const fields = new Set([...Object.keys(beforeAttachment || {}), ...Object.keys(attachment)]);
       for (const field of fields) {
         applyDraftValue(
-          draft,
-          ["items", next.id, "attachments", index, field],
+          items,
+          [next.id, "attachments", index, field],
           beforeAttachment?.[field],
           attachment[field],
           Object.hasOwn(attachment, field),
@@ -218,7 +220,7 @@ function mutateDraftFromIntent(draft, baseline, next) {
   const fields = new Set([...Object.keys(baseline), ...Object.keys(next)]);
   for (const field of fields) {
     if (SPECIAL_DELTA_FIELDS.has(field) || sameValue(baseline[field], next[field])) continue;
-    applyDraftValue(draft, ["items", next.id, field], baseline[field], next[field], Object.hasOwn(next, field));
+    applyDraftValue(items, [next.id, field], baseline[field], next[field], Object.hasOwn(next, field));
   }
 
   if (baseline.kind !== next.kind) {

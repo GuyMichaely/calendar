@@ -1,3 +1,4 @@
+import * as Automerge from "@automerge/automerge";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { indexedDB } from "fake-indexeddb";
@@ -153,4 +154,20 @@ test("kind conversion removes obsolete source-kind fields without overwriting un
   assert.equal("deadline" in current, false);
   assert.equal("sleep" in current, false);
   assert.equal("history" in current, false);
+});
+
+
+test("recovered legacy items support stale editor saves without losing remote text", async () => {
+  const id = "legacy-hidden-storage";
+  const old = Automerge.from({ schemaVersion: 1, items: { [id]: task({ id }) } }, { actor: "aa" });
+  const blank = Automerge.from({ schemaVersion: 1, items: {} }, { actor: "bb" });
+  await storage.mergeSyncSnapshot(saveCalendarDocument(Automerge.merge(old, blank)));
+  const baseline = (await storage.listItems()).find((item) => item.id === id);
+  assert.ok(baseline);
+  const remote = updateItemText(forkCalendarDocument(old), id, "notes", "hello world!");
+  await storage.mergeSyncSnapshot(saveCalendarDocument(remote));
+  await storage.putItem({ ...baseline, notes: "hello brave world", tags: [...baseline.tags, "local"] }, baseline);
+  const result = (await storage.listItems()).find((item) => item.id === id);
+  assert.equal(result.notes, "hello brave world!");
+  assert.ok(result.tags.includes("local"));
 });

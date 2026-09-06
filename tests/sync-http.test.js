@@ -151,3 +151,18 @@ test("only POST /sync is accepted", async () => {
   const other = await handler(new Request("https://sync.example/other"));
   assert.equal(other.status, 404);
 });
+
+
+test("Sync now on an independent device downloads server items and merges its own items", async () => {
+  const handler = authorizedHandler(createMemoryDocumentStore());
+  const source = createCalendarDocument([task()]);
+  await responseDocument(await handler(request(saveCalendarDocument(source))));
+  const empty = await responseDocument(await handler(request(saveCalendarDocument(createCalendarDocument()))));
+  assert.equal(materializeItem(empty, "task-1").title, "Buy goggles");
+  const other = createCalendarDocument([{ ...task(), id: "other-device" }]);
+  const received = await responseDocument(await handler(request(saveCalendarDocument(other))));
+  assert.ok(materializeItem(received, "task-1"));
+  assert.ok(materializeItem(received, "other-device"));
+  const refreshed = await responseDocument(await handler(request(saveCalendarDocument(source))));
+  assert.ok(materializeItem(refreshed, "other-device"));
+});
