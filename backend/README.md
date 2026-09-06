@@ -19,7 +19,7 @@ App Service supplies `PORT`. The production listener binds to `0.0.0.0` and uses
 
 ## Persistent storage
 
-The backend uses filesystem stores for sessions, the Automerge document, and attachment blobs. On Azure App Service, state lives under `/home/calendar-data`. App Service persists `/home` across app restarts and deployments.
+The backend uses filesystem stores for sessions, the Automerge document, and attachment blobs. On Azure App Service, state lives under `/home/calendar-data`. The setup script explicitly enables App Service storage so `/home` persists across app restarts and deployments.
 
 The data directory contains:
 
@@ -70,7 +70,7 @@ curl -fsSLo ~/configure-calendar-app-service.sh \
 bash ~/configure-calendar-app-service.sh
 ```
 
-The script switches the Web App from the nginx placeholder container to Node 24 LTS, keeps Always On enabled, configures `/healthz`, and sets the non-secret application settings.
+The script removes the nginx placeholder-container configuration, switches the Web App to Node 24 LTS, explicitly enables persistent `/home` storage, keeps Always On enabled, configures `/healthz`, and sets the non-secret application settings.
 
 Then configure GitHub deployment in the Azure portal:
 
@@ -82,15 +82,15 @@ Then configure GitHub deployment in the Azure portal:
 6. Prefer the user-assigned identity authentication option when Azure offers it.
 7. Save. Azure creates the GitHub Actions deployment workflow and starts the first deployment.
 
-Finally, under the Web App's environment variables, add:
+After obtaining the Google OAuth values, configure them from Cloud Shell without echoing the client secret:
 
-```text
-GOOGLE_CLIENT_ID=<Google OAuth web client ID>
-GOOGLE_CLIENT_SECRET=<Google OAuth web client secret>
-ALLOWED_GOOGLE_SUBJECT=<your exact Google OpenID Connect sub>
+```bash
+curl -fsSLo ~/configure-calendar-auth.sh \
+  https://raw.githubusercontent.com/GuyMichaely/calendar/main/scripts/configure-azure-auth.sh
+bash ~/configure-calendar-auth.sh
 ```
 
-Restart the Web App after changing auth settings.
+The helper prompts for the Google client ID, client secret, and exact OpenID Connect `sub`, stores them as App Service application settings, and restarts the Web App.
 
 Verify:
 
