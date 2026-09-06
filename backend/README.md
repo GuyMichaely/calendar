@@ -1,21 +1,21 @@
 # Calendar backend setup
 
-The backend is a single Bun process serving provider-neutral OIDC auth, Automerge snapshot sync, and attachment blobs. It runs as an unprivileged container with a read-only root filesystem. A Docker volume holds persistent data. Only `127.0.0.1:8787` is published on the host. Cloudflare Tunnel exposes the backend at `https://sync.guymichaely.com/`.
+The backend is a single Bun process serving provider-neutral OIDC auth, Automerge snapshot sync, and attachment blobs. It runs as an unprivileged container with a read-only root filesystem. A Docker volume holds persistent data. Only `127.0.0.1:8787` is published on the host. Cloudflare Tunnel exposes the backend at `https://calendar-sync.guymichaely.com/`.
 
 ## 1. Choose the backend host
 
 Use a computer that will stay on while you need sync. Run these commands in this repository on that computer. Docker Engine and Docker Compose **2.30 or newer** are the host prerequisites. Everything else for the backend is in the image. The repository-local Bun wrapper is available for development and Google identity setup.
 
-The frontend remains on GitHub Pages at `https://guymichaely.com/calendar/`. Add only the `sync` hostname in Cloudflare; keep the existing apex/Pages records. Old Azure resources, if any, are left untouched. If migrating a populated backend, stop it and copy its complete data directory into the new volume before enabling sync; this setup does not automatically transfer Azure data.
+The frontend remains on GitHub Pages at `https://guymichaely.com/calendar/`. Add only the `calendar-sync` hostname in Cloudflare; keep the existing apex/Pages records. Old Azure resources, if any, are left untouched. If migrating a populated backend, stop it and copy its complete data directory into the new volume before enabling sync; this setup does not automatically transfer Azure data.
 
 ## 2. Configure the stable Cloudflare hostname
 
-Use `sync.guymichaely.com` from the outset. Google registers the public callback URL, not the server IP or hosting provider. Moving the container to a cloud host later does not require a new Google OAuth client or callback as long as this hostname and callback path stay the same.
+Use `calendar-sync.guymichaely.com` from the outset. Google registers the public callback URL, not the server IP or hosting provider. Moving the container to a cloud host later does not require a new Google OAuth client or callback as long as this hostname and callback path stay the same.
 
 1. In the [Cloudflare dashboard](https://dash.cloudflare.com/), open **Networking → Tunnels** and create a remotely managed Cloudflare Tunnel named `calendar-sync`.
 2. Choose Docker for the connector. Copy only the tunnel token from the displayed installation command into a new ignored `.local/cloudflare.env` file as `TUNNEL_TOKEN=...`. Use a literal unquoted value. Run `chmod 600 .local/cloudflare.env`. Do not paste the token into chat or commit it.
-3. Add a **Published application** route with subdomain `sync`, domain `guymichaely.com`, no path filter, and service URL **`http://backend:8787`**. Cloudflare creates the DNS record for this subdomain. `backend` is the Compose service name; `localhost` inside the tunnel container would refer to the tunnel itself.
-4. Keep `CALENDAR_PUBLIC_BASE_URL=https://sync.guymichaely.com/` and `CALENDAR_APP_URL=https://guymichaely.com/calendar/` in `.local/backend.env`.
+3. Add a **Published application** route with subdomain `calendar-sync`, domain `guymichaely.com`, no path filter, and service URL **`http://backend:8787`**. Cloudflare creates the DNS record for this subdomain. `backend` is the Compose service name; `localhost` inside the tunnel container would refer to the tunnel itself.
+4. Keep `CALENDAR_PUBLIC_BASE_URL=https://calendar-sync.guymichaely.com/` and `CALENDAR_APP_URL=https://guymichaely.com/calendar/` in `.local/backend.env`.
 5. After Google configuration below, start both containers with `./scripts/container --profile cloudflare up -d --build --wait`.
 
 The optional profile runs a pinned official `cloudflared` image beside the backend, with no host installation of cloudflared. The tunnel connects outward from whichever machine hosts these containers. Real tunnel connectivity cannot be checked until the Cloudflare token and route exist. This route uses the app's own Google authentication; a separate Cloudflare Access login gate would require additional browser/API integration.
@@ -30,7 +30,7 @@ See [Cloudflare tunnel setup](https://developers.cloudflare.com/tunnel/setup/), 
 2. Open **Google Auth Platform → Branding** (or OAuth consent-screen setup). Use an app name such as `Personal Calendar`, your support email, and your contact email. If asked for a homepage, use `https://guymichaely.com/calendar/`.
 3. Choose **External** audience for a personal Gmail account. While in Testing, add your Google account as a test user. Only basic `openid`, `email`, and `profile` scopes are needed; this app does not request Google Calendar or Drive access.
 4. Under **Clients**, create an OAuth client with application type **Web application**. Register these two **Authorized redirect URIs** exactly:
-   - `https://sync.guymichaely.com/auth/callback/google`
+   - `https://calendar-sync.guymichaely.com/auth/callback/google`
    - `http://localhost:8877/auth/callback/google` (one-time local identity discovery)
 5. Save the client ID and client secret locally as described below. Authorized JavaScript origins are not needed for this server-side redirect flow. This is an OAuth client, not a service-account key.
 
@@ -44,7 +44,7 @@ cp -n backend/.env.example .local/backend.env
 chmod 600 .local/backend.env
 ```
 
-Edit `.local/backend.env` with your editor. Keep one literal `KEY=value` per line, with no surrounding quotes or inline comments. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `CALENDAR_PUBLIC_BASE_URL=https://sync.guymichaely.com/`. Keep `CALENDAR_APP_URL=https://guymichaely.com/calendar/`. Do not paste the secret into chat, commit it, or put it in a `VITE_` variable.
+Edit `.local/backend.env` with your editor. Keep one literal `KEY=value` per line, with no surrounding quotes or inline comments. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `CALENDAR_PUBLIC_BASE_URL=https://calendar-sync.guymichaely.com/`. Keep `CALENDAR_APP_URL=https://guymichaely.com/calendar/`. Do not paste the secret into chat, commit it, or put it in a `VITE_` variable.
 
 ## 4. Discover your allowed Google account ID
 
@@ -57,7 +57,7 @@ The backend authorizes an exact Google **subject (`sub`)**, not an email address
 
 Open the printed Google sign-in URL and choose your intended account. The helper validates the login through the real OIDC library and prints the account plus `ALLOWED_GOOGLE_SUBJECT=...`. Copy that line into `.local/backend.env`. It exposes only a temporary loopback callback, never exposes calendar data, and never prints provider tokens. It exits after the callback or a ten-minute timeout. You can remove the localhost callback from the Google client after setup.
 
-If the backend host is remote, run this one-time helper and browser together on your personal computer, then copy the completed backend configuration securely to the host. The same `sync.guymichaely.com` callback applies to either host.
+If the backend host is remote, run this one-time helper and browser together on your personal computer, then copy the completed backend configuration securely to the host. The same `calendar-sync.guymichaely.com` callback applies to either host.
 
 ## 5. Start the persistent server
 
@@ -68,7 +68,7 @@ If the backend host is remote, run this one-time helper and browser together on 
 
 The image reads `.bun-version`, installs production packages from `bun.lock` with a frozen lockfile, and runs `backend/bun-server.js`. Configuration comes from `.local/backend.env`. Google secrets stay outside the image. The public base URL determines secure cookies and OAuth callbacks even though the local listener receives HTTP.
 
-Check `https://sync.guymichaely.com/healthz`; it should show `ok`. Open <https://guymichaely.com/calendar/>, expand the hamburger menu, save `https://sync.guymichaely.com/` in **Remote sync server**, and sign in with Google. Repeat the server setting on each browser/device. Local data continues working while the backend is offline.
+Check `https://calendar-sync.guymichaely.com/healthz`; it should show `ok`. Open <https://guymichaely.com/calendar/>, expand the hamburger menu, save `https://calendar-sync.guymichaely.com/` in **Remote sync server**, and sign in with Google. Repeat the server setting on each browser/device. Local data continues working while the backend is offline.
 
 The frontend and backend use HTTPS under the same registrable domain, so they are same-site but different origins. Credentialed CORS remains restricted to `https://guymichaely.com`; cookies remain host-only, Secure, and HttpOnly. Local frontend testing requires changing `CALENDAR_APP_URL` to `http://localhost:5173/calendar/` and recreating the server.
 
@@ -107,33 +107,3 @@ Store a copy off the host. Frontend JSON exports contain attachment metadata onl
 ## Verification
 
 `./scripts/bun run check` covers domain behavior, storage, auth, sync, attachments, the Bun listener, Solid tests, TypeScript, and frontend bundling. CI additionally builds the actual image and runs `scripts/smoke-container` to check health, unauthenticated rejection, CORS, writable volume permissions, and storage across a container restart. Real Google login still needs registered credentials and a user completing consent.
-
-## Optional: localhost.run for temporary testing
-
-For a temporary anonymous URL:
-
-```bash
-./scripts/tunnel --anonymous
-```
-
-Keep this terminal open and note the HTTPS hostname in the terminal output. The server need not be running yet. localhost.run supplies the certificate and sends HTTP to local port 8787.
-
-For a longer-lived free hostname, create a dedicated key:
-
-```bash
-./scripts/tunnel-key
-```
-
-Sign in at <https://admin.localhost.run/> and register the public key printed by the command (the contents of `.local/ssh/localhost-run.pub`). The private key is `.local/ssh/localhost-run`; never upload or share it. Both are ignored by Git and excluded from images. The script never overwrites an existing key. This unattended tunnel key has no passphrase and is protected by owner-only filesystem permissions; it is not used for GitHub or server administration.
-
-Stop the anonymous tunnel, then run:
-
-```bash
-./scripts/tunnel
-```
-
-With a key present, the script uses it and the `calendar` username instead of `nokey`. It ignores personal SSH configuration and agents and saves the localhost.run host key in `.local/ssh/known_hosts`. If access is denied, register the public key first or use `--anonymous`.
-
-A free key-associated hostname can survive reconnects, but **is not guaranteed permanent**. Registering the key extends its life. A stable hostname requires localhost.run's custom-domain plan; their `lhr.rocks` names do not require your own DNS changes. See the [free-tier limits](https://localhost.run/docs/forever-free/), [SSH FAQ](https://localhost.run/docs/faq/), and [custom-domain documentation](https://localhost.run/docs/custom-domains/).
-
-Whenever the hostname changes, update all three: the Google callback URI, `CALENDAR_PUBLIC_BASE_URL`, and the frontend's saved Remote sync server URL. Recreate the backend container after editing its configuration. Sign in again because cookies are scoped to the previous host.

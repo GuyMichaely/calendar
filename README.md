@@ -45,7 +45,7 @@ The Solid frontend has a **Remote sync server** field in the hamburger menu. A b
 
 ## Backend deployment
 
-The backend runs as one Bun container with durable storage and a Cloudflare Tunnel at `https://sync.guymichaely.com/`. The frontend remains on GitHub Pages at <https://guymichaely.com/calendar/>; each browser chooses its **Remote sync server** URL. No backend secrets or temporary tunnel URL are baked into frontend builds.
+The backend runs as one Bun container with durable storage and a Cloudflare Tunnel at `https://calendar-sync.guymichaely.com/`. The frontend remains on GitHub Pages at <https://guymichaely.com/calendar/>; each browser chooses its **Remote sync server** URL. No backend secrets or temporary tunnel URL are baked into frontend builds.
 
 Follow [backend/README.md](backend/README.md) for container startup, Cloudflare routing, Google registration, and backups. Google credentials are the only application configuration needed before real sign-in and sync can be enabled. Docker Engine with Compose 2.30+ is required on the backend host.
 

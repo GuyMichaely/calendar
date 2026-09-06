@@ -51,7 +51,7 @@ A Google provider has this shape:
 The Google OAuth client must register the exact backend callback URL. For this deployment that is:
 
 ```text
-https://sync.guymichaely.com/auth/callback/google
+https://calendar-sync.guymichaely.com/auth/callback/google
 ```
 
 See [the backend setup guide](../backend/README.md) for Google registration and a helper that discovers your verified subject ID.

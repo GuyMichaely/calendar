@@ -255,7 +255,7 @@ export function App() {
                     <input
                       type="url"
                       inputmode="url"
-                      placeholder="https://sync.guymichaely.com/"
+                      placeholder="https://calendar-sync.guymichaely.com/"
                       value={remoteUrlDraft()}
                       onInput={(event) => setRemoteUrlDraft(event.currentTarget.value)}
                     />
