@@ -1,6 +1,6 @@
 {
   "operation": "test",
-  "unit": "backend-app-service-smoke",
-  "revision": "8fdac576e6c706cc73510eb67d51afae0ff6a868",
-  "requestNonce": "node-app-service-smoke-2026-09-05T22:15-04:00"
+  "unit": "backend-app-service-release",
+  "revision": "48008adeef191a4efbbb8ad42c8932489bc59068",
+  "requestNonce": "node-app-service-release-2026-09-05T22:18-04:00"
 }
