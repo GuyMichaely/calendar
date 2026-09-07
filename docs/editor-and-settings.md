@@ -13,3 +13,5 @@ One-time Can start markers appear only while that opportunity is in the future. 
 The Google Drive picker proposal is in [drive-attachments-plan.md](drive-attachments-plan.md).
 
 Validation includes Markdown injection/link tests, elapsed-start calendar projection, configurable shortcut dispatch, and a stale-editor attachment-removal test that preserves a concurrent attachment addition and restores both references on undo. Browser checks use synthetic local items and an isolated attachment fixture; the fixture is removed before publishing.
+
+JSON backups have a single top-level `items` field. Task activity `history` is preserved; browser undo/redo history and Automerge change history are not. Attachment metadata is included, but file bytes are not. Older backups with `version` or `exportedAt` remain importable.

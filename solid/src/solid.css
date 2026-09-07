@@ -202,3 +202,15 @@
   .editor-title-field .editor-title-input { font-size: 1.3rem; }
   .attachment-actions { width: 100%; justify-content: flex-end; }
 }
+
+/* Compact mode also hides the Markdown renderer, just like the old notes field. */
+.tasks-panel.compact .task-copy > .markdown-notes { display: none; }
+.tasks-panel.compact .task-main { align-items: flex-start; }
+@media (max-width: 760px) {
+  /* Keep actions beside the title instead of reserving an extra row per task. */
+  .tasks-panel .task-card { flex-direction: row; gap: 6px; padding: 9px; }
+  .tasks-panel .task-actions { width: auto; max-width: 112px; align-self: flex-start; }
+  .tasks-panel.compact .task-card { align-items: flex-start; padding: 6px 8px; }
+  .tasks-panel .task-main { align-items: flex-start; }
+  .tasks-panel .task-actions .text-button { white-space: normal; }
+}

@@ -310,7 +310,7 @@ async function endBatch() {
 
 export async function exportData() {
   const items = (await listLocalItems()).map(withoutAttachmentBytes);
-  return JSON.stringify({ exportedAt: new Date().toISOString(), items }, null, 2);
+  return JSON.stringify({ items }, null, 2);
 }
 
 export function parseBackup(text) {

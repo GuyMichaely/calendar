@@ -348,7 +348,7 @@ export function App() {
             <h2 id="import-title">Import backup</h2>
             <p>Add {pending.added} new items and update {pending.updated} matching items.</p>
             <p>Matching IDs are updated with fields from the backup, including text, dates, tags, and attachment references. Items missing from the backup stay in your calendar. This does not replace your whole calendar.</p>
-            <p>JSON backups contain item values, not edit history or attachment files. Referenced files must still exist on your sync server. Imported changes will sync to your other devices. You can undo this import.</p>
+            <p>JSON backups include item values and each task’s activity history (such as creation, completion, and sleep changes). They do not include undo/redo history, the Automerge change history used for syncing, or attachment files. Referenced files must still exist on your sync server. Imported changes will sync to your other devices. You can undo this import.</p>
             <div class="dialog-actions"><button class="secondary-button" disabled={importing()} onClick={() => setPendingImport(null)}>Cancel</button><button class="primary-button" disabled={importing()} onClick={() => void confirmImport()}>{importing() ? "Importing…" : "Import and update matches"}</button></div>
           </div>
         </DialogShell>}</Show>

@@ -185,12 +185,18 @@ test("repeated autosaves preserve concurrent remote text while the editor stays 
   assert.equal((await storage.getItem(id)).notes, "hello brave new world!");
 });
 
-test("backup preview validates before mutations and exports omit the version field", async () => {
+test("backup preview validates before mutations and exports keep task history without envelope metadata", async () => {
   const before = await storage.listItems();
   assert.throws(() => storage.parseBackup(JSON.stringify({ items: [{ id: "invalid", kind: "unknown" }] })));
   await assert.rejects(() => storage.importData(JSON.stringify({ items: [task({ id: "should-not-import" }), {}] })));
   assert.deepEqual((await storage.listItems()).map(x => x.id), before.map(x => x.id));
-  assert.equal("version" in JSON.parse(await storage.exportData()), false);
+  const exported = JSON.parse(await storage.exportData());
+  assert.deepEqual(Object.keys(exported), ["items"]);
+  const withHistory = exported.items.find(item => item.history?.length);
+  assert.ok(withHistory, "Task activity history is retained in JSON backups");
+  assert.deepEqual(storage.parseBackup(JSON.stringify(exported)).find(item => item.id === withHistory.id).history, withHistory.history);
+  const legacy = { version: 1, exportedAt: "2026-09-07T12:00:00Z", items: exported.items };
+  assert.deepEqual(storage.parseBackup(JSON.stringify(legacy)), exported.items);
 });
 
 test("removing an attachment in a stale editor preserves a concurrently added attachment and supports undo", async () => {
