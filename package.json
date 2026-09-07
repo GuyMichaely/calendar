@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@automerge/automerge": "3.4.1",
+    "markdown-it": "15.0.1",
     "openid-client": "6.8.7"
   },
   "devDependencies": {

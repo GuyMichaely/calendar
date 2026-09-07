@@ -31,7 +31,7 @@ export function DialogShell(props: {
     }
     if (event.key !== "Tab") return;
     const focusable = [...dialogRef.querySelectorAll<HTMLElement>(
-      "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      "a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
     )].filter((element) => element.getClientRects().length > 0);
     if (!focusable.length) return;
     const first = focusable[0];

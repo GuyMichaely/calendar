@@ -153,3 +153,52 @@
 .attachment-downloads { display: grid; gap: 6px; margin-bottom: 12px; }
 
 .solid-menu-panel { max-height: calc(100dvh - 80px); overflow-y: auto; }
+
+/* Settings replaces the menu; history controls are touch-only. */
+.settings-trigger { font-size: 1.5rem; }
+.mobile-history { display: none; }
+.settings-content { padding: 22px; }
+.settings-dialog { width: min(620px, calc(100vw - 24px)); }
+.settings-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--line, #ddd); margin-bottom: 20px; }
+.settings-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 12px; cursor: pointer; color: inherit; }
+.settings-tabs button[aria-selected="true"] { border-bottom-color: var(--accent, #3b6551); font-weight: 700; }
+.data-settings { display: grid; gap: 12px; }
+.data-settings > .text-button { justify-self: start; }
+.data-settings .solid-menu-remote { padding: 0; }
+.data-settings .solid-menu-remote input { width: 100%; }
+.editor-title-field { display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px; }
+.editor-title-field .editor-title-input { width: 100%; min-width: 0; font: inherit; font-size: 1.55rem; font-weight: 700; border: 0; border-bottom: 1px solid transparent; border-radius: 0; padding: 5px 0; background: transparent; color: inherit; box-shadow: none; }
+.editor-title-field .editor-title-input:hover { border-bottom-color: var(--line); }
+.editor-title-field .editor-title-input:focus { outline: none; border-bottom: 2px solid var(--accent, #3b6551); }
+.title-edit-hint { opacity: .55; font-size: 1.2rem; }
+.notes-editor { margin: 16px 0; }
+.notes-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.notes-toolbar label { font-weight: 600; }
+.notes-editor textarea { width: 100%; min-height: 120px; resize: vertical; }
+.notes-editor textarea[hidden] { display: none; }
+.notes-editor > .markdown-notes { min-height: 120px; padding: 12px; background: var(--surface-3); border-radius: 8px; }
+.markdown-notes { overflow-wrap: anywhere; font-size: .93rem; line-height: 1.55; }
+.markdown-notes > :first-child { margin-top: 0; }
+.markdown-notes > :last-child { margin-bottom: 0; }
+.markdown-notes a { color: var(--accent-strong); text-decoration: underline; }
+.markdown-notes pre { white-space: pre-wrap; background: var(--surface-3); padding: 10px; border-radius: 6px; }
+.markdown-notes blockquote { margin-left: 0; padding-left: 12px; border-left: 3px solid var(--line); }
+.markdown-notes table { border-collapse: collapse; display: block; overflow-x: auto; }
+.markdown-notes td, .markdown-notes th { border: 1px solid var(--line); padding: 5px 8px; }
+.attachments-section { border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--surface-2); }
+.attachments-section h3 { margin: 0 0 12px; font-size: 1rem; }
+.attachment-list { list-style: none; padding: 0; margin: 8px 0; }
+.attachment-list li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.attachment-name { flex: 1; text-align: left; overflow-wrap: anywhere; border: 0; background: none; color: var(--accent-strong); text-decoration: underline; cursor: pointer; }
+.attachment-actions { display: flex; gap: 6px; }
+.danger-text { color: var(--danger); }
+.task-completion { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
+@media (hover: none) and (pointer: coarse), (max-width: 640px) {
+  .mobile-history { display: flex; gap: 2px; }
+  .mobile-history .icon-button { font-size: 1.6rem; }
+  .mobile-history .icon-button:disabled { opacity: .25; cursor: default; }
+  .keyboard-settings-tab { display: none; }
+  .settings-content { padding: 16px; }
+  .editor-title-field .editor-title-input { font-size: 1.3rem; }
+  .attachment-actions { width: 100%; justify-content: flex-end; }
+}

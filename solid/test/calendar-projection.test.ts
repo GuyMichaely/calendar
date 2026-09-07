@@ -42,3 +42,10 @@ describe("Solid calendar task projection", () => {
     assert.equal(projectedTaskStart(item, now, true), null);
   });
 });
+
+test("elapsed can-start dates leave the calendar while future wake dates remain", () => {
+  const now = new Date("2026-09-07T12:00:00Z");
+  assert.equal(projectedTaskStart(task(), now, true), null);
+  assert.equal(projectedTaskStart(task({ availableFrom: now.toISOString() }), now, true), null);
+  assert.equal(projectedTaskStart(task({ sleep: { until: "2026-09-08T12:00:00Z", startedAt: now.toISOString() } }), now, true)?.toISOString(), "2026-09-08T12:00:00.000Z");
+});

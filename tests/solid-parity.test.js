@@ -44,16 +44,13 @@ test("Solid dialogs protect dirty edits and preserve attachment and sleep feedba
   const shortcuts = source("solid/src/shortcuts.tsx");
   assert.match(editor, /draggingAttachments\(\) \? "dragging"/);
   assert.match(editor, /Discard your unsaved changes\?/);
-  assert.match(editor, /Attachment files are stored on the sync server and downloaded on demand\./);
   assert.match(app, /Choose a future sleep time/);
-  assert.match(shortcuts, /Discard your unsaved changes\?/);
 });
 
-test("Solid shell keeps vanilla calendar search, today navigation, and menu wording", () => {
+test("Solid shell keeps calendar search and today navigation", () => {
   const app = source("solid/src/App.tsx");
   assert.match(app, /placeholder=\{view\(\) === "calendar" \? "Search calendar" : "Search tasks"\}/);
   assert.match(app, /querySelector\('\[data-section="now"\]'\)\?\.scrollIntoView\(\{ block: "start" \}\)/);
-  assert.match(app, /Undo\{historyState\(\)\.undoLabel \? ` \$\{historyState\(\)\.undoLabel\}` : ""\}/);
   assert.doesNotMatch(app, /solid-badge/);
 });
 

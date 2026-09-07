@@ -1,4 +1,4 @@
-import { Show, createSignal, onCleanup, onMount } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import {
   dateKey,
   formatDateTime,
@@ -32,9 +32,10 @@ import {
   saveConfiguredBackendUrl,
   type RemoteSession,
 } from "./remote-sync";
-import { KeyboardShortcutsDialog, loadShortcuts, type Shortcuts } from "./shortcuts";
+import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
 import { currentRovingTaskCard, focusBoundaryTask, TasksView } from "./TasksView";
 import { ToastStack, type ToastMessage } from "./ToastStack";
+import { loadPollSeconds } from "./settings";
 import type { CalendarSleepMode, HorizonMode, Item, Task, View } from "./types";
 
 function readView(): View { return location.hash === "#calendar" ? "calendar" : "tasks"; }
@@ -71,7 +72,10 @@ export function App() {
   const [sleepTask, setSleepTask] = createSignal<Task | null>(null);
   const [toasts, setToasts] = createSignal<ToastMessage[]>([]);
   const [shortcuts, setShortcuts] = createSignal<Shortcuts>(loadShortcuts());
-  const [showShortcutDialog, setShowShortcutDialog] = createSignal(false);
+  const [shortcutsDirty, setShortcutsDirty] = createSignal(false);
+  const [showSettings, setShowSettings] = createSignal(false);
+  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard">("data");
+  const [pollSeconds, setPollSeconds] = createSignal(loadPollSeconds());
   const [remoteSession, setRemoteSession] = createSignal<RemoteSession | null>(null);
   const [remoteBusy, setRemoteBusy] = createSignal(false);
   const [remoteError, setRemoteError] = createSignal("");
@@ -81,8 +85,7 @@ export function App() {
   const [importing, setImporting] = createSignal(false);
   let toastSequence = 0;
   let importRef!: HTMLInputElement;
-  let menuRef!: HTMLDetailsElement;
-  let shortcutReturnTask: HTMLElement | null = null;
+  let settingsReturnTask: HTMLElement | null = null;
 
   const dismissToast = (id: number) => setToasts((current) => current.filter((toast) => toast.id !== id));
   const showToast = (message: string) => {
@@ -94,7 +97,7 @@ export function App() {
     try {
       const normalized = saveConfiguredBackendUrl(remoteUrlDraft());
       setRemoteUrlDraft(normalized);
-      menuRef.open = false;
+
       window.location.reload();
     } catch (error) {
       showToast(errorMessage(error, "Invalid remote sync URL."));
@@ -150,7 +153,6 @@ export function App() {
       setLastSyncedAt(null);
       showToast("Signed out");
     } catch (error) { showToast(errorMessage(error, "Could not sign out.")); }
-    finally { menuRef.open = false; }
   };
   const remoteIdentityLabel = () => {
     const identity = remoteSession()?.identity;
@@ -195,7 +197,7 @@ export function App() {
   const applyRedo = async () => { const label = redoLabel(); if (!(await redo())) return; await refresh(); void requestRemoteSync(); showToast(`Redo${label ? ` ${label}` : ""}`); };
   const exportBackup = async () => {
     const text = await exportData(); const blob = new Blob([text], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
-    anchor.href = url; anchor.download = `calendar-backup-${dateKey(new Date())}.json`; anchor.click(); URL.revokeObjectURL(url); menuRef.open = false;
+    anchor.href = url; anchor.download = `calendar-backup-${dateKey(new Date())}.json`; anchor.click(); URL.revokeObjectURL(url);
   };
   const importBackup = async (file: File) => {
     try {
@@ -217,8 +219,17 @@ export function App() {
     } catch (error) { showToast(errorMessage(error, "Import failed")); }
     finally { setImporting(false); }
   };
-  const openShortcuts = () => { shortcutReturnTask = currentRovingTaskCard(); setShowShortcutDialog(true); };
-  const closeShortcuts = () => { setShowShortcutDialog(false); const task = shortcutReturnTask; shortcutReturnTask = null; if (task?.isConnected) requestAnimationFrame(() => task.focus()); };
+  const openSettings = () => { settingsReturnTask = currentRovingTaskCard(); setShowSettings(true); };
+  const closeSettings = () => { if (shortcutsDirty() && !window.confirm("Discard your unsaved shortcut changes?")) return; setShowSettings(false); const task = settingsReturnTask; settingsReturnTask = null; if (task?.isConnected) requestAnimationFrame(() => task.focus()); };
+
+  createEffect(() => {
+    const seconds = pollSeconds();
+    if (!seconds) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible" && navigator.onLine && !remoteBusy()) refreshRemoteOnResume();
+    }, seconds * 1000);
+    onCleanup(() => window.clearInterval(timer));
+  });
 
   onMount(() => {
     void (async () => {
@@ -226,25 +237,13 @@ export function App() {
       if (remote) await checkRemoteSession();
     })();
     const clockTimer = window.setInterval(() => { if (!document.querySelector(".solid-dialog-backdrop")) setClock(new Date()); }, 30_000);
-    const remoteTimer = window.setInterval(() => {
-      if (document.visibilityState === "visible" && navigator.onLine && !remoteBusy()) refreshRemoteOnResume();
-    }, 15_000);
     const syncLocation = () => setView(readView());
     const syncRemoteWhenVisible = () => { if (document.visibilityState === "visible") refreshRemoteOnResume(); };
     const syncHistory = (event: Event) => {
       const detail = (event as CustomEvent<Partial<HistoryState>>).detail || {};
       setHistoryState({ canUndo: detail.canUndo ?? canUndo(), canRedo: detail.canRedo ?? canRedo(), undoLabel: detail.undoLabel ?? undoLabel(), redoLabel: detail.redoLabel ?? redoLabel() });
     };
-    const dismissMenu = (event: PointerEvent) => {
-      if (menuRef.open && event.target instanceof Node && !menuRef.contains(event.target)) menuRef.open = false;
-    };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && menuRef.open) {
-        menuRef.open = false;
-        menuRef.querySelector("summary")?.focus();
-        event.preventDefault();
-        return;
-      }
       if (!document.querySelector(".solid-dialog-backdrop") && !editableTarget(event.target)) {
         if ((event.key === "ArrowDown" || event.key === "ArrowUp") && !event.ctrlKey && !event.metaKey && !event.altKey) {
           const active = document.activeElement;
@@ -261,11 +260,9 @@ export function App() {
         }
       }
     };
-    document.addEventListener("pointerdown", dismissMenu);
     window.addEventListener("hashchange", syncLocation); window.addEventListener("popstate", syncLocation); window.addEventListener("online", refreshRemoteOnResume); window.addEventListener("calendar:history-state", syncHistory); document.addEventListener("visibilitychange", syncRemoteWhenVisible); document.addEventListener("keydown", onKeyDown);
     onCleanup(() => {
-      document.removeEventListener("pointerdown", dismissMenu);
-      window.clearInterval(remoteTimer); window.clearInterval(clockTimer); window.removeEventListener("hashchange", syncLocation); window.removeEventListener("popstate", syncLocation); window.removeEventListener("online", refreshRemoteOnResume); window.removeEventListener("calendar:history-state", syncHistory); document.removeEventListener("visibilitychange", syncRemoteWhenVisible); document.removeEventListener("keydown", onKeyDown);
+      window.clearInterval(clockTimer); window.removeEventListener("hashchange", syncLocation); window.removeEventListener("popstate", syncLocation); window.removeEventListener("online", refreshRemoteOnResume); window.removeEventListener("calendar:history-state", syncHistory); document.removeEventListener("visibilitychange", syncRemoteWhenVisible); document.removeEventListener("keydown", onKeyDown);
     });
   });
 
@@ -274,13 +271,40 @@ export function App() {
       <div class="app-shell">
         <header class="topbar">
           <div class="brand-row">
-            <details class="solid-menu" ref={(element) => { menuRef = element; }}>
-              <summary class="icon-button menu-trigger" aria-label="Menu" title="Menu">☰</summary>
-              <div class="solid-menu-panel">
-                <button class="text-button" disabled={!historyState().canUndo} onClick={() => void applyUndo()}>Undo{historyState().undoLabel ? ` ${historyState().undoLabel}` : ""}</button>
-                <button class="text-button" disabled={!historyState().canRedo} onClick={() => void applyRedo()}>Redo{historyState().redoLabel ? ` ${historyState().redoLabel}` : ""}</button>
-                <button class="text-button" onClick={() => { menuRef.open = false; openShortcuts(); }}>Keyboard shortcuts…</button>
-                <details class="data-menu"><summary class="text-button">Data</summary>
+            <button class="icon-button settings-trigger" aria-label="Settings" title="Settings" onClick={openSettings}>⚙</button>
+            <div class="mobile-history" aria-label="History">
+              <button class="icon-button" aria-label="Undo" title={historyState().undoLabel || "Undo"} disabled={!historyState().canUndo} onClick={() => void applyUndo()}>↶</button>
+              <button class="icon-button" aria-label="Redo" title={historyState().redoLabel || "Redo"} disabled={!historyState().canRedo} onClick={() => void applyRedo()}>↷</button>
+            </div>
+            <nav class="primary-nav" aria-label="Primary">
+              <button class={`nav-button ${view() === "tasks" ? "active" : ""}`} aria-current={view() === "tasks" ? "page" : undefined} onClick={() => navigate("tasks")}>Tasks</button>
+              <button class={`nav-button ${view() === "calendar" ? "active" : ""}`} aria-current={view() === "calendar" ? "page" : undefined} onClick={() => navigate("calendar")}>Calendar</button>
+            </nav>
+          </div>
+          <div class="top-actions">
+            <label class="search-box"><span aria-hidden="true">⌕</span><span class="visually-hidden">{view() === "calendar" ? "Search calendar" : "Search tasks"}</span><input type="search" placeholder={view() === "calendar" ? "Search calendar" : "Search tasks"} value={query()} onInput={(event) => setQuery(event.currentTarget.value)} autocomplete="off" /></label>
+            <button class="primary-button" onClick={() => openEditor(null, view() === "calendar" ? "event" : "task")}>New</button>
+            <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = "";  }} />
+          </div>
+        </header>
+        <div class="solid-menu-status" role="status">{remoteBusy() ? "Syncing…" : remoteError() ? `Saved locally · ${remoteError()}` : lastSyncedAt() ? `Synced at ${lastSyncedAt()!.toLocaleTimeString()}` : "Saved on this device"}</div>
+        <main>
+          <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={(mode) => { setCalendarSleepMode(mode); localStorage.setItem("calendar.calendarSleepMode", mode); }} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => { localStorage.setItem("calendar.section.now", "open"); localStorage.setItem("calendar.section.upcoming", "open"); navigate("tasks"); requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" })); }} />}>
+            <TasksView items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={(task) => openEditor(task)} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
+          </Show>
+        </main>
+        <Show when={editor()} keyed>{(request) => <ItemEditor request={request} onClose={() => setEditor(null)} onDelete={async (item) => { await deleteItem(item.id); setEditor(null); await refresh(); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}</Show>
+        <Show when={sleepTask()} keyed>{(task) => <SleepDialog task={task} onClose={() => setSleepTask(null)} onInvalid={() => showToast("Choose a future sleep time")} onSave={async (until) => { const now = new Date().toISOString(); await mutateTask(task, { sleep: { until, startedAt: task.sleep?.startedAt || now } }, { type: "slept", until }, until ? `Sleeping until ${formatDateTime(until)}` : "Sleeping indefinitely"); setSleepTask(null); }} />}</Show>
+        <Show when={showSettings()}><DialogShell labelledBy="settings-title" className="settings-dialog" onClose={closeSettings}>
+          <div class="settings-content">
+            <div class="dialog-header"><h2 id="settings-title">Settings</h2><button class="icon-button" aria-label="Close settings" onClick={closeSettings}>×</button></div>
+            <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+              <button role="tab" aria-selected={settingsTab() === "data"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("data"); }}>Data</button>
+              <button class="keyboard-settings-tab" role="tab" aria-selected={settingsTab() === "keyboard"} onClick={() => setSettingsTab("keyboard")}>Keyboard shortcuts</button>
+            </div>
+            <Show when={settingsTab() === "data"} fallback={<KeyboardShortcutSettings onDirtyChange={setShortcutsDirty} shortcuts={shortcuts()} onClose={closeSettings} onSave={(next) => { setShortcuts(next); showToast("Shortcuts saved"); }} />}>
+              <section class="data-settings" aria-label="Data settings">
+                <h3>Backup &amp; sync</h3>
                 <button class="text-button" onClick={() => void exportBackup()}>Export backup</button>
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>
                 <div class="solid-menu-divider" />
@@ -301,38 +325,24 @@ export function App() {
                 <Show when={remote}>
                   <div class="solid-menu-divider" />
                   <Show when={remoteSession() !== null} fallback={<button class="text-button" disabled={!remoteError()} onClick={() => void checkRemoteSession()}>{remoteError() ? "Retry remote connection" : "Checking remote…"}</button>}>
-                    <Show when={remoteSession()?.authenticated} fallback={<button class="text-button" onClick={() => { menuRef.open = false; window.location.assign(remote!.loginUrl("google")); }}>Sign in with Google</button>}>
+                    <Show when={remoteSession()?.authenticated} fallback={<button class="text-button" onClick={() => {  window.location.assign(remote!.loginUrl("google")); }}>Sign in with Google</button>}>
                       <div class="solid-menu-status">Signed in as {remoteIdentityLabel()}</div>
-                      <button class="text-button" disabled={remoteBusy()} onClick={() => { menuRef.open = false; void requestRemoteSync(true); }}>{remoteBusy() ? "Syncing…" : "Sync now"}</button>
+                      <button class="text-button" disabled={remoteBusy()} onClick={() => {  void requestRemoteSync(true); }}>{remoteBusy() ? "Syncing…" : "Sync now"}</button>
                       <button class="text-button" onClick={() => void signOutRemote()}>Sign out</button>
                       <Show when={lastSyncedAt()} keyed>{(syncedAt) => <div class="solid-menu-status">Last synced {syncedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</div>}</Show>
                     </Show>
                   </Show>
                   <Show when={remoteError()} keyed>{(message) => <div class="solid-menu-error">{message}</div>}</Show>
                 </Show>
-                </details>
-              </div>
-            </details>
-            <nav class="primary-nav" aria-label="Primary">
-              <button class={`nav-button ${view() === "tasks" ? "active" : ""}`} aria-current={view() === "tasks" ? "page" : undefined} onClick={() => navigate("tasks")}>Tasks</button>
-              <button class={`nav-button ${view() === "calendar" ? "active" : ""}`} aria-current={view() === "calendar" ? "page" : undefined} onClick={() => navigate("calendar")}>Calendar</button>
-            </nav>
+
+                <label class="field"><span>Check for remote changes</span><select value={pollSeconds()} onChange={(event) => { const value = Number(event.currentTarget.value); setPollSeconds(value); localStorage.setItem("calendar.pollSeconds", String(value)); }}>
+                  <option value="5">Every 5 seconds</option><option value="15">Every 15 seconds</option><option value="30">Every 30 seconds</option><option value="60">Every minute</option><option value="300">Every 5 minutes</option><option value="0">Manual / after my edits</option>
+                </select></label>
+                <p class="field-hint">Applies on this device while the app is visible. Your edits save locally automatically and sync after editing, reconnecting, or returning to the app. Sync now is always available when signed in.</p>
+              </section>
+            </Show>
           </div>
-          <div class="top-actions">
-            <label class="search-box"><span aria-hidden="true">⌕</span><span class="visually-hidden">{view() === "calendar" ? "Search calendar" : "Search tasks"}</span><input type="search" placeholder={view() === "calendar" ? "Search calendar" : "Search tasks"} value={query()} onInput={(event) => setQuery(event.currentTarget.value)} autocomplete="off" /></label>
-            <button class="primary-button" onClick={() => openEditor(null, view() === "calendar" ? "event" : "task")}>New</button>
-            <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) void importBackup(file); input.value = ""; menuRef.open = false; }} />
-          </div>
-        </header>
-        <div class="solid-menu-status" role="status">{remoteBusy() ? "Syncing…" : remoteError() ? `Saved locally · ${remoteError()}` : lastSyncedAt() ? `Synced at ${lastSyncedAt()!.toLocaleTimeString()}` : "Saved on this device"}</div>
-        <main>
-          <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={(mode) => { setCalendarSleepMode(mode); localStorage.setItem("calendar.calendarSleepMode", mode); }} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => { localStorage.setItem("calendar.section.now", "open"); localStorage.setItem("calendar.section.upcoming", "open"); navigate("tasks"); requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" })); }} />}>
-            <TasksView items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={(task) => openEditor(task)} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
-          </Show>
-        </main>
-        <Show when={editor()} keyed>{(request) => <ItemEditor request={request} onClose={() => setEditor(null)} onDelete={async (item) => { await deleteItem(item.id); setEditor(null); await refresh(); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}</Show>
-        <Show when={sleepTask()} keyed>{(task) => <SleepDialog task={task} onClose={() => setSleepTask(null)} onInvalid={() => showToast("Choose a future sleep time")} onSave={async (until) => { const now = new Date().toISOString(); await mutateTask(task, { sleep: { until, startedAt: task.sleep?.startedAt || now } }, { type: "slept", until }, until ? `Sleeping until ${formatDateTime(until)}` : "Sleeping indefinitely"); setSleepTask(null); }} />}</Show>
-        <Show when={showShortcutDialog()}><KeyboardShortcutsDialog shortcuts={shortcuts()} onClose={closeShortcuts} onSave={(next) => { setShortcuts(next); closeShortcuts(); }} /></Show>
+        </DialogShell></Show>
         <Show when={pendingImport()} keyed>{(pending) => <DialogShell labelledBy="import-title" onClose={() => { if (!importing()) setPendingImport(null); }}>
           <div style={{ padding: "20px" }}>
             <h2 id="import-title">Import backup</h2>

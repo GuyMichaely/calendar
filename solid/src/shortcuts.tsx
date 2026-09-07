@@ -1,79 +1,21 @@
-import { For, createMemo, createSignal } from "solid-js";
-import { DialogShell } from "./DialogShell";
+import { For, createMemo, createSignal, createEffect, onCleanup } from "solid-js";
 
-export type ShortcutAction = "complete" | "sleepTomorrow" | "sleepIndefinite" | "customSleep";
-export type Shortcuts = Record<ShortcutAction, string>;
+import { actions, labels, DEFAULT_SHORTCUTS, SHORTCUT_STORAGE_KEY, normalizeEventKey, keyLabel, shortcutTooltip, type ShortcutAction, type Shortcuts } from "./shortcut-config";
+export * from "./shortcut-config";
 
-export const SHORTCUT_STORAGE_KEY = "calendar.keyboardShortcuts";
-export const DEFAULT_SHORTCUTS: Shortcuts = {
-  complete: " ",
-  sleepTomorrow: "s",
-  sleepIndefinite: "h",
-  customSleep: "c",
-};
-
-const labels: Record<ShortcutAction, string> = {
-  complete: "Complete task",
-  sleepTomorrow: "Sleep until tomorrow",
-  sleepIndefinite: "Sleep indefinitely",
-  customSleep: "Custom sleep",
-};
-
-const actions = Object.keys(labels) as ShortcutAction[];
-
-function normalizeStoredKey(value: unknown, fallback: string) {
-  if (value === "") return "";
-  if (value === " " || (typeof value === "string" && value.length === 1)) return value.toLowerCase();
-  return fallback;
-}
-
-export function loadShortcuts(): Shortcuts {
-  try {
-    const stored = JSON.parse(localStorage.getItem(SHORTCUT_STORAGE_KEY) || "null");
-    return {
-      complete: normalizeStoredKey(stored?.complete, DEFAULT_SHORTCUTS.complete),
-      sleepTomorrow: normalizeStoredKey(stored?.sleepTomorrow, DEFAULT_SHORTCUTS.sleepTomorrow),
-      sleepIndefinite: normalizeStoredKey(stored?.sleepIndefinite, DEFAULT_SHORTCUTS.sleepIndefinite),
-      customSleep: normalizeStoredKey(stored?.customSleep, DEFAULT_SHORTCUTS.customSleep),
-    };
-  } catch {
-    return { ...DEFAULT_SHORTCUTS };
-  }
-}
-
-export function normalizeEventKey(event: KeyboardEvent) {
-  if (event.key === " ") return " ";
-  return event.key.length === 1 ? event.key.toLowerCase() : event.key;
-}
-
-export function keyLabel(key: string) {
-  if (!key) return "Unassigned";
-  if (key === " ") return "Space";
-  return key.length === 1 ? key.toUpperCase() : key;
-}
-
-export function shortcutTooltip(action: ShortcutAction, shortcuts: Shortcuts) {
-  const key = shortcuts[action];
-  return `${labels[action]}${key ? ` (${keyLabel(key)})` : ""}`;
-}
-
-export function actionForKey(key: string, shortcuts: Shortcuts): ShortcutAction | null {
-  return actions.find((action) => shortcuts[action] && shortcuts[action] === key) || null;
-}
-
-export function KeyboardShortcutsDialog(props: {
+export function KeyboardShortcutSettings(props: {
   shortcuts: Shortcuts;
   onClose: () => void;
   onSave: (shortcuts: Shortcuts) => void;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const [draft, setDraft] = createSignal<Shortcuts>({ ...props.shortcuts });
   const [error, setError] = createSignal("");
   const dirty = createMemo(() => actions.some((action) => draft()[action] !== props.shortcuts[action]));
 
-  const close = () => {
-    if (dirty() && !window.confirm("Discard your unsaved changes?")) return;
-    props.onClose();
-  };
+  createEffect(() => props.onDirtyChange(dirty()));
+  onCleanup(() => props.onDirtyChange(false));
+  const close = () => props.onClose();
 
   const capture = (action: ShortcutAction, event: KeyboardEvent) => {
     if (event.key === "Tab" || event.key === "Escape") return;
@@ -85,8 +27,8 @@ export function KeyboardShortcutsDialog(props: {
       setDraft((current) => ({ ...current, [action]: "" }));
       return;
     }
-    if (event.ctrlKey || event.metaKey || event.altKey || (event.key !== " " && event.key.length !== 1)) {
-      setError("Use a single printable key or Space.");
+    if (event.ctrlKey || event.metaKey || event.altKey || (event.key !== " " && event.key !== "Enter" && event.key.length !== 1)) {
+      setError("Use a single printable key, Space, or Enter.");
       return;
     }
     setDraft((current) => ({ ...current, [action]: normalizeEventKey(event) }));
@@ -108,14 +50,12 @@ export function KeyboardShortcutsDialog(props: {
   };
 
   return (
-    <DialogShell labelledBy="shortcut-title" className="shortcut-dialog" onClose={close}>
+    <section class="shortcut-settings">
       <div class="dialog-header">
         <h2 id="shortcut-title">Keyboard shortcuts</h2>
-        <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
       </div>
-      <p class="shortcut-help">Task hotkeys apply when the task card itself is focused. Enter edits the focused task. ↑/↓ moves between visible tasks; Tab moves through the focused card's controls.</p>
+      <p class="shortcut-help">Task hotkeys apply when the task card itself is focused. ↑/↓ moves between visible tasks; Tab moves through the focused card's controls.</p>
       <div class="shortcut-grid">
-        <div class="shortcut-row"><span>Edit focused task</span><kbd>Enter</kbd></div>
         <For each={actions}>{(action, index) => (
           <label class="shortcut-row">
             <span>{labels[action]}</span>
@@ -130,15 +70,15 @@ export function KeyboardShortcutsDialog(props: {
           </label>
         )}</For>
       </div>
-      <p class="shortcut-help">Press a printable key or Space while a shortcut field is focused. Backspace or Delete clears it.</p>
+      <p class="shortcut-help">Press a printable key, Space, or Enter while a shortcut field is focused. Backspace or Delete clears it.</p>
       <p class="shortcut-error" role="alert">{error()}</p>
       <div class="dialog-actions">
         <button type="button" class="secondary-button" onClick={() => { setDraft({ ...DEFAULT_SHORTCUTS }); setError(""); }}>Restore defaults</button>
         <div class="spacer" />
-        <button type="button" class="secondary-button" onClick={close}>Cancel</button>
+        <button type="button" class="secondary-button" onClick={close}>Close settings</button>
         <button type="button" class="primary-button" onClick={save}>Save</button>
       </div>
-    </DialogShell>
+    </section>
   );
 }
 

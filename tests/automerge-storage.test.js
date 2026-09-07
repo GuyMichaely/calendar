@@ -4,6 +4,7 @@ import test from "node:test";
 import { indexedDB } from "fake-indexeddb";
 import { configureRemoteAttachments } from "../site/attachment-remote.js";
 import {
+  addAttachmentMetadata,
   addHistoryEntry,
   addTag,
   forkCalendarDocument,
@@ -190,4 +191,19 @@ test("backup preview validates before mutations and exports omit the version fie
   await assert.rejects(() => storage.importData(JSON.stringify({ items: [task({ id: "should-not-import" }), {}] })));
   assert.deepEqual((await storage.listItems()).map(x => x.id), before.map(x => x.id));
   assert.equal("version" in JSON.parse(await storage.exportData()), false);
+});
+
+test("removing an attachment in a stale editor preserves a concurrently added attachment and supports undo", async () => {
+  const original = task({ id: "attachment-removal", attachments: [{ id: "old-file", name: "old.txt" }] });
+  await storage.putItem(original);
+  const baseline = (await storage.listItems()).find(item => item.id === original.id);
+  const remote = loadCalendarDocument(await storage.readSyncSnapshot());
+  const changed = addAttachmentMetadata(forkCalendarDocument(remote), original.id, { id: "remote-file", name: "remote.txt" });
+  await storage.mergeSyncSnapshot(saveCalendarDocument(changed));
+  await storage.putItem({ ...baseline, attachments: [] }, baseline);
+  const after = (await storage.listItems()).find(item => item.id === original.id);
+  assert.deepEqual(after.attachments.map(file => file.id), ["remote-file"]);
+  await storage.undo();
+  const restored = (await storage.listItems()).find(item => item.id === original.id);
+  assert.deepEqual(restored.attachments.map(file => file.id).sort(), ["old-file", "remote-file"]);
 });

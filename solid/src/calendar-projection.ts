@@ -28,7 +28,7 @@ export function projectedTaskStart(task: Task, now: Date, respectSleep: boolean)
 
   const latestStart = toDate(task.latestStart);
   if (latestStart && projected > latestStart) return null;
-  return projected;
+  return projected > now ? projected : null;
 }
 
 export function projectedStartBypassesSleep(task: Task, start: Date, now: Date, respectSleep: boolean) {

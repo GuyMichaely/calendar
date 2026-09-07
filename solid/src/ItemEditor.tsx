@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal, onMount, onCleanup } from "solid-js";
+import { For, Show, createSignal, onMount, onCleanup } from "solid-js";
 import {
   isoToLocalInput,
   localInputToIso,
@@ -6,6 +6,8 @@ import {
   toDate,
   tomorrowMidnight,
 } from "../../site/domain.js";
+import { MarkdownNotes } from "./MarkdownNotes";
+import { attachmentMarkdown } from "./markdown";
 import { DialogShell } from "./DialogShell";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
 import type { Attachment, Item, Task } from "./types";
@@ -41,7 +43,7 @@ function eventDefaults(request: EditorRequest) {
   return { start: localDateInput(start), end: localDateInput(end) };
 }
 
-function serializeForm(form: HTMLFormElement, files: File[]) {
+function serializeForm(form: HTMLFormElement, files: File[], removed: Set<string>) {
   return JSON.stringify({
     controls: [...form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select")].map((control, index) => ({
       key: control.name || control.id || String(index),
@@ -51,6 +53,7 @@ function serializeForm(form: HTMLFormElement, files: File[]) {
         : control.value,
       checked: control instanceof HTMLInputElement ? control.checked : undefined,
     })),
+    removed: [...removed].sort(),
     pendingFiles: files.map((file) => [file.name, file.size, file.lastModified]),
   });
 }
@@ -66,6 +69,11 @@ export function ItemEditor(props: {
   let currentItem = existing;
   const [hasSavedItem, setHasSavedItem] = createSignal(!!existing);
   const itemId = existing?.id || uuid();
+  const [removedAttachments, setRemovedAttachments] = createSignal(new Set<string>());
+  const [notes, setNotes] = createSignal(existing?.notes || "");
+  const [previewNotes, setPreviewNotes] = createSignal(false);
+  const [taskState, setTaskState] = createSignal<Task["state"]>(existing?.kind === "task" ? existing.state : "open");
+  let notesRef!: HTMLTextAreaElement;
   const [saving, setSaving] = createSignal(false);
   const [saveError, setSaveError] = createSignal("");
   const [savedAttachments, setSavedAttachments] = createSignal(existing?.attachments || []);
@@ -91,7 +99,7 @@ export function ItemEditor(props: {
 
   const syncDirty = () => {
     queueMicrotask(() => {
-      setDirty(!!baseline && serializeForm(formRef, pendingFiles()) !== baseline);
+      setDirty(!!baseline && serializeForm(formRef, pendingFiles(), removedAttachments()) !== baseline);
       clearTimeout(saveTimer);
       if (dirty() && !closing) saveTimer = setTimeout(() => { void persist(); }, 800);
     });
@@ -99,7 +107,7 @@ export function ItemEditor(props: {
 
   onMount(() => {
     requestAnimationFrame(() => {
-      baseline = serializeForm(formRef, pendingFiles());
+      baseline = serializeForm(formRef, pendingFiles(), removedAttachments());
       setDirty(false);
     });
   });
@@ -151,8 +159,9 @@ export function ItemEditor(props: {
       setSaveError("Complete the required fields to save.");
       return false;
     }
-    const submittedForm = serializeForm(formRef, pendingFiles());
+    const submittedForm = serializeForm(formRef, pendingFiles(), removedAttachments());
     const submittedFiles = [...pendingFiles()];
+    const submittedRemoved = new Set(removedAttachments());
     const task = currentItem?.kind === "task" ? currentItem : null;
     const storedEvent = currentItem?.kind === "event" ? currentItem : null;
     const data = new FormData(formRef);
@@ -169,8 +178,8 @@ export function ItemEditor(props: {
     let item: Item;
 
     if (kind() === "task") {
-      const taskState = String(data.get("taskState") || "open") as Task["state"];
-      const closed = ["completed", "canceled"].includes(taskState);
+      const nextState = taskState();
+      const closed = ["completed", "canceled"].includes(nextState);
       let sleep = null;
       if (!closed && sleepMode() === "indefinite") {
         sleep = { until: null, startedAt: task?.sleep?.startedAt || now };
@@ -182,15 +191,17 @@ export function ItemEditor(props: {
       if (task && JSON.stringify(task.sleep || null) !== JSON.stringify(sleep)) {
         historyEntries.push({ at: now, type: sleep ? "sleep-updated" : "woke", until: sleep?.until ?? null });
       }
+      if (task && task.state !== nextState) historyEntries.push({ at: now, type: nextState === "completed" ? "completed" : "reopened" });
       item = {
         ...(task || {}),
         id: itemId,
         kind: "task",
         title,
         notes: String(data.get("notes") || ""),
-        state: taskState,
+        state: nextState,
+        completedAt: nextState === "completed" ? task?.completedAt || now : null,
         tags: parseTags(data.get("tags")),
-        attachments: [...(currentItem?.attachments || []), ...attachments],
+        attachments: [...(currentItem?.attachments || []).filter(file => !submittedRemoved.has(file.id)), ...attachments],
         availableFrom: localInputToIso(data.get("availableFrom")),
         deadline: localInputToIso(data.get("deadline")),
         latestStart: localInputToIso(data.get("latestStart")),
@@ -224,7 +235,7 @@ export function ItemEditor(props: {
         title,
         notes: String(data.get("notes") || ""),
         tags: parseTags(data.get("tags")),
-        attachments: [...(currentItem?.attachments || []), ...attachments],
+        attachments: [...(currentItem?.attachments || []).filter(file => !submittedRemoved.has(file.id)), ...attachments],
         start,
         end,
         createdAt: currentItem?.createdAt || now,
@@ -238,10 +249,11 @@ export function ItemEditor(props: {
       currentItem = saved;
       setHasSavedItem(true);
       setSavedAttachments(currentItem.attachments || []);
-      const unchanged = serializeForm(formRef, pendingFiles()) === submittedForm;
+      const unchanged = serializeForm(formRef, pendingFiles(), removedAttachments()) === submittedForm;
       setPendingFiles((files) => files.filter((file) => !submittedFiles.includes(file)));
+      setRemovedAttachments(current => new Set([...current].filter(id => !submittedRemoved.has(id))));
       if (unchanged) {
-        baseline = serializeForm(formRef, pendingFiles());
+        baseline = serializeForm(formRef, pendingFiles(), removedAttachments());
         setDirty(false);
       }
       setSaveError("");
@@ -297,16 +309,28 @@ export function ItemEditor(props: {
   const sleepUntil = initialSleep?.sleeping && !initialSleep.indefinite
     ? isoToLocalInput(initialSleep.until)
     : isoToLocalInput(tomorrowMidnight(new Date()));
-  const attachedNames = createMemo(() => existing?.attachments?.map((attachment) => attachment.name).join(", ") || "");
-  const attachmentHint = createMemo(() => attachedNames()
-    ? `Attached: ${attachedNames()}. New files are added to these.`
-    : "Attachment files are stored on the sync server and downloaded on demand.");
+  const removeAttachment = (attachment: Attachment) => {
+    setRemovedAttachments(current => new Set([...current, attachment.id]));
+    syncDirty();
+  };
+  const insertAttachmentLink = (attachment: Attachment) => {
+    const start = notesRef.selectionStart ?? notes().length;
+    const end = notesRef.selectionEnd ?? start;
+    const link = attachmentMarkdown(attachment.id, attachment.name);
+    setNotes(value => value.slice(0, start) + link + value.slice(end));
+    setPreviewNotes(false);
+    queueMicrotask(() => { notesRef.focus(); notesRef.setSelectionRange(start + link.length, start + link.length); syncDirty(); });
+  };
+  const toggleCompleted = () => {
+    setTaskState(state => state === "open" ? "completed" : "open");
+    syncDirty();
+  };
 
   return (
     <DialogShell labelledBy="editor-title" onClose={close}>
       <form ref={(element) => { formRef = element; }} onSubmit={(event) => { event.preventDefault(); void close(); }} onInput={syncDirty}>
         <div class="dialog-header">
-          <h2 id="editor-title">{existing ? "Edit item" : "New item"}</h2>
+          <label class="editor-title-field"><span class="visually-hidden" id="editor-title">Item title</span><input class="editor-title-input" name="title" aria-label="Item title" required maxLength={240} placeholder="Untitled item" value={existing?.title || ""} autofocus /><span class="title-edit-hint" aria-hidden="true">✎</span></label>
           <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
         </div>
 
@@ -315,32 +339,34 @@ export function ItemEditor(props: {
           <label><input type="radio" name="kind" value="event" checked={kind() === "event"} onChange={() => { setKind("event"); syncDirty(); }} /><span>Event</span></label>
         </div>
 
-        <label class="field full"><span>Title</span><input name="title" required maxLength={240} value={existing?.title || ""} autofocus /></label>
-        <label class="field full"><span>Notes</span><textarea name="notes" rows={4}>{existing?.notes || ""}</textarea></label>
+        <section class="notes-editor" aria-label="Notes">
+          <div class="notes-toolbar"><label for="item-notes">Notes</label><button type="button" class="text-button" aria-pressed={previewNotes()} onClick={() => setPreviewNotes(value => !value)}>{previewNotes() ? "Write" : "Preview"}</button></div>
+          <textarea ref={notesRef} id="item-notes" name="notes" rows={5} hidden={previewNotes()} value={notes()} onInput={event => setNotes(event.currentTarget.value)} placeholder="Write notes… Markdown supported" />
+          <Show when={previewNotes()}><MarkdownNotes text={notes() || "*No notes yet.*"} attachments={savedAttachments().filter(file => !removedAttachments().has(file.id))} onDownload={file => void download(file)} onError={props.onError} /></Show>
+          <small class="field-hint">Use **bold**, *italic*, lists, or [label](https://…). Use “Link in notes” beside an attachment to insert its download link.</small>
+        </section>
 
         <div class="form-grid shared-item-fields">
           <label class="field full-span"><span>Tags</span><input name="tags" placeholder="project, errands" value={(existing?.tags || []).join(", ")} /></label>
-          <label class="field full-span">
-            <span>Attachments</span>
-            <div
-              class={`attachment-drop-zone ${draggingAttachments() ? "dragging" : ""}`}
-              onDragEnter={(event) => { event.preventDefault(); setDraggingAttachments(true); }}
-              onDragOver={(event) => { event.preventDefault(); setDraggingAttachments(true); }}
+          <section class="attachments-section full-span" aria-labelledby="attachments-title">
+            <h3 id="attachments-title">Attachments</h3>
+            <div class={`attachment-drop-zone ${draggingAttachments() ? "dragging" : ""}`}
+              onDragEnter={event => { event.preventDefault(); setDraggingAttachments(true); }}
+              onDragOver={event => { event.preventDefault(); setDraggingAttachments(true); }}
               onDragLeave={() => setDraggingAttachments(false)}
-              onDrop={(event) => {
-                event.preventDefault();
-                setDraggingAttachments(false);
-                addFiles([...(event.dataTransfer?.files || [])]);
-              }}
-            >
-              <input type="file" multiple onChange={(event) => addFiles([...(event.currentTarget.files || [])])} />
-              <small class="field-hint">{attachmentHint()}</small>
-              <Show when={pendingFiles().length}><div class="pending-files">Adding: {pendingFiles().map((file) => file.name).join(", ")}</div></Show>
+              onDrop={event => { event.preventDefault(); setDraggingAttachments(false); addFiles([...(event.dataTransfer?.files || [])]); }}>
+              <label class="field"><span>Add files or drop them here</span><input type="file" multiple onChange={event => { addFiles([...(event.currentTarget.files || [])]); event.currentTarget.value = ""; }} /></label>
             </div>
-          </label>
+            <ul class="attachment-list">
+              <For each={savedAttachments().filter(file => !removedAttachments().has(file.id))}>{attachment => <li>
+                <button type="button" class="attachment-name" onClick={() => void download(attachment)} title="Download attachment">↓ {attachment.name}</button>
+                <div class="attachment-actions"><button type="button" class="text-button" onClick={() => insertAttachmentLink(attachment)}>Link in notes</button><button type="button" class="text-button danger-text" aria-label={`Remove ${attachment.name}`} onClick={() => removeAttachment(attachment)}>Remove</button></div>
+              </li>}</For>
+              <For each={pendingFiles()}>{file => <li><span>{file.name} · waiting to save</span><button type="button" class="text-button" disabled={saving()} onClick={() => { setPendingFiles(files => files.filter(candidate => candidate !== file)); syncDirty(); }}>Remove</button></li>}</For>
+            </ul>
+            <small class="field-hint">Click a filename to download. Removing a file detaches it from this item; stored copies remain available for undo and other devices.</small>
+          </section>
         </div>
-
-        <div class="attachment-downloads"><For each={savedAttachments()}>{(attachment) => <button type="button" class="secondary-button" onClick={() => void download(attachment)}>Download {attachment.name}</button>}</For></div>
 
         <Show when={kind() === "task"} fallback={
           <div class="form-grid">
@@ -350,7 +376,7 @@ export function ItemEditor(props: {
         }>
           <div>
             <div class="form-grid">
-              <label class="field"><span>State</span><select name="taskState" value={task?.state || "open"}><option value="open">Open</option><option value="completed">Completed</option><option value="canceled">Canceled</option></select></label>
+              <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><button type="button" class={taskState() === "open" ? "primary-button" : "secondary-button"} onClick={toggleCompleted}>{taskState() === "open" ? "✓ Complete task" : "↶ Reopen task"}</button><span class="muted">{taskState() === "completed" ? "Completed" : taskState() === "canceled" ? "Previously canceled" : "Open"}</span></div>
               <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" value={isoToLocalInput(task?.availableFrom)} /></label>
               <label class="field"><span>Due</span><input name="deadline" type="datetime-local" value={isoToLocalInput(task?.deadline)} /></label>
               <label class="field"><span>Latest start</span><input name="latestStart" type="datetime-local" value={isoToLocalInput(task?.latestStart)} /></label>
@@ -380,7 +406,7 @@ export function ItemEditor(props: {
           <span role="status">{saving() ? "Saving…" : saveError() || (dirty() ? "Unsaved changes" : "Saved on this device")}</span>
           <div class="spacer" />
           <Show when={dirty() && saveError()}><button type="button" class="secondary-button" disabled={saving()} onClick={() => { if (window.confirm("Discard your unsaved changes?")) { closing = true; clearTimeout(saveTimer); props.onClose(); } }}>Discard unsaved changes</button></Show>
-          <button type="submit" class="primary-button">Done</button>
+          <button type="submit" class="secondary-button">Close</button>
         </div>
       </form>
     </DialogShell>

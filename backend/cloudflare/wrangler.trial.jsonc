@@ -1,0 +1,20 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "calendar-sync-trial",
+  "main": "trial-worker.js",
+  "compatibility_date": "2026-09-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "CALENDAR_APP_URL": "https://guymichaely.com/calendar/",
+    "CALENDAR_PUBLIC_BASE_URL": "https://trial.invalid/",
+    "GOOGLE_CLIENT_ID": "unused-trial",
+    "GOOGLE_CLIENT_SECRET": "unused-trial",
+    "ALLOWED_GOOGLE_SUBJECT": "trial"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "CALENDAR", "class_name": "TrialCalendarStore" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TrialCalendarStore"] }],
+  "observability": { "enabled": false }
+}

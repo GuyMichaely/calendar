@@ -12,6 +12,7 @@ import {
   toDate,
   upcomingHorizonEnd,
 } from "../../site/domain.js";
+import { MarkdownNotes } from "./MarkdownNotes";
 import { actionForKey, normalizeEventKey, TaskActionIcon, type Shortcuts } from "./shortcuts";
 import { availabilitySummary, taskTiming } from "./task-display";
 import type { Attachment, HorizonMode, Item, Task } from "./types";
@@ -340,14 +341,11 @@ function TaskCard(props: {
       return;
     }
     if (event.target !== event.currentTarget) return;
-    if (event.key === "Enter") {
-      event.preventDefault();
-      props.onEdit(props.row.task);
-      return;
-    }
     if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
     const action = actionForKey(normalizeEventKey(event), props.shortcuts);
-    if (!action || closed()) return;
+    if (!action) return;
+    if (action === "edit") { event.preventDefault(); props.onEdit(props.row.task); return; }
+    if (closed()) return;
     event.preventDefault();
     if (action === "complete") void props.onComplete(props.row.task);
     else if (action === "sleepTomorrow") void props.onSleepTomorrow(props.row.task);
@@ -383,7 +381,7 @@ function TaskCard(props: {
             <span class={`status-pill ${result().actionable && !sleep().sleeping ? "ready" : sleep().sleeping ? "sleeping" : "quiet"}`}>{statusText()}</span>
           </div>
           <Show when={summary()}><div class="availability-summary">{summary()}</div></Show>
-          <Show when={props.row.task.notes}><p class="notes">{props.row.task.notes}</p></Show>
+          <Show when={props.row.task.notes}><MarkdownNotes text={props.row.task.notes || ""} attachments={props.row.task.attachments || []} onDownload={file => void openAttachment(file)} onError={message => window.alert(message)} /></Show>
           <Show when={timing().length}><div class="timing"><For each={timing()}>{(value) => <span>{value}</span>}</For></div></Show>
           <Show when={props.row.task.tags?.length}><div class="tags"><For each={props.row.task.tags}>{(tag) => <span class="tag">{tag}</span>}</For></div></Show>
           <Show when={props.row.task.attachments?.length}><div class="attachments"><For each={props.row.task.attachments}>{(attachment) => <button class="attachment" onClick={() => void openAttachment(attachment)}>Attachment: {attachment.name || "Attachment"}</button>}</For></div></Show>

@@ -2,11 +2,25 @@
 
 The Worker keeps the existing Google login and snapshot protocol. One SQLite-backed Durable Object serializes calendar writes and stores the Automerge snapshot and expiring auth records. Private R2 storage holds attachment files. No tunnel or always-running computer is required after cutover.
 
-Workers Free's 10 ms CPU budget is too tight for the current full-snapshot Automerge merge. Use Workers Paid (currently starts at $5/month plus usage). R2 has a free allowance and usage billing; enable it on the same Cloudflare account. The configured 10,000 ms CPU ceiling limits individual Worker invocations, not monthly charges. References: [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/), [R2 pricing](https://developers.cloudflare.com/r2/pricing/).
+Start with Workers Free. The entry Worker only forwards requests; Automerge merges run inside a SQLite-backed Durable Object, whose documented default CPU allowance is 30 seconds per invocation. The ordinary Worker's 10 ms Free-plan limit does not by itself establish that this backend needs Workers Paid. Validate actual behavior and daily quotas before deciding to upgrade. R2 has separate free allowances and may require billing activation. References: [Durable Object limits](https://developers.cloudflare.com/durable-objects/platform/limits/), [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/), [R2 pricing](https://developers.cloudflare.com/r2/pricing/).
+
+An isolated trial uses the separate calendar-sync-trial Worker and synthetic calendar data. It does not bind the production hostname, access Google credentials, copy personal data, or require R2. It measures the real Worker/Durable Object sync path; attachment storage and Google login still need end-to-end verification before cutover.
+
+## Free-plan trial results (2026-09-07)
+
+Deployed `calendar-sync-trial.guymichaely.workers.dev` on the existing Free plan. The live test passed: 200 synthetic tasks, a fresh-device download, concurrent edits on separate replicas, and 20 successful sync requests. The final snapshot was 60,373 bytes. Median round-trip latency was 1,628 ms; maximum was 2,908 ms. These are network/client-inclusive timings, not CPU measurements or a guarantee for larger calendars. Production's hostname and data were untouched. Google authentication and R2 remain separate cutover checks.
+
+To repeat the isolated test, generate a fresh random `TRIAL_TOKEN` in an ignored `.local/trial-secrets.json` file (mode 0600), then run:
+
+    CALENDAR_WORKER_CONFIG=backend/cloudflare/wrangler.trial.jsonc ./scripts/worker deploy
+    CALENDAR_WORKER_CONFIG=backend/cloudflare/wrangler.trial.jsonc ./scripts/worker secret bulk .local/trial-secrets.json
+    ./scripts/bun scripts/test-cloud-trial.js https://calendar-sync-trial.guymichaely.workers.dev
+
+The synthetic session lasts one hour after object startup. Redeploy/update the secret for a fresh test session. The trial contains no real calendar data and exposes only health and authenticated sync. Failure requires no production rollback, because production is still the original server.
 
 ## Prepare the account
 
-Enable Workers Paid and R2 in your Cloudflare dashboard, then run from the repository root:
+Keep Workers Free and enable R2 in your Cloudflare dashboard when ready for the full backend, then run from the repository root:
 
     ./scripts/bun install --frozen-lockfile
     ./scripts/worker login
