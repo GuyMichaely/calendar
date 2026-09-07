@@ -26,6 +26,8 @@ jobs:
         run: ./scripts/bun install --frozen-lockfile
       - name: Test, typecheck, and build
         run: ./scripts/bun run check
+      - name: Smoke test Cloudflare adapter
+        run: ./scripts/bun scripts/smoke-worker.js
       - name: Validate container configuration
         run: |
           cp backend/.env.example .local/backend.env

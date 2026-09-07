@@ -367,6 +367,7 @@ function TaskCard(props: {
         taskFocusActive = true;
         focusCard(event.currentTarget, { scroll: false });
       }}
+      onDblClick={(event) => { if (!isInteractiveTarget(event.target)) props.onEdit(props.row.task); }}
       onKeyDown={onKeyDown}
     >
       <div class="task-main">

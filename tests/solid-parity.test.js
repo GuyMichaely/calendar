@@ -60,7 +60,7 @@ test("Solid shell keeps vanilla calendar search, today navigation, and menu word
 test("Solid writes include the item snapshot they were based on", () => {
   const app = source("solid/src/App.tsx");
   assert.match(app, /await putItem\(next, task\);/);
-  assert.match(app, /await putItem\(item, request\.item\);/);
+  assert.match(app, /await putItem\(item, baseline\);/);
 });
 
 test("Solid remote integration uses the serialized storage boundary and server attachment routes", () => {

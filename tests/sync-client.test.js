@@ -10,7 +10,7 @@ import {
   saveCalendarDocument,
 } from "../sync/automerge-document.js";
 import { CalendarSyncError, exchangeCalendarSnapshotBytes, syncCalendarStorage } from "../sync/client.js";
-import { createMemoryDocumentStore, createSyncHandler } from "../sync/http.js";
+import { createMemoryDocumentStore, createSyncHandler } from "../backend/sync/http.js";
 
 function task() {
   return {

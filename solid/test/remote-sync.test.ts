@@ -7,7 +7,7 @@ import {
   materializeItem,
   saveCalendarDocument,
 } from "../../sync/automerge-document.js";
-import { AUTOMERGE_MEDIA_TYPE } from "../../sync/http.js";
+import { AUTOMERGE_MEDIA_TYPE } from "../../backend/sync/http.js";
 import { configuredBackendUrl, createRemoteCalendarClient, createRemoteSyncQueue } from "../src/remote-sync.ts";
 
 function task() {

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+export XDG_CONFIG_HOME="$PWD/.local/config"
+export XDG_STATE_HOME="$PWD/.local/state"
+export WRANGLER_SEND_METRICS=false
+mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME"
+exec ./scripts/node node_modules/wrangler/bin/wrangler.js --config "${CALENDAR_WORKER_CONFIG:-backend/cloudflare/wrangler.jsonc}" "$@"

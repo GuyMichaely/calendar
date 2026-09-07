@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createMemoryAuthStore } from "../auth/http.js";
+import { createMemoryAuthStore } from "../backend/auth/http.js";
 import { createCalendarBackendHandler } from "../backend/app.js";
-import { createMemoryBlobStore } from "../sync/attachments-http.js";
-import { createMemoryDocumentStore } from "../sync/http.js";
+import { createMemoryBlobStore } from "../backend/sync/attachments-http.js";
+import { createMemoryDocumentStore } from "../backend/sync/http.js";
 
 const config = {
   appUrl: "https://app.example/calendar/",

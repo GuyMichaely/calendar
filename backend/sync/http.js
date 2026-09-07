@@ -1,6 +1,7 @@
-import { mergeSnapshotBytes } from "./automerge-document.js";
+import { mergeSnapshotBytes } from "../../sync/automerge-document.js";
 
-export const AUTOMERGE_MEDIA_TYPE = "application/vnd.automerge";
+import { AUTOMERGE_MEDIA_TYPE } from "../../sync/protocol.js";
+export { AUTOMERGE_MEDIA_TYPE };
 
 function copyBytes(value) {
   return value == null ? null : new Uint8Array(value);

@@ -113,8 +113,12 @@ mkdir -p .local/backups
 
 Store a copy off the host. Frontend JSON exports contain attachment metadata only and are not a substitute for a backend backup. Restore with the backend stopped; preserve ownership for the image's `bun` user.
 
-`CALENDAR_OIDC_PROVIDERS_JSON` and `CALENDAR_ALLOWED_IDENTITIES_JSON` support other providers and exact `(issuer, subject)` identities. See [auth/README.md](../auth/README.md) and [sync/README.md](../sync/README.md) for the protocols.
+`CALENDAR_OIDC_PROVIDERS_JSON` and `CALENDAR_ALLOWED_IDENTITIES_JSON` support other providers and exact `(issuer, subject)` identities. See [backend/auth/README.md](../backend/auth/README.md) and [sync/README.md](../sync/README.md) for the protocols.
 
 ## Verification
 
 `./scripts/bun run check` covers domain behavior, storage, auth, sync, attachments, the Bun listener, Solid tests, TypeScript, and frontend bundling. CI additionally builds the actual image and runs `scripts/smoke-container` to check health, unauthenticated rejection, CORS, writable volume permissions, and storage across a container restart. Real Google login still needs registered credentials and a user completing consent.
+
+## Cloud hosting
+
+The Cloudflare Worker adapter, local verification, and data-preserving cutover steps are in [cloudflare/README.md](cloudflare/README.md). The Bun container remains available for local development and rollback.

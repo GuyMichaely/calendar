@@ -236,10 +236,10 @@ function applyItemIntentAtHeads(doc, heads, baselineItem, nextItem) {
   const next = itemForSync(nextItem);
   if (baseline.id !== next.id) throw new Error("Item edit baseline must use the same id as the submitted item.");
   if (!Automerge.hasHeads(doc, heads)) return null;
-  const { newDoc } = Automerge.changeAt(doc, heads, `Edit item ${next.id}`, (draft) => {
+  const result = Automerge.changeAt(doc, heads, `Edit item ${next.id}`, (draft) => {
     mutateDraftFromIntent(draft, baseline, next);
   });
-  return newDoc;
+  return result;
 }
 
 function applyItemIntent(doc, baselineItem, nextItem, { restoreDeleted = false } = {}) {
@@ -401,10 +401,14 @@ export function putLocalItem(item, baseline = null) {
     const before = hydrateItem(materializeItem(doc, item.id), currentHeads);
     const current = materializeItem(doc, item.id, { includeDeleted: true });
     const historicalEdit = baseline && baselineHeads ? applyItemIntentAtHeads(doc, baselineHeads, baseline, item) : null;
-    let nextDoc = historicalEdit || applyItemIntent(doc, baseline || current, item, { restoreDeleted: baseline == null });
+    let nextDoc = historicalEdit?.newDoc || applyItemIntent(doc, baseline || current, item, { restoreDeleted: baseline == null });
     if (baseline && baseline.kind !== item.kind) nextDoc = enforceMaterializedKindShape(nextDoc, item.id);
     const after = hydrateItem(materializeItem(nextDoc, item.id), Automerge.getHeads(nextDoc));
-    return { doc: nextDoc, result: { before, after } };
+    // Keep an editor on its own branch between autosaves. Using merged heads
+    // with still-unmerged form text would erase concurrent remote text next time.
+    const editHeads = historicalEdit?.newHeads || Automerge.getHeads(nextDoc);
+    const editBaseline = hydrateItem(materializeItem(Automerge.clone(Automerge.view(nextDoc, editHeads)), item.id), editHeads);
+    return { doc: nextDoc, result: { before, after, editBaseline } };
   });
 }
 

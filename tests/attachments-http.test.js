@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAttachmentHandler, createMemoryBlobStore } from "../sync/attachments-http.js";
+import { createAttachmentHandler, createMemoryBlobStore } from "../backend/sync/attachments-http.js";
 
 const authenticated = async () => ({ identity: { issuer: "issuer", subject: "guy" } });
 

@@ -1,6 +1,6 @@
-import { createAuthHandler, readAuthSession } from "../auth/http.js";
-import { createAttachmentHandler } from "../sync/attachments-http.js";
-import { createSyncHandler } from "../sync/http.js";
+import { createAuthHandler, readAuthSession } from "./auth/http.js";
+import { createAttachmentHandler } from "./sync/attachments-http.js";
+import { createSyncHandler } from "./sync/http.js";
 import { createCalendarBackend } from "./http.js";
 
 export function createCalendarBackendHandler({

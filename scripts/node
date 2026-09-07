@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Node is only for Cloudflare tooling; application/server development uses Bun.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+version=$(cat .node-version)
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64) platform=linux-x64 ;;
+  Linux-aarch64) platform=linux-arm64 ;;
+  Darwin-x86_64) platform=darwin-x64 ;;
+  Darwin-arm64) platform=darwin-arm64 ;;
+  *) echo 'Unsupported Node tooling platform.' >&2; exit 1 ;;
+esac
+folder="node-v$version-$platform"
+runtime="$PWD/.local/runtimes/$folder/bin/node"
+if [[ ! -x "$runtime" ]]; then
+  mkdir -p .local/downloads .local/runtimes
+  archive="$folder.tar.gz"
+  curl --fail --location --retry 3 "https://nodejs.org/dist/v$version/$archive" -o ".local/downloads/$archive"
+  expected=$(awk -v file="$archive" '$2 == file {print $1}' scripts/node-checksums.txt)
+  [[ -n "$expected" ]] || { echo 'Missing Node checksum.' >&2; exit 1; }
+  if command -v sha256sum >/dev/null; then actual=$(sha256sum ".local/downloads/$archive"); else actual=$(shasum -a 256 ".local/downloads/$archive"); fi
+  [[ "${actual%% *}" == "$expected" ]] || { echo 'Node checksum mismatch.' >&2; exit 1; }
+  tar -xzf ".local/downloads/$archive" -C .local/runtimes
+fi
+export XDG_CACHE_HOME="$PWD/.local/cache"
+export TMPDIR="$PWD/.local/tmp"
+export npm_config_cache="$PWD/.local/cache/npm"
+export PATH="$(dirname "$runtime"):$PATH"
+mkdir -p "$TMPDIR"
+exec "$runtime" "$@"

@@ -1,4 +1,4 @@
-import { AUTOMERGE_MEDIA_TYPE } from "./http.js";
+import { AUTOMERGE_MEDIA_TYPE } from "./protocol.js";
 
 export class CalendarSyncError extends Error {
   constructor(message, { status = null } = {}) {

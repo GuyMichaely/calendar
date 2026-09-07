@@ -26,6 +26,7 @@
     "solid-js": "1.9.15",
     "typescript": "7.0.2",
     "vite": "8.2.2",
-    "vite-plugin-solid": "2.11.14"
+    "vite-plugin-solid": "2.11.14",
+    "wrangler": "4.129.0"
   }
 }

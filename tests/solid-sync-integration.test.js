@@ -8,7 +8,7 @@ import {
   saveCalendarDocument,
 } from "../sync/automerge-document.js";
 import { syncCalendarStorage } from "../sync/client.js";
-import { createMemoryDocumentStore, createSyncHandler } from "../sync/http.js";
+import { createMemoryDocumentStore, createSyncHandler } from "../backend/sync/http.js";
 
 globalThis.indexedDB = indexedDB;
 globalThis.sessionStorage = {
@@ -103,7 +103,7 @@ test("Solid IndexedDB storage preserves local edits made while authenticated sna
   });
 
   await reachedGate;
-  const [baseline] = await storage.listItems();
+  const baseline = (await storage.listItems()).find(item => item.id === task().id);
   await storage.putItem({
     ...baseline,
     title: "Plan local swim",
@@ -113,7 +113,7 @@ test("Solid IndexedDB storage preserves local edits made while authenticated sna
   releaseResponse();
   await syncing;
 
-  const [merged] = await storage.listItems();
+  const merged = (await storage.listItems()).find(item => item.id === task().id);
   assert.equal(merged.title, "Plan local swim");
   assert.equal(merged.deadline, "2026-09-12T17:00:00.000Z");
   assert.deepEqual(new Set(merged.tags), new Set(["planning", "local", "remote"]));

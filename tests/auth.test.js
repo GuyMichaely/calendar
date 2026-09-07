@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAuthHandler, createMemoryAuthStore } from "../auth/http.js";
-import { beginOidcLogin } from "../auth/oidc.js";
+import { createAuthHandler, createMemoryAuthStore } from "../backend/auth/http.js";
+import { beginOidcLogin } from "../backend/auth/oidc.js";
 
 const google = {
   id: "google",

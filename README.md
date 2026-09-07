@@ -26,10 +26,10 @@ Undo/redo history is stored separately in `calendar-history` IndexedDB and is se
 
 The remote-sync implementation is split into runtime-neutral application pieces:
 
-- `auth/oidc.js`: provider-agnostic OpenID Connect using authorization code, PKCE, state, and nonce validation through `openid-client`;
-- `auth/http.js`: login, callback, session inspection, logout, exact `(issuer, subject)` authorization, and opaque server-side sessions;
-- `sync/http.js`: authenticated `POST /sync` with an atomic document-store contract;
-- `sync/attachments-http.js`: authenticated attachment routes;
+- `backend/auth/oidc.js`: provider-agnostic OpenID Connect using authorization code, PKCE, state, and nonce validation through `openid-client`;
+- `backend/auth/http.js`: login, callback, session inspection, logout, exact `(issuer, subject)` authorization, and opaque server-side sessions;
+- `backend/sync/http.js`: authenticated `POST /sync` with an atomic document-store contract;
+- `backend/sync/attachments-http.js`: authenticated attachment routes;
 - `sync/client.js`: serialized Automerge snapshot exchange and merge;
 - `solid/src/remote-sync.ts`: browser session handling, queued sync, and attachment transfer;
 - `backend/app.js`: composition of auth, sync, attachment storage, and the browser-origin allowlist;
@@ -49,19 +49,6 @@ The backend runs as one Bun container with durable storage and a Cloudflare Tunn
 
 Follow [backend/README.md](backend/README.md) for container startup, Cloudflare routing, Google registration, and backups. Google credentials are the only application configuration needed before real sign-in and sync can be enabled. Docker Engine with Compose 2.30+ is required on the backend host.
 
-## Data migrations
-
-Application runtime code assumes the current data model rather than maintaining general compatibility with old schemas.
-
-The original `calendar-app/items` task and event data has a one-off migration implemented by `migrations/2026-09-automerge-storage.js` and exposed through the deployed migration page:
-
-```text
-https://guymichaely.com/calendar/migrate-automerge.html
-```
-
-Run that page in the browser profile containing the old calendar data before relying on remote sync. The migration converts the old waiting/ignored task fields to the current sleep/availability model, writes the current Automerge document, and leaves the old database intact as a rollback copy. It refuses to overwrite a non-empty current Automerge document. It also stops if it encounters embedded legacy attachment bytes rather than silently discarding them.
-
-The separate `2026-09-sleep-schema.js` migration is only for old non-Automerge builds that must remain on the old IndexedDB format.
 
 ## Local development
 
@@ -72,7 +59,7 @@ Use the repository wrapper on Linux or macOS. It downloads the exact Bun version
 ./scripts/bun run dev:solid
 ```
 
-Open <http://localhost:5173/calendar/>. The selected frontend is Solid + TypeScript + Vite. Vite emits `dist/` with the `/calendar/` asset base, including the migration page. Runtime dependencies are bundled into the frontend; it does not fetch libraries from a CDN.
+Open <http://localhost:5173/calendar/>. The selected frontend is Solid + TypeScript + Vite. Vite emits `dist/` with the `/calendar/` asset base. Runtime dependencies are bundled into the frontend; it does not fetch libraries from a CDN.
 
 Run all checks:
 
@@ -101,3 +88,13 @@ Backend updates are explicit on the backend host:
 ```
 
 The data volume survives container recreation. Keep exactly one backend process; the filesystem store does not coordinate multiple writers. Azure deployment scripts and the Node-specific adapter were removed after restoring Bun; existing Azure resources are not modified by this repository.
+
+## Saving, syncing, and backups
+
+Valid item edits autosave locally after 800 ms of inactivity. Closing the editor flushes pending edits; incomplete fields or storage/upload errors remain visible instead of silently dropping changes. The open editor retains its Automerge editing branch so subsequent autosaves preserve concurrent remote changes. Remote changes appear in the task/calendar views after sync; reopen an editor to see changes made elsewhere.
+
+Authenticated devices sync after local changes, on reconnect/resume, and every 15 seconds while visible. The status distinguishes local saves, sync activity, and errors. This is periodic cross-device convergence, not character-by-character multiplayer presence.
+
+The menu's Data submenu contains backups and remote sync configuration. Import previews new/matching item counts, updates matching IDs, retains items absent from the file, and supports undo. A JSON backup contains item values and attachment references; it excludes attachment files and CRDT history. Full server backups must include the data volume (or the cloud stores).
+
+Server-only code lives under backend/. The sync/ directory holds the shared Automerge model and browser protocol client. Obsolete one-time migrations have been removed; previous versions remain in Git.

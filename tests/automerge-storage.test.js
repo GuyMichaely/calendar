@@ -171,3 +171,23 @@ test("recovered legacy items support stale editor saves without losing remote te
   assert.equal(result.notes, "hello brave world!");
   assert.ok(result.tags.includes("local"));
 });
+
+test("repeated autosaves preserve concurrent remote text while the editor stays on its branch", async () => {
+  const id = "autosave-concurrent";
+  await storage.putItem(task({ id, notes: "hello world" }));
+  const baseline = await storage.getItem(id);
+  const remote = updateItemText(loadCalendarDocument(await storage.readSyncSnapshot()), id, "notes", "hello world!");
+  await storage.mergeSyncSnapshot(saveCalendarDocument(remote));
+  const saved = await storage.putItem({ ...baseline, notes: "hello brave world" }, baseline);
+  assert.equal(saved.notes, "hello brave world");
+  await storage.putItem({ ...saved, notes: "hello brave new world" }, saved);
+  assert.equal((await storage.getItem(id)).notes, "hello brave new world!");
+});
+
+test("backup preview validates before mutations and exports omit the version field", async () => {
+  const before = await storage.listItems();
+  assert.throws(() => storage.parseBackup(JSON.stringify({ items: [{ id: "invalid", kind: "unknown" }] })));
+  await assert.rejects(() => storage.importData(JSON.stringify({ items: [task({ id: "should-not-import" }), {}] })));
+  assert.deepEqual((await storage.listItems()).map(x => x.id), before.map(x => x.id));
+  assert.equal("version" in JSON.parse(await storage.exportData()), false);
+});

@@ -22,7 +22,7 @@ The endpoint is deliberately simple. It does not require Automerge Repo, WebSock
 
 ## Attachment endpoint
 
-`sync/attachments-http.js` exposes attachment bytes separately from the Automerge document. Attachment metadata already contains a stable attachment ID, so the blob route uses that existing ID without changing schema version `1`:
+`backend/sync/attachments-http.js` exposes attachment bytes separately from the Automerge document. Attachment metadata already contains a stable attachment ID, so the blob route uses that existing ID without changing schema version `1`:
 
 ```text
 HEAD /attachments/:id

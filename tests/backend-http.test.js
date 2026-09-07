@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAuthHandler, createMemoryAuthStore, readAuthSession } from "../auth/http.js";
+import { createAuthHandler, createMemoryAuthStore, readAuthSession } from "../backend/auth/http.js";
 import { createCalendarBackend } from "../backend/http.js";
 import {
   createCalendarDocument,
@@ -8,7 +8,7 @@ import {
   materializeItem,
   saveCalendarDocument,
 } from "../sync/automerge-document.js";
-import { AUTOMERGE_MEDIA_TYPE, createMemoryDocumentStore, createSyncHandler } from "../sync/http.js";
+import { AUTOMERGE_MEDIA_TYPE, createMemoryDocumentStore, createSyncHandler } from "../backend/sync/http.js";
 
 function setCookies(response) {
   if (typeof response.headers.getSetCookie === "function") return response.headers.getSetCookie();

@@ -9,15 +9,18 @@ export function DialogShell(props: {
 }) {
   let dialogRef!: HTMLDivElement;
   let previous: HTMLElement | null = null;
+  let previousOverflow = "";
 
   onMount(() => {
+    previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const initial = dialogRef.querySelector<HTMLElement>(
+    const initial = dialogRef.querySelector<HTMLElement>("[autofocus]") || dialogRef.querySelector<HTMLElement>(
       "[autofocus], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])",
     );
     initial?.focus();
   });
-  onCleanup(() => previous?.focus());
+  onCleanup(() => { document.body.style.overflow = previousOverflow; previous?.focus(); });
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {

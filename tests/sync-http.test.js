@@ -9,7 +9,7 @@ import {
   patchItem,
   saveCalendarDocument,
 } from "../sync/automerge-document.js";
-import { AUTOMERGE_MEDIA_TYPE, createMemoryDocumentStore, createSyncHandler } from "../sync/http.js";
+import { AUTOMERGE_MEDIA_TYPE, createMemoryDocumentStore, createSyncHandler } from "../backend/sync/http.js";
 
 function task() {
   return {

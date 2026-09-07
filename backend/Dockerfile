@@ -9,7 +9,6 @@ RUN bun install --frozen-lockfile --production
 FROM base AS backend
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY package.json ./
-COPY auth ./auth
 COPY backend ./backend
 COPY sync ./sync
 RUN mkdir /data && chown bun:bun /data

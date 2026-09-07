@@ -218,11 +218,11 @@ export async function putItem(item, baseline = null) {
   await uploadAttachmentsBeforePersist(uploads);
   const cleanItem = withoutAttachmentBytes(item);
   const cleanBaseline = withoutAttachmentBytes(baseline);
-  const { before, after } = await putLocalItem(cleanItem, cleanBaseline);
+  const { before, after, editBaseline } = await putLocalItem(cleanItem, cleanBaseline);
   const cleanBefore = withoutAttachmentBytes(before);
   const cleanAfter = withoutAttachmentBytes(after);
   syncLiveItem(item.id, cleanAfter);
-  if (applyingHistory) return;
+  if (applyingHistory) return editBaseline;
 
   const historyBefore = cleanBaseline == null ? cleanBefore : cleanBaseline;
   const historyAfter = cleanBaseline == null ? cleanAfter : cleanItem;
@@ -230,6 +230,7 @@ export async function putItem(item, baseline = null) {
     label: actionLabel(cleanBefore, cleanAfter),
     changes: [{ id: item.id, before: historyBefore, after: historyAfter }],
   });
+  return editBaseline;
 }
 
 export async function deleteItem(id) {
@@ -309,16 +310,28 @@ async function endBatch() {
 
 export async function exportData() {
   const items = (await listLocalItems()).map(withoutAttachmentBytes);
-  return JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), items }, null, 2);
+  return JSON.stringify({ exportedAt: new Date().toISOString(), items }, null, 2);
 }
 
-export async function importData(text) {
+export function parseBackup(text) {
   const parsed = JSON.parse(text);
   const items = Array.isArray(parsed) ? parsed : parsed?.items;
   if (!Array.isArray(items)) throw new Error("Import file does not contain an items array.");
-  if (items.some((item) => (item?.attachments || []).some((attachment) => attachment?.dataUrl || attachment?.blob))) {
-    throw new Error("This backup contains browser-stored attachment bytes and must be migrated to server attachment storage before import.");
+  const ids = new Set();
+  for (const item of items) {
+    if (!item || typeof item.id !== "string" || !item.id || !["task", "event"].includes(item.kind) || typeof item.title !== "string") throw new Error("Every imported item requires an id, task/event kind, and title.");
+    if (ids.has(item.id)) throw new Error("The backup contains duplicate item IDs.");
+    ids.add(item.id);
+    if (item.attachments != null && !Array.isArray(item.attachments)) throw new Error("Item attachments must be an array.");
   }
+  if (items.some((item) => (item?.attachments || []).some((attachment) => attachment?.dataUrl || attachment?.blob))) {
+    throw new Error("This backup contains embedded attachment bytes. Import supports attachment references only.");
+  }
+  return items;
+}
+
+export async function importData(text) {
+  const items = parseBackup(text);
   await beginBatch("Import backup");
   let imported = 0;
   try {

@@ -5,15 +5,10 @@ export default defineConfig({
   root: "solid",
   base: "/calendar/",
   plugins: [solid()],
+  optimizeDeps: { exclude: ["@automerge/automerge"] },
   build: {
     outDir: "../dist",
     emptyOutDir: true,
     sourcemap: true,
-    rollupOptions: {
-      input: {
-        app: "solid/index.html",
-        migrateAutomerge: "solid/migrate-automerge.html",
-      },
-    },
   },
 });

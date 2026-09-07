@@ -1,0 +1,19 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "calendar-sync",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "CALENDAR_APP_URL": "https://guymichaely.com/calendar/",
+    "CALENDAR_PUBLIC_BASE_URL": "https://calendar-sync.guymichaely.com/"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "CALENDAR", "class_name": "CalendarStore" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CalendarStore"] }],
+  "r2_buckets": [{ "binding": "ATTACHMENTS", "bucket_name": "calendar-sync-attachments" }],
+  "limits": { "cpu_ms": 10000 },
+  "observability": { "enabled": false }
+}

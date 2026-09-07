@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal, onMount } from "solid-js";
+import { For, Show, createMemo, createSignal, onMount, onCleanup } from "solid-js";
 import {
   isoToLocalInput,
   localInputToIso,
@@ -7,6 +7,7 @@ import {
   tomorrowMidnight,
 } from "../../site/domain.js";
 import { DialogShell } from "./DialogShell";
+import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
 import type { Attachment, Item, Task } from "./types";
 
 export type EditorRequest = {
@@ -58,10 +59,19 @@ export function ItemEditor(props: {
   request: EditorRequest;
   onClose: () => void;
   onDelete: (item: Item) => Promise<void>;
-  onSave: (item: Item, created: boolean) => Promise<void>;
+  onSave: (item: Item, created: boolean, baseline: Item | null) => Promise<Item>;
   onError?: (message: string) => void;
 }) {
   const existing = props.request.item;
+  let currentItem = existing;
+  const [hasSavedItem, setHasSavedItem] = createSignal(!!existing);
+  const itemId = existing?.id || uuid();
+  const [saving, setSaving] = createSignal(false);
+  const [saveError, setSaveError] = createSignal("");
+  const [savedAttachments, setSavedAttachments] = createSignal(existing?.attachments || []);
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let inFlight: Promise<boolean> | null = null;
+  let closing = false;
   const task = existing?.kind === "task" ? existing : null;
   const storedEvent = existing?.kind === "event" ? existing : null;
   const initialSleep = task ? sleepInfo(task, new Date()) : null;
@@ -80,7 +90,11 @@ export function ItemEditor(props: {
   let baseline = "";
 
   const syncDirty = () => {
-    queueMicrotask(() => setDirty(!!baseline && serializeForm(formRef, pendingFiles()) !== baseline));
+    queueMicrotask(() => {
+      setDirty(!!baseline && serializeForm(formRef, pendingFiles()) !== baseline);
+      clearTimeout(saveTimer);
+      if (dirty() && !closing) saveTimer = setTimeout(() => { void persist(); }, 800);
+    });
   };
 
   onMount(() => {
@@ -90,10 +104,20 @@ export function ItemEditor(props: {
     });
   });
 
-  const close = () => {
-    if (dirty() && !window.confirm("Discard your unsaved changes?")) return;
+  const close = async () => {
+    closing = true;
+    clearTimeout(saveTimer);
+    if (inFlight) await inFlight;
+    while (dirty()) {
+      if (!(await persist())) { closing = false; return; }
+    }
     props.onClose();
   };
+  const beforeUnload = (event: BeforeUnloadEvent) => {
+    if (dirty() || saving()) { event.preventDefault(); event.returnValue = ""; }
+  };
+  onMount(() => window.addEventListener("beforeunload", beforeUnload));
+  onCleanup(() => { clearTimeout(saveTimer); window.removeEventListener("beforeunload", beforeUnload); });
 
   const addFiles = (files: File[]) => {
     setPendingFiles((current) => {
@@ -121,13 +145,21 @@ export function ItemEditor(props: {
     setEventStart(localDateInput(end));
   };
 
-  const save = async (eventObject: SubmitEvent) => {
-    eventObject.preventDefault();
+  const saveOnce = async (): Promise<boolean> => {
+    if (!dirty()) return true;
+    if (!formRef.checkValidity()) {
+      setSaveError("Complete the required fields to save.");
+      return false;
+    }
+    const submittedForm = serializeForm(formRef, pendingFiles());
+    const submittedFiles = [...pendingFiles()];
+    const task = currentItem?.kind === "task" ? currentItem : null;
+    const storedEvent = currentItem?.kind === "event" ? currentItem : null;
     const data = new FormData(formRef);
     const title = String(data.get("title") || "").trim();
-    if (!title) return;
+    if (!title) { setSaveError("Enter a title to save."); return false; }
     const now = new Date().toISOString();
-    const attachments: Attachment[] = pendingFiles().map((file) => ({
+    const attachments: Attachment[] = submittedFiles.map((file) => ({
       id: uuid(),
       name: file.name,
       type: file.type,
@@ -152,13 +184,13 @@ export function ItemEditor(props: {
       }
       item = {
         ...(task || {}),
-        id: existing?.id || uuid(),
+        id: itemId,
         kind: "task",
         title,
-        notes: String(data.get("notes") || "").trim(),
+        notes: String(data.get("notes") || ""),
         state: taskState,
         tags: parseTags(data.get("tags")),
-        attachments: [...(task?.attachments || []), ...attachments],
+        attachments: [...(currentItem?.attachments || []), ...attachments],
         availableFrom: localInputToIso(data.get("availableFrom")),
         deadline: localInputToIso(data.get("deadline")),
         latestStart: localInputToIso(data.get("latestStart")),
@@ -169,7 +201,7 @@ export function ItemEditor(props: {
           start: String(data.get("scheduleStart") || "08:00"),
           end: String(data.get("scheduleEnd") || "17:00"),
         } : null,
-        createdAt: existing?.createdAt || now,
+        createdAt: currentItem?.createdAt || now,
         updatedAt: now,
         history: historyEntries,
       };
@@ -187,25 +219,76 @@ export function ItemEditor(props: {
       }
       item = {
         ...(storedEvent || {}),
-        id: existing?.id || uuid(),
+        id: itemId,
         kind: "event",
         title,
-        notes: String(data.get("notes") || "").trim(),
+        notes: String(data.get("notes") || ""),
         tags: parseTags(data.get("tags")),
-        attachments: [...(storedEvent?.attachments || []), ...attachments],
+        attachments: [...(currentItem?.attachments || []), ...attachments],
         start,
         end,
-        createdAt: existing?.createdAt || now,
+        createdAt: currentItem?.createdAt || now,
         updatedAt: now,
       };
     }
 
     try {
-      await props.onSave(item, !existing);
-      setDirty(false);
+      const saved = await props.onSave(item, !currentItem, currentItem);
+      if (!saved) throw new Error("This item was deleted on another device. Close and reopen the calendar to review it.");
+      currentItem = saved;
+      setHasSavedItem(true);
+      setSavedAttachments(currentItem.attachments || []);
+      const unchanged = serializeForm(formRef, pendingFiles()) === submittedForm;
+      setPendingFiles((files) => files.filter((file) => !submittedFiles.includes(file)));
+      if (unchanged) {
+        baseline = serializeForm(formRef, pendingFiles());
+        setDirty(false);
+      }
+      setSaveError("");
+      return true;
     } catch (error) {
       console.error(error);
-      props.onError?.(error instanceof Error ? error.message : "Could not save item");
+      setSaveError(error instanceof Error ? error.message : "Could not save item");
+      return false;
+    }
+  };
+
+  const persist = (): Promise<boolean> => {
+    if (inFlight) return inFlight;
+    setSaving(true);
+    inFlight = saveOnce().finally(() => {
+      inFlight = null;
+      setSaving(false);
+      if (dirty() && !closing && !saveError()) {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => { void persist(); }, 800);
+      }
+    });
+    return inFlight;
+  };
+
+  const deleteCurrent = async () => {
+    if (!currentItem || saving()) return;
+    closing = true;
+    clearTimeout(saveTimer);
+    try { await props.onDelete(currentItem); }
+    catch (error) {
+      closing = false;
+      props.onError?.(error instanceof Error ? error.message : "Could not delete item.");
+    }
+  };
+
+  const download = async (attachment: Attachment) => {
+    try {
+      const blob = await downloadAttachmentOnDemand(attachment);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = attachment.name || "attachment";
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      props.onError?.(error instanceof Error ? error.message : "Could not download attachment.");
     }
   };
 
@@ -221,7 +304,7 @@ export function ItemEditor(props: {
 
   return (
     <DialogShell labelledBy="editor-title" onClose={close}>
-      <form ref={(element) => { formRef = element; }} onSubmit={save} onInput={syncDirty}>
+      <form ref={(element) => { formRef = element; }} onSubmit={(event) => { event.preventDefault(); void close(); }} onInput={syncDirty}>
         <div class="dialog-header">
           <h2 id="editor-title">{existing ? "Edit item" : "New item"}</h2>
           <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
@@ -257,6 +340,8 @@ export function ItemEditor(props: {
           </label>
         </div>
 
+        <div class="attachment-downloads"><For each={savedAttachments()}>{(attachment) => <button type="button" class="secondary-button" onClick={() => void download(attachment)}>Download {attachment.name}</button>}</For></div>
+
         <Show when={kind() === "task"} fallback={
           <div class="form-grid">
             <label class="field"><span>Starts</span><input name="eventStart" type="datetime-local" required value={eventStart()} onInput={(event) => { deriveEnd(event.currentTarget.value); syncDirty(); }} /></label>
@@ -291,10 +376,11 @@ export function ItemEditor(props: {
         </Show>
 
         <div class="dialog-actions">
-          <Show when={existing}><button type="button" class="danger-button" onClick={() => void props.onDelete(existing!)}>Delete</button></Show>
+          <Show when={hasSavedItem()}><button type="button" class="danger-button" disabled={saving()} onClick={() => void deleteCurrent()}>Delete</button></Show>
+          <span role="status">{saving() ? "Saving…" : saveError() || (dirty() ? "Unsaved changes" : "Saved on this device")}</span>
           <div class="spacer" />
-          <button type="button" class="secondary-button" onClick={close}>Cancel</button>
-          <button type="submit" class="primary-button">Save</button>
+          <Show when={dirty() && saveError()}><button type="button" class="secondary-button" disabled={saving()} onClick={() => { if (window.confirm("Discard your unsaved changes?")) { closing = true; clearTimeout(saveTimer); props.onClose(); } }}>Discard unsaved changes</button></Show>
+          <button type="submit" class="primary-button">Done</button>
         </div>
       </form>
     </DialogShell>

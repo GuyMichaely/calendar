@@ -113,8 +113,9 @@ export function KeyboardShortcutsDialog(props: {
         <h2 id="shortcut-title">Keyboard shortcuts</h2>
         <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
       </div>
-      <p class="shortcut-help">Task hotkeys apply when the task card itself is focused. ↑/↓ moves between visible tasks; Tab moves through the focused card's controls.</p>
+      <p class="shortcut-help">Task hotkeys apply when the task card itself is focused. Enter edits the focused task. ↑/↓ moves between visible tasks; Tab moves through the focused card's controls.</p>
       <div class="shortcut-grid">
+        <div class="shortcut-row"><span>Edit focused task</span><kbd>Enter</kbd></div>
         <For each={actions}>{(action, index) => (
           <label class="shortcut-row">
             <span>{labels[action]}</span>

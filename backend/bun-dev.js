@@ -1,6 +1,6 @@
-import { createMemoryAuthStore } from "../auth/http.js";
-import { createMemoryBlobStore } from "../sync/attachments-http.js";
-import { createMemoryDocumentStore } from "../sync/http.js";
+import { createMemoryAuthStore } from "./auth/http.js";
+import { createMemoryBlobStore } from "./sync/attachments-http.js";
+import { createMemoryDocumentStore } from "./sync/http.js";
 import { createCalendarBackendHandler } from "./app.js";
 import { readBackendConfig } from "./config.js";
 import { createBunHttpServer } from "./bun-http.js";

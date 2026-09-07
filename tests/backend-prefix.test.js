@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAuthHandler, createMemoryAuthStore } from "../auth/http.js";
+import { createAuthHandler, createMemoryAuthStore } from "../backend/auth/http.js";
 import { createCalendarBackend } from "../backend/http.js";
 import { createCalendarDocument, saveCalendarDocument } from "../sync/automerge-document.js";
-import { AUTOMERGE_MEDIA_TYPE, createMemoryDocumentStore, createSyncHandler } from "../sync/http.js";
+import { AUTOMERGE_MEDIA_TYPE, createMemoryDocumentStore, createSyncHandler } from "../backend/sync/http.js";
 
 const provider = {
   id: "example",

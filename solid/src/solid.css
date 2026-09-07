@@ -144,3 +144,12 @@
     padding: 8px;
   }
 }
+
+
+/* The dialog owns scrolling; its form must not create another scroll area. */
+.solid-dialog-backdrop .editor-dialog form { max-height: none; overflow: visible; }
+.data-menu > summary { cursor: pointer; }
+.data-menu > .text-button { display: block; width: 100%; text-align: left; }
+.attachment-downloads { display: grid; gap: 6px; margin-bottom: 12px; }
+
+.solid-menu-panel { max-height: calc(100dvh - 80px); overflow-y: auto; }

@@ -62,17 +62,20 @@ function assertDocument(doc) {
 
 // Every device must descend from the same root-map creation operation.
 // Keep this actor and change metadata stable; clones get fresh actors for edits.
-const EMPTY_CALENDAR = Automerge.change(
+let emptyCalendar;
+function sharedEmptyCalendar() {
+  return emptyCalendar ||= Automerge.change(
   Automerge.init({ actor: "00000000000000000000000000000001" }),
   { time: 0, message: "Initialize calendar schema 1" },
   (draft) => {
     draft.schemaVersion = CALENDAR_SCHEMA_VERSION;
     draft.items = {};
   },
-);
+  );
+}
 
 export function createCalendarDocument(items = []) {
-  const doc = Automerge.clone(EMPTY_CALENDAR);
+  const doc = Automerge.clone(sharedEmptyCalendar());
   if (!items.length) return doc;
   return Automerge.change(doc, "Import initial items", (draft) => {
     for (const item of items) {

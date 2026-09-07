@@ -1,6 +1,6 @@
 // One-time local identity discovery using the same validated OIDC flow as auth.
 // It has no sync routes, creates no application sessions, and prints no tokens.
-import { beginOidcLogin, finishOidcLogin } from "../auth/oidc.js";
+import { beginOidcLogin, finishOidcLogin } from "../backend/auth/oidc.js";
 
 const values = {};
 for (const line of (await Bun.file(".local/backend.env").text()).split(/\r?\n/u)) {

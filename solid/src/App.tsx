@@ -12,6 +12,7 @@ import {
   deleteItem,
   exportData,
   importData,
+  parseBackup,
   listItems,
   mergeSyncSnapshot,
   putItem,
@@ -21,6 +22,7 @@ import {
   undo,
   undoLabel,
 } from "../../site/storage.js";
+import { DialogShell } from "./DialogShell";
 import { CalendarView } from "./CalendarView";
 import { ItemEditor, SleepDialog, type EditorRequest } from "./ItemEditor";
 import {
@@ -75,6 +77,8 @@ export function App() {
   const [remoteError, setRemoteError] = createSignal("");
   const [lastSyncedAt, setLastSyncedAt] = createSignal<Date | null>(null);
   const [historyState, setHistoryState] = createSignal<HistoryState>({ canUndo: canUndo(), canRedo: canRedo(), undoLabel: undoLabel(), redoLabel: redoLabel() });
+  const [pendingImport, setPendingImport] = createSignal<{ text: string; added: number; updated: number } | null>(null);
+  const [importing, setImporting] = createSignal(false);
   let toastSequence = 0;
   let importRef!: HTMLInputElement;
   let menuRef!: HTMLDetailsElement;
@@ -194,8 +198,24 @@ export function App() {
     anchor.href = url; anchor.download = `calendar-backup-${dateKey(new Date())}.json`; anchor.click(); URL.revokeObjectURL(url); menuRef.open = false;
   };
   const importBackup = async (file: File) => {
-    try { const count = await importData(await file.text()); await refresh(); void requestRemoteSync(); showToast(`Imported ${count} items`); }
-    catch (error) { showToast(error instanceof Error ? error.message : "Import failed"); }
+    try {
+      const text = await file.text();
+      const incoming = parseBackup(text);
+      const ids = new Set((await listItems()).map((item) => item.id));
+      const updated = incoming.filter((item) => ids.has(item.id)).length;
+      setPendingImport({ text, added: incoming.length - updated, updated });
+    } catch (error) { showToast(errorMessage(error, "Import failed")); }
+  };
+  const confirmImport = async () => {
+    const pending = pendingImport();
+    if (!pending || importing()) return;
+    setImporting(true);
+    try {
+      const count = await importData(pending.text);
+      await refresh(); void requestRemoteSync();
+      setPendingImport(null); showToast(`Imported ${count} items`);
+    } catch (error) { showToast(errorMessage(error, "Import failed")); }
+    finally { setImporting(false); }
   };
   const openShortcuts = () => { shortcutReturnTask = currentRovingTaskCard(); setShowShortcutDialog(true); };
   const closeShortcuts = () => { setShowShortcutDialog(false); const task = shortcutReturnTask; shortcutReturnTask = null; if (task?.isConnected) requestAnimationFrame(() => task.focus()); };
@@ -206,13 +226,25 @@ export function App() {
       if (remote) await checkRemoteSession();
     })();
     const clockTimer = window.setInterval(() => { if (!document.querySelector(".solid-dialog-backdrop")) setClock(new Date()); }, 30_000);
+    const remoteTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible" && navigator.onLine && !remoteBusy()) refreshRemoteOnResume();
+    }, 15_000);
     const syncLocation = () => setView(readView());
     const syncRemoteWhenVisible = () => { if (document.visibilityState === "visible") refreshRemoteOnResume(); };
     const syncHistory = (event: Event) => {
       const detail = (event as CustomEvent<Partial<HistoryState>>).detail || {};
       setHistoryState({ canUndo: detail.canUndo ?? canUndo(), canRedo: detail.canRedo ?? canRedo(), undoLabel: detail.undoLabel ?? undoLabel(), redoLabel: detail.redoLabel ?? redoLabel() });
     };
+    const dismissMenu = (event: PointerEvent) => {
+      if (menuRef.open && event.target instanceof Node && !menuRef.contains(event.target)) menuRef.open = false;
+    };
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && menuRef.open) {
+        menuRef.open = false;
+        menuRef.querySelector("summary")?.focus();
+        event.preventDefault();
+        return;
+      }
       if (!document.querySelector(".solid-dialog-backdrop") && !editableTarget(event.target)) {
         if ((event.key === "ArrowDown" || event.key === "ArrowUp") && !event.ctrlKey && !event.metaKey && !event.altKey) {
           const active = document.activeElement;
@@ -229,9 +261,11 @@ export function App() {
         }
       }
     };
+    document.addEventListener("pointerdown", dismissMenu);
     window.addEventListener("hashchange", syncLocation); window.addEventListener("popstate", syncLocation); window.addEventListener("online", refreshRemoteOnResume); window.addEventListener("calendar:history-state", syncHistory); document.addEventListener("visibilitychange", syncRemoteWhenVisible); document.addEventListener("keydown", onKeyDown);
     onCleanup(() => {
-      window.clearInterval(clockTimer); window.removeEventListener("hashchange", syncLocation); window.removeEventListener("popstate", syncLocation); window.removeEventListener("online", refreshRemoteOnResume); window.removeEventListener("calendar:history-state", syncHistory); document.removeEventListener("visibilitychange", syncRemoteWhenVisible); document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", dismissMenu);
+      window.clearInterval(remoteTimer); window.clearInterval(clockTimer); window.removeEventListener("hashchange", syncLocation); window.removeEventListener("popstate", syncLocation); window.removeEventListener("online", refreshRemoteOnResume); window.removeEventListener("calendar:history-state", syncHistory); document.removeEventListener("visibilitychange", syncRemoteWhenVisible); document.removeEventListener("keydown", onKeyDown);
     });
   });
 
@@ -245,9 +279,10 @@ export function App() {
               <div class="solid-menu-panel">
                 <button class="text-button" disabled={!historyState().canUndo} onClick={() => void applyUndo()}>Undo{historyState().undoLabel ? ` ${historyState().undoLabel}` : ""}</button>
                 <button class="text-button" disabled={!historyState().canRedo} onClick={() => void applyRedo()}>Redo{historyState().redoLabel ? ` ${historyState().redoLabel}` : ""}</button>
+                <button class="text-button" onClick={() => { menuRef.open = false; openShortcuts(); }}>Keyboard shortcuts…</button>
+                <details class="data-menu"><summary class="text-button">Data</summary>
                 <button class="text-button" onClick={() => void exportBackup()}>Export backup</button>
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>
-                <button class="text-button" onClick={() => { menuRef.open = false; openShortcuts(); }}>Keyboard shortcuts…</button>
                 <div class="solid-menu-divider" />
                 <form class="solid-menu-remote" onSubmit={(event) => { event.preventDefault(); saveRemoteServer(); }}>
                   <label>
@@ -275,6 +310,7 @@ export function App() {
                   </Show>
                   <Show when={remoteError()} keyed>{(message) => <div class="solid-menu-error">{message}</div>}</Show>
                 </Show>
+                </details>
               </div>
             </details>
             <nav class="primary-nav" aria-label="Primary">
@@ -288,14 +324,24 @@ export function App() {
             <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) void importBackup(file); input.value = ""; menuRef.open = false; }} />
           </div>
         </header>
+        <div class="solid-menu-status" role="status">{remoteBusy() ? "Syncing…" : remoteError() ? `Saved locally · ${remoteError()}` : lastSyncedAt() ? `Synced at ${lastSyncedAt()!.toLocaleTimeString()}` : "Saved on this device"}</div>
         <main>
           <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={(mode) => { setCalendarSleepMode(mode); localStorage.setItem("calendar.calendarSleepMode", mode); }} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => { localStorage.setItem("calendar.section.now", "open"); localStorage.setItem("calendar.section.upcoming", "open"); navigate("tasks"); requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" })); }} />}>
             <TasksView items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={(task) => openEditor(task)} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
           </Show>
         </main>
-        <Show when={editor()} keyed>{(request) => <ItemEditor request={request} onClose={() => setEditor(null)} onDelete={async (item) => { await deleteItem(item.id); setEditor(null); await refresh(); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, created) => { await putItem(item, request.item); setEditor(null); await refresh(); void requestRemoteSync(); showToast(created ? `${item.kind === "task" ? "Task" : "Event"} created` : "Saved"); }} onError={showToast} />}</Show>
+        <Show when={editor()} keyed>{(request) => <ItemEditor request={request} onClose={() => setEditor(null)} onDelete={async (item) => { await deleteItem(item.id); setEditor(null); await refresh(); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}</Show>
         <Show when={sleepTask()} keyed>{(task) => <SleepDialog task={task} onClose={() => setSleepTask(null)} onInvalid={() => showToast("Choose a future sleep time")} onSave={async (until) => { const now = new Date().toISOString(); await mutateTask(task, { sleep: { until, startedAt: task.sleep?.startedAt || now } }, { type: "slept", until }, until ? `Sleeping until ${formatDateTime(until)}` : "Sleeping indefinitely"); setSleepTask(null); }} />}</Show>
         <Show when={showShortcutDialog()}><KeyboardShortcutsDialog shortcuts={shortcuts()} onClose={closeShortcuts} onSave={(next) => { setShortcuts(next); closeShortcuts(); }} /></Show>
+        <Show when={pendingImport()} keyed>{(pending) => <DialogShell labelledBy="import-title" onClose={() => { if (!importing()) setPendingImport(null); }}>
+          <div style={{ padding: "20px" }}>
+            <h2 id="import-title">Import backup</h2>
+            <p>Add {pending.added} new items and update {pending.updated} matching items.</p>
+            <p>Matching IDs are updated with fields from the backup, including text, dates, tags, and attachment references. Items missing from the backup stay in your calendar. This does not replace your whole calendar.</p>
+            <p>JSON backups contain item values, not edit history or attachment files. Referenced files must still exist on your sync server. Imported changes will sync to your other devices. You can undo this import.</p>
+            <div class="dialog-actions"><button class="secondary-button" disabled={importing()} onClick={() => setPendingImport(null)}>Cancel</button><button class="primary-button" disabled={importing()} onClick={() => void confirmImport()}>{importing() ? "Importing…" : "Import and update matches"}</button></div>
+          </div>
+        </DialogShell>}</Show>
         <ToastStack toasts={toasts()} onDismiss={dismissToast} />
       </div>
     </Show>
