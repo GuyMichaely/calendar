@@ -6,7 +6,7 @@ Use the + button beside a task or Add subtask in its editor to create a child. T
 
 Task sections retain their existing availability filters. Within each section, children appear below their nearest visible ancestor; a parent outside the filter does not hide its children. Parent links open the parent editor. Disclosure arrows collapse visible descendants, while searching ignores collapsed state. Indentation is capped to keep deep trees usable on narrow screens, without limiting the stored hierarchy.
 
-Completing a parent completes all descendants currently known to that device in the same local document write. One undo restores the group's prior states. Reopening a child, or adding/moving an open child under a completed parent, reopens completed ancestors. Deleting a parent keeps its children, which appear independently when their parent no longer exists.
+Completing a parent completes all descendants currently known to that device in the same local document write. One undo restores the group's prior states. Reopening a child, or adding/moving an open child under a completed parent, reopens completed ancestors. Deleting a parent deletes all its descendants in the same local write; one undo restores the entire group and its parent links.
 
 Completion does not claim to include changes that another offline device has not yet shared. Those changes merge normally. Local moves and imports reject cycles; if concurrent moves form a cycle, the view still displays those tasks so a user can move one to No parent.
 

@@ -248,7 +248,14 @@ test("completing a parent closes descendants atomically and one undo restores th
   await assert.rejects(storage.putItem({...root, parentId: 'tree-grandchild'}, root), /own ancestor/);
   assert.equal((await storage.getItem('tree-parent')).parentId, null);
   await storage.deleteItem('tree-parent');
-  assert.ok(await storage.getItem('tree-child'));
+  assert.equal(await storage.getItem('tree-child'), null);
+  assert.equal(await storage.getItem('tree-grandchild'), null);
+  assert.ok(await storage.getItem('tree-unrelated'));
+  await storage.undo();
+  for (const id of ['tree-parent', 'tree-child', 'tree-grandchild']) assert.ok(await storage.getItem(id));
+  assert.equal((await storage.getItem('tree-grandchild')).parentId, 'tree-child');
+  await storage.redo();
+  for (const id of ['tree-parent', 'tree-child', 'tree-grandchild']) assert.equal(await storage.getItem(id), null);
 });
 
 test("an invalid imported hierarchy is rejected before changing stored items", async () => {

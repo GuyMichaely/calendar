@@ -424,9 +424,12 @@ export function putLocalItem(item, baseline = null) {
 export function deleteLocalItem(id, deletedAt = new Date().toISOString()) {
   return writeState((doc) => {
     const before = hydrateItem(materializeItem(doc, id), Automerge.getHeads(doc));
-    if (!before) return { doc, result: { before: null, after: null } };
-    const nextDoc = tombstoneItem(doc, id, deletedAt);
-    return { doc: nextDoc, result: { before, after: null } };
+    if (!before) return { doc, result: { before: null, after: null, changes: [] } };
+    const targets = [before, ...(before.kind === "task" ? taskDescendants(materializeItems(doc), id) : [])];
+    const changes = targets.map(item => ({ id: item.id, before: hydrateItem(materializeItem(doc, item.id), Automerge.getHeads(doc)), after: null }));
+    let nextDoc = doc;
+    for (const target of targets) nextDoc = tombstoneItem(nextDoc, target.id, deletedAt);
+    return { doc: nextDoc, result: { before, after: null, changes } };
   });
 }
 

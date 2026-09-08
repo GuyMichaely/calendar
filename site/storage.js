@@ -236,13 +236,13 @@ export async function putItem(item, baseline = null) {
 }
 
 export async function deleteItem(id) {
-  const { before } = await deleteLocalItem(id);
+  const { before, changes } = await deleteLocalItem(id);
   const cleanBefore = withoutAttachmentBytes(before);
-  syncLiveItem(id, null);
+  for (const change of changes) syncLiveItem(change.id, null);
   if (applyingHistory || !cleanBefore) return;
   await pushHistory({
     label: actionLabel(cleanBefore, null),
-    changes: [{ id, before: cleanBefore, after: null }],
+    changes,
   });
 }
 

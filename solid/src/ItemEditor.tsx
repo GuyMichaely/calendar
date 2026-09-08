@@ -300,7 +300,7 @@ export function ItemEditor(props: {
 
   const deleteCurrent = async () => {
     if (!currentItem || saving()) return;
-    if (children().length && !window.confirm("Delete this task? Its subtasks will be kept as separate tasks.")) return;
+    if (children().length && !window.confirm(`Delete this task and all ${descendants().length} subtasks? You can undo this together.`)) return;
     closing = true;
     clearTimeout(saveTimer);
     try { await props.onDelete(currentItem); }

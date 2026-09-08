@@ -18,9 +18,9 @@ export function DialogShell(props: {
     const initial = dialogRef.querySelector<HTMLElement>("[autofocus]") || dialogRef.querySelector<HTMLElement>(
       "[autofocus], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])",
     );
-    initial?.focus();
+    initial?.focus({ preventScroll: true });
   });
-  onCleanup(() => { document.body.style.overflow = previousOverflow; previous?.focus(); });
+  onCleanup(() => { document.body.style.overflow = previousOverflow; previous?.focus({ preventScroll: true }); });
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
