@@ -1,6 +1,8 @@
 # Automerge sync core
 
-This directory contains the shared CRDT document model plus the hosting-agnostic request/response sync layer.
+This top-level directory is shared by the frontend and backend: it contains the CRDT document model, protocol constants, and client. Server-only authentication and HTTP handlers live in `backend/auth/` and `backend/sync/`.
+
+Existing calendar data contains concurrent root item maps, so reads and edits resolve across all of them. This is required for the current stored document: taking only the winning root hides items and discards their reachable history. It is not a separate legacy-format importer.
 
 The Solid app stores its canonical local state as the same versioned Automerge document used here. `site/storage.js` exposes serialized snapshots through `readSyncSnapshot()` and merges incoming snapshots through `mergeSyncSnapshot()`.
 

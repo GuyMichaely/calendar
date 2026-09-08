@@ -37,9 +37,8 @@ test("future start blocks actionability and appears in waiting", () => {
 
 test("waiting is computed from future opportunity rather than stored state", () => {
   const now = new Date("2026-09-03T12:00:00-04:00");
-  const legacyWaitingTask = { ...baseTask, state: "waiting" };
-  assert.equal(actionability(legacyWaitingTask, now).actionable, true);
-  assert.equal(taskMatchesFilter(legacyWaitingTask, "waiting", now), false);
+  assert.equal(actionability(baseTask, now).actionable, true);
+  assert.equal(taskMatchesFilter(baseTask, "waiting", now), false);
 });
 
 test("weekday action window is a recurring opportunity", () => {

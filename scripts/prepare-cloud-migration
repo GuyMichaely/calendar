@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Run only when ready for cutover, after syncing and closing all clients.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [[ $EUID -ne 0 || -z ${SUDO_USER:-} ]]; then
+  echo 'Run sudo ./scripts/prepare-cloud-migration after syncing and closing the app on all devices.' >&2
+  exit 1
+fi
+backup="$PWD/.local/cloud-backup"
+if [[ -e "$backup" ]]; then
+  echo 'The backup directory already exists. Preserve it; ask Codex to inspect before retrying.' >&2
+  exit 1
+fi
+mkdir -m 700 "$backup"
+# If copying fails, restore service; a successful backup leaves writes frozen.
+completed=false
+cleanup() {
+  if [[ "$completed" != true ]]; then
+    ./scripts/container start backend || true
+    echo 'Backup did not finish; the backend was restarted. Preserve the partial backup for inspection.' >&2
+  fi
+}
+trap cleanup EXIT
+./scripts/container stop backend
+./scripts/container cp backend:/data/. "$backup/"
+test -s "$backup/documents/Y2FsZW5kYXI6cHJpbWFyeQ.automerge"
+chown -R "$(id -u "$SUDO_USER"):$(id -g "$SUDO_USER")" "$backup"
+chmod -R go-rwx "$backup"
+completed=true
+echo 'Backup ready at .local/cloud-backup. Backend is stopped; the tunnel configuration and original data volume are preserved.'

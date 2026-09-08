@@ -196,7 +196,11 @@ test("backup preview validates before mutations and exports keep task history wi
   assert.ok(withHistory, "Task activity history is retained in JSON backups");
   assert.deepEqual(storage.parseBackup(JSON.stringify(exported)).find(item => item.id === withHistory.id).history, withHistory.history);
   const legacy = { version: 1, exportedAt: "2026-09-07T12:00:00Z", items: exported.items };
-  assert.deepEqual(storage.parseBackup(JSON.stringify(legacy)), exported.items);
+  assert.throws(() => storage.parseBackup(JSON.stringify(legacy)), /current backup format/);
+  assert.throws(() => storage.parseBackup(JSON.stringify(exported.items)), /current backup format/);
+  for (const state of ["canceled", "waiting", undefined]) {
+    assert.throws(() => storage.parseBackup(JSON.stringify({ items: [task({ state })] })), /open or completed/);
+  }
 });
 
 test("removing an attachment in a stale editor preserves a concurrently added attachment and supports undo", async () => {

@@ -1,5 +1,7 @@
 # Calendar backend setup
 
+Production runs on the Cloudflare Worker at `https://calendar-sync.guymichaely.com`; see [Cloudflare deployment](cloudflare/README.md). The container instructions below are for local development or an explicit rollback, not the active production server.
+
 The backend is a single Bun process serving provider-neutral OIDC auth, Automerge snapshot sync, and attachment blobs. It runs as an unprivileged container with a read-only root filesystem. A Docker volume holds persistent data. Only `127.0.0.1:8787` is published on the host. Cloudflare Tunnel exposes the backend at `https://calendar-sync.guymichaely.com/`.
 
 ## 1. Choose the backend host

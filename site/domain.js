@@ -1,4 +1,4 @@
-export const TASK_STATES = ["open", "completed", "canceled"];
+export const TASK_STATES = ["open", "completed"];
 
 export function isTask(item) {
   return item?.kind === "task";
@@ -31,8 +31,8 @@ export function withinAvailabilitySchedule(task, now = new Date()) {
 
 export function actionability(task, now = new Date()) {
   if (!isTask(task)) return { actionable: false, reason: "Not a task" };
-  if (["completed", "canceled"].includes(task.state)) {
-    return { actionable: false, reason: task.state === "completed" ? "Completed" : "Canceled" };
+  if (task.state === "completed") {
+    return { actionable: false, reason: "Completed" };
   }
 
   const available = toDate(task.availableFrom);
@@ -67,7 +67,7 @@ function availabilityEndForDate(task, date) {
 }
 
 function rawAvailabilityStartForDate(task, date) {
-  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return null;
+  if (!isTask(task) || task.state === "completed") return null;
   const schedule = task.availabilitySchedule;
   if (!schedule?.enabled) return null;
 
@@ -91,7 +91,7 @@ function rawAvailabilityStartForDate(task, date) {
 }
 
 export function nextAvailabilityStart(task, now = new Date()) {
-  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return null;
+  if (!isTask(task) || task.state === "completed") return null;
   const schedule = task.availabilitySchedule;
   if (!schedule?.enabled || !(schedule.days || []).length) return null;
 
@@ -115,7 +115,7 @@ export function nextAvailabilityStart(task, now = new Date()) {
 }
 
 export function sleepInfo(task, now = new Date()) {
-  if (!isTask(task) || ["completed", "canceled"].includes(task.state) || !task.sleep) {
+  if (!isTask(task) || task.state === "completed" || !task.sleep) {
     return { sleeping: false, indefinite: false, until: null };
   }
 
@@ -131,7 +131,7 @@ export function isSleeping(task, now = new Date()) {
 }
 
 export function nextActionableStart(task, now = new Date(), { respectSleep = false } = {}) {
-  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return null;
+  if (!isTask(task) || task.state === "completed") return null;
 
   if (respectSleep) {
     const sleep = sleepInfo(task, now);
@@ -158,7 +158,7 @@ export function nextActionableStart(task, now = new Date(), { respectSleep = fal
 }
 
 export function isWaitingForOpportunity(task, now = new Date()) {
-  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return false;
+  if (!isTask(task) || task.state === "completed") return false;
   if (actionability(task, now).actionable) return false;
   const next = nextActionableStart(task, now);
   return !!next && next > now;
@@ -185,7 +185,7 @@ export function availabilityStartForDate(task, date, now = new Date(), { respect
 }
 
 export function isPendingOnDate(task, date) {
-  if (!isTask(task) || ["completed", "canceled"].includes(task.state)) return false;
+  if (!isTask(task) || task.state === "completed") return false;
 
   const day = date instanceof Date ? new Date(date) : toDate(date);
   if (!day) return false;
@@ -216,7 +216,7 @@ export function taskMatchesFilter(task, filter, now = new Date()) {
       return state === "completed";
     case "all":
     default:
-      return !["completed", "canceled"].includes(state);
+      return state !== "completed";
   }
 }
 
@@ -246,7 +246,7 @@ export function textMatches(item, query) {
     item.title,
     item.notes,
     ...(Array.isArray(item.tags) ? item.tags : []),
-    ...(Array.isArray(item.attachments) ? item.attachments.map((x) => x?.name || x?.url || "") : []),
+    ...(Array.isArray(item.attachments) ? item.attachments.map((x) => x?.name || "") : []),
   ]
     .filter(Boolean)
     .join("\n")

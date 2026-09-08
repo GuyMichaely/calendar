@@ -20,7 +20,7 @@ export type EditorRequest = {
 };
 
 function uuid() {
-  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return crypto.randomUUID();
 }
 
 function localDateInput(date: Date) {
@@ -179,7 +179,7 @@ export function ItemEditor(props: {
 
     if (kind() === "task") {
       const nextState = taskState();
-      const closed = ["completed", "canceled"].includes(nextState);
+      const closed = nextState === "completed";
       let sleep = null;
       if (!closed && sleepMode() === "indefinite") {
         sleep = { until: null, startedAt: task?.sleep?.startedAt || now };
@@ -376,7 +376,7 @@ export function ItemEditor(props: {
         }>
           <div>
             <div class="form-grid">
-              <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><button type="button" class={taskState() === "open" ? "primary-button" : "secondary-button"} onClick={toggleCompleted}>{taskState() === "open" ? "✓ Complete task" : "↶ Reopen task"}</button><span class="muted">{taskState() === "completed" ? "Completed" : taskState() === "canceled" ? "Previously canceled" : "Open"}</span></div>
+              <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><button type="button" class={taskState() === "open" ? "primary-button" : "secondary-button"} onClick={toggleCompleted}>{taskState() === "open" ? "✓ Complete task" : "↶ Reopen task"}</button><span class="muted">{taskState() === "completed" ? "Completed" : "Open"}</span></div>
               <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" value={isoToLocalInput(task?.availableFrom)} /></label>
               <label class="field"><span>Due</span><input name="deadline" type="datetime-local" value={isoToLocalInput(task?.deadline)} /></label>
               <label class="field"><span>Latest start</span><input name="latestStart" type="datetime-local" value={isoToLocalInput(task?.latestStart)} /></label>

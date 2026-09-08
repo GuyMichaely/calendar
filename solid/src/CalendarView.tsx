@@ -55,7 +55,7 @@ export function CalendarView(props: {
     const starts = new Map<string, { task: Task; start: Date; bypassesSleep: boolean }>();
     const respectSleep = props.sleepMode === "respect";
     for (const item of props.items) {
-      if (item.kind !== "task" || ["completed", "canceled"].includes(item.state)) continue;
+      if (item.kind !== "task" || item.state === "completed") continue;
       const projected = projectedTaskStart(item, props.now, respectSleep);
       if (!projected) continue;
       starts.set(item.id, {
@@ -83,7 +83,7 @@ export function CalendarView(props: {
         });
         continue;
       }
-      if (["completed", "canceled"].includes(item.state)) continue;
+      if (item.state === "completed") continue;
 
       const projected = projectedStarts().get(item.id);
       if (projected && dateKey(projected.start) === key) {

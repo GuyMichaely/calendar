@@ -1,4 +1,4 @@
-export type TaskState = "open" | "completed" | "canceled";
+export type TaskState = "open" | "completed";
 
 export type Attachment = {
   id: string;
@@ -6,8 +6,6 @@ export type Attachment = {
   type?: string;
   size?: number;
   blob?: Blob;
-  url?: string;
-  dataUrl?: string;
 };
 
 export type AvailabilitySchedule = {

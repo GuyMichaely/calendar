@@ -122,19 +122,19 @@ export function TasksView(props: TasksViewProps) {
   const matching = createMemo(() =>
     props.items.filter((item): item is Task => item.kind === "task").filter((task) => textMatches(task, props.query)),
   );
-  const openCount = createMemo(() => matching().filter((task) => !["completed", "canceled"].includes(task.state)).length);
+  const openCount = createMemo(() => matching().filter((task) => task.state !== "completed").length);
   const horizonEnd = createMemo(() => props.horizonDays === null ? null : upcomingHorizonEnd(props.now, props.horizonDays, props.horizonMode));
   const actionable = createMemo(() => sortTasks(
     matching().filter((task) => taskMatchesFilter(task, "now", props.now) && !isSleeping(task, props.now)),
     props.now,
   ) as Task[]);
   const upcoming = createMemo<TaskRow[]>(() => matching()
-    .filter((task) => !["completed", "canceled"].includes(task.state) && !isSleeping(task, props.now))
+    .filter((task) => task.state !== "completed" && !isSleeping(task, props.now))
     .map((task) => ({ task, upcomingAt: nextActionableStart(task, props.now) as Date | null }))
     .filter((row) => row.upcomingAt && row.upcomingAt > props.now && (!horizonEnd() || row.upcomingAt <= horizonEnd()!))
     .sort((a, b) => (a.upcomingAt?.getTime() || 0) - (b.upcomingAt?.getTime() || 0) || a.task.title.localeCompare(b.task.title)));
   const sleeping = createMemo<TaskRow[]>(() => (sortTasks(
-    matching().filter((task) => !["completed", "canceled"].includes(task.state) && isSleeping(task, props.now)),
+    matching().filter((task) => task.state !== "completed" && isSleeping(task, props.now)),
     props.now,
   ) as Task[]).map((task) => ({ task, upcomingAt: nextActionableStart(task, props.now, { respectSleep: true }) as Date | null })));
   const rows = createMemo<Record<SectionId, TaskRow[]>>(() => ({
@@ -307,7 +307,7 @@ function TaskCard(props: {
 }) {
   const result = createMemo(() => actionability(props.row.task, props.now));
   const sleep = createMemo(() => sleepInfo(props.row.task, props.now));
-  const closed = createMemo(() => ["completed", "canceled"].includes(props.row.task.state));
+  const closed = createMemo(() => props.row.task.state === "completed");
   const futureAvailable = createMemo(() => toDate(props.row.task.availableFrom));
   const canConvertWaitToSleep = createMemo(() => !sleep().sleeping && !!futureAvailable() && futureAvailable()! > props.now);
   const timing = createMemo(() => taskTiming(props.row.task, props.now, props.showAvailability));

@@ -21,7 +21,7 @@ declare global {
   }
 }
 
-export const TASK_STATES: readonly ["open", "completed", "canceled"];
+export const TASK_STATES: readonly ["open", "completed"];
 
 export function isTask(item: unknown): item is Task;
 export function isEvent(item: unknown): item is CalendarEvent;

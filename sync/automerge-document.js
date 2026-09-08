@@ -86,8 +86,8 @@ export function createCalendarDocument(items = []) {
 }
 
 function calendarItemMaps(doc) {
-  // Older devices initialized unrelated maps. Preserve those objects so late
-  // edits still merge into their original histories instead of copying them.
+  // Existing synchronized documents contain concurrent root maps. Preserve
+  // their object identities: item history and later edits belong to those maps.
   const conflicts = Automerge.getConflicts(doc, "items");
   if (!conflicts) return [doc.items];
   return Object.entries(conflicts)

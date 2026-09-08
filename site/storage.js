@@ -23,7 +23,7 @@ let liveItems = null;
 
 let historySessionId = sessionStorage.getItem(HISTORY_SESSION_KEY);
 if (!historySessionId) {
-  historySessionId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  historySessionId = crypto.randomUUID();
   sessionStorage.setItem(HISTORY_SESSION_KEY, historySessionId);
 }
 
@@ -315,11 +315,15 @@ export async function exportData() {
 
 export function parseBackup(text) {
   const parsed = JSON.parse(text);
-  const items = Array.isArray(parsed) ? parsed : parsed?.items;
+  if (!parsed || Array.isArray(parsed) || Object.keys(parsed).length !== 1 || !Object.hasOwn(parsed, "items")) {
+    throw new Error("Expected the current backup format: an object containing only an items array.");
+  }
+  const items = parsed.items;
   if (!Array.isArray(items)) throw new Error("Import file does not contain an items array.");
   const ids = new Set();
   for (const item of items) {
     if (!item || typeof item.id !== "string" || !item.id || !["task", "event"].includes(item.kind) || typeof item.title !== "string") throw new Error("Every imported item requires an id, task/event kind, and title.");
+    if (item.kind === "task" && !["open", "completed"].includes(item.state)) throw new Error("Imported tasks must have an open or completed state.");
     if (ids.has(item.id)) throw new Error("The backup contains duplicate item IDs.");
     ids.add(item.id);
     if (item.attachments != null && !Array.isArray(item.attachments)) throw new Error("Item attachments must be an array.");
@@ -336,7 +340,6 @@ export async function importData(text) {
   let imported = 0;
   try {
     for (const raw of items) {
-      if (!raw?.id || !raw?.kind) continue;
       await putItem(withoutAttachmentBytes(raw));
       imported += 1;
     }
