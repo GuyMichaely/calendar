@@ -41,15 +41,12 @@ export class CalendarStore extends DurableObject {
         },
         async delete(key) { await storage.delete("auth:" + key); },
       };
-      // SQLite rows avoid the KV API's per-value size limit for growing docs.
+      // The document lives in this object's serialized SQLite store.
       storage.sql.exec("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, bytes BLOB NOT NULL)");
       const documentStore = {
         async update(key, updater) {
           const row = storage.sql.exec("SELECT bytes FROM documents WHERE id = ?", key).toArray()[0];
-          // An optional one-time seed preserves the existing Bun snapshot's
-          // complete CRDT history during cutover. It never replaces cloud data.
-          const seed = !row ? await bucket.get("__initial_calendar.automerge") : null;
-          const previous = row ? new Uint8Array(row.bytes) : seed ? new Uint8Array(await seed.arrayBuffer()) : null;
+          const previous = row ? new Uint8Array(row.bytes) : null;
           const outcome = await updater(previous);
           storage.sql.exec("INSERT OR REPLACE INTO documents (id, bytes) VALUES (?, ?)", key, outcome.value);
           return outcome.result;

@@ -1,6 +1,6 @@
 import * as Automerge from "@automerge/automerge";
 
-export const CALENDAR_SCHEMA_VERSION = 1;
+export const CALENDAR_SCHEMA_VERSION = 2;
 const COLLABORATIVE_TEXT_FIELDS = new Set(["title", "notes"]);
 const LOCAL_ATTACHMENT_FIELDS = new Set(["blob", "dataUrl", "file"]);
 
@@ -54,9 +54,19 @@ function plainClone(value) {
   return result;
 }
 
+export class CalendarDocumentError extends Error {
+  constructor() {
+    super("This calendar uses a different storage generation. Refresh the app and sync again.");
+    this.name = "CalendarDocumentError";
+  }
+}
+
 function assertDocument(doc) {
-  if (!doc || doc.schemaVersion !== CALENDAR_SCHEMA_VERSION || !doc.items || typeof doc.items !== "object") {
-    throw new Error(`Expected calendar sync schema ${CALENDAR_SCHEMA_VERSION}.`);
+  if (!doc || doc.schemaVersion !== CALENDAR_SCHEMA_VERSION || !doc.items || typeof doc.items !== "object"
+    || Object.keys(Automerge.getConflicts(doc, "schemaVersion") || {}).length > 1
+    || Object.keys(Automerge.getConflicts(doc, "items") || {}).length > 1
+    || Automerge.getObjectId(doc.items) !== Automerge.getObjectId(sharedEmptyCalendar().items)) {
+    throw new CalendarDocumentError();
   }
 }
 
@@ -65,8 +75,8 @@ function assertDocument(doc) {
 let emptyCalendar;
 function sharedEmptyCalendar() {
   return emptyCalendar ||= Automerge.change(
-  Automerge.init({ actor: "00000000000000000000000000000001" }),
-  { time: 0, message: "Initialize calendar schema 1" },
+  Automerge.init({ actor: "00000000000000000000000000000002" }),
+  { time: 0, message: "Initialize calendar schema 2" },
   (draft) => {
     draft.schemaVersion = CALENDAR_SCHEMA_VERSION;
     draft.items = {};
@@ -83,26 +93,6 @@ export function createCalendarDocument(items = []) {
       draft.items[copy.id] = copy;
     }
   });
-}
-
-function calendarItemMaps(doc) {
-  // Existing synchronized documents contain concurrent root maps. Preserve
-  // their object identities: item history and later edits belong to those maps.
-  const conflicts = Automerge.getConflicts(doc, "items");
-  if (!conflicts) return [doc.items];
-  return Object.entries(conflicts)
-    .sort(([a], [b]) => {
-      const [ac, aa] = a.split("@");
-      const [bc, ba] = b.split("@");
-      return Number(bc) - Number(ac) || (aa < ba ? 1 : aa > ba ? -1 : 0);
-    })
-    .map(([, map]) => map);
-}
-
-// For duplicate IDs, consistently use the highest-priority root that contains
-// the ID, including tombstones. Never fall back to an older live copy.
-export function calendarItemMap(doc, id) {
-  return calendarItemMaps(doc).find((map) => Object.hasOwn(map, id)) || doc.items;
 }
 
 export function forkCalendarDocument(doc) {
@@ -142,29 +132,29 @@ function applyPatchValue(root, path, current, value) {
 
 export function patchItem(doc, id, patch, message = `Update item ${id}`) {
   assertDocument(doc);
-  if (!calendarItemMap(doc, id)[id]) throw new Error(`Unknown item ${id}.`);
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
   const cleanPatch = cloneForDocument(patch);
   return Automerge.change(doc, message, (draft) => {
     for (const [key, value] of Object.entries(cleanPatch)) {
       if (key === "id") continue;
-      applyPatchValue(calendarItemMap(draft, id), [id, key], calendarItemMap(draft, id)[id][key], value);
+      applyPatchValue(draft.items, [id, key], draft.items[id][key], value);
     }
   });
 }
 
 export function deleteItemField(doc, id, field, message = `Clear ${field} for ${id}`) {
   assertDocument(doc);
-  if (!calendarItemMap(doc, id)[id]) throw new Error(`Unknown item ${id}.`);
-  if (!(field in calendarItemMap(doc, id)[id])) return doc;
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
+  if (!(field in doc.items[id])) return doc;
   return Automerge.change(doc, message, (draft) => {
-    delete calendarItemMap(draft, id)[id][field];
+    delete draft.items[id][field];
   });
 }
 
 export function putItem(doc, item, message = `Put item ${item?.id || ""}`) {
   assertDocument(doc);
   const copy = itemForSync(item);
-  if (!calendarItemMap(doc, copy.id)[copy.id]) {
+  if (!doc.items[copy.id]) {
     return Automerge.change(doc, message, (draft) => {
       draft.items[copy.id] = copy;
     });
@@ -181,54 +171,54 @@ export function addTag(doc, id, tag, message = `Add tag to ${id}`) {
   assertDocument(doc);
   const value = String(tag || "").trim();
   if (!value) return doc;
-  if (!calendarItemMap(doc, id)[id]) throw new Error(`Unknown item ${id}.`);
-  if ((calendarItemMap(doc, id)[id].tags || []).includes(value)) return doc;
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
+  if ((doc.items[id].tags || []).includes(value)) return doc;
 
   return Automerge.change(doc, message, (draft) => {
-    if (!Array.isArray(calendarItemMap(draft, id)[id].tags)) calendarItemMap(draft, id)[id].tags = [];
-    calendarItemMap(draft, id)[id].tags.push(value);
+    if (!Array.isArray(draft.items[id].tags)) draft.items[id].tags = [];
+    draft.items[id].tags.push(value);
   });
 }
 
 export function removeTag(doc, id, tag, message = `Remove tag from ${id}`) {
   assertDocument(doc);
-  if (!calendarItemMap(doc, id)[id]) throw new Error(`Unknown item ${id}.`);
-  const index = (calendarItemMap(doc, id)[id].tags || []).indexOf(tag);
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
+  const index = (doc.items[id].tags || []).indexOf(tag);
   if (index < 0) return doc;
 
   return Automerge.change(doc, message, (draft) => {
-    calendarItemMap(draft, id)[id].tags.splice(index, 1);
+    draft.items[id].tags.splice(index, 1);
   });
 }
 
 export function addAttachmentMetadata(doc, id, attachment, message = `Attach file to ${id}`) {
   assertDocument(doc);
-  if (!calendarItemMap(doc, id)[id]) throw new Error(`Unknown item ${id}.`);
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
   const clean = cloneForDocument(attachment);
   for (const field of LOCAL_ATTACHMENT_FIELDS) delete clean[field];
   if (!clean.id) throw new Error("Attachment metadata requires an id.");
 
-  const currentIndex = (calendarItemMap(doc, id)[id].attachments || []).findIndex((candidate) => candidate.id === clean.id);
+  const currentIndex = (doc.items[id].attachments || []).findIndex((candidate) => candidate.id === clean.id);
   if (currentIndex >= 0) {
     return Automerge.change(doc, message, (draft) => {
-      const current = calendarItemMap(draft, id)[id].attachments[currentIndex];
+      const current = draft.items[id].attachments[currentIndex];
       for (const [key, value] of Object.entries(clean)) current[key] = value;
     });
   }
 
   return Automerge.change(doc, message, (draft) => {
-    if (!Array.isArray(calendarItemMap(draft, id)[id].attachments)) calendarItemMap(draft, id)[id].attachments = [];
-    calendarItemMap(draft, id)[id].attachments.push(clean);
+    if (!Array.isArray(draft.items[id].attachments)) draft.items[id].attachments = [];
+    draft.items[id].attachments.push(clean);
   });
 }
 
 export function removeAttachmentMetadata(doc, id, attachmentId, message = `Remove attachment from ${id}`) {
   assertDocument(doc);
-  if (!calendarItemMap(doc, id)[id]) throw new Error(`Unknown item ${id}.`);
-  const index = (calendarItemMap(doc, id)[id].attachments || []).findIndex((candidate) => candidate.id === attachmentId);
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
+  const index = (doc.items[id].attachments || []).findIndex((candidate) => candidate.id === attachmentId);
   if (index < 0) return doc;
   return Automerge.change(doc, message, (draft) => {
-    calendarItemMap(draft, id)[id].attachments.splice(index, 1);
+    draft.items[id].attachments.splice(index, 1);
   });
 }
 
@@ -238,30 +228,30 @@ function valueFingerprint(value) {
 
 export function addHistoryEntry(doc, id, entry, message = `Append history for ${id}`) {
   assertDocument(doc);
-  if (!calendarItemMap(doc, id)[id]) throw new Error(`Unknown item ${id}.`);
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
   const clean = cloneForDocument(entry);
   const fingerprint = valueFingerprint(clean);
-  if ((calendarItemMap(doc, id)[id].history || []).some((candidate) => valueFingerprint(candidate) === fingerprint)) return doc;
+  if ((doc.items[id].history || []).some((candidate) => valueFingerprint(candidate) === fingerprint)) return doc;
   return Automerge.change(doc, message, (draft) => {
-    if (!Array.isArray(calendarItemMap(draft, id)[id].history)) calendarItemMap(draft, id)[id].history = [];
-    calendarItemMap(draft, id)[id].history.push(clean);
+    if (!Array.isArray(draft.items[id].history)) draft.items[id].history = [];
+    draft.items[id].history.push(clean);
   });
 }
 
 export function removeHistoryEntry(doc, id, entry, message = `Remove history for ${id}`) {
   assertDocument(doc);
-  if (!calendarItemMap(doc, id)[id]) throw new Error(`Unknown item ${id}.`);
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
   const fingerprint = valueFingerprint(entry);
-  const index = (calendarItemMap(doc, id)[id].history || []).findIndex((candidate) => valueFingerprint(candidate) === fingerprint);
+  const index = (doc.items[id].history || []).findIndex((candidate) => valueFingerprint(candidate) === fingerprint);
   if (index < 0) return doc;
   return Automerge.change(doc, message, (draft) => {
-    calendarItemMap(draft, id)[id].history.splice(index, 1);
+    draft.items[id].history.splice(index, 1);
   });
 }
 
 export function tombstoneItem(doc, id, deletedAt, message = `Delete item ${id}`) {
   assertDocument(doc);
-  if (!calendarItemMap(doc, id)[id]) throw new Error(`Unknown item ${id}.`);
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
   const when = deletedAt instanceof Date ? deletedAt.toISOString() : String(deletedAt || "");
   if (!when) throw new Error("Tombstones require an explicit deletion time.");
   return patchItem(doc, id, { deletedAt: when }, message);
@@ -269,29 +259,23 @@ export function tombstoneItem(doc, id, deletedAt, message = `Delete item ${id}`)
 
 export function restoreItem(doc, id, message = `Restore item ${id}`) {
   assertDocument(doc);
-  if (!calendarItemMap(doc, id)[id]) throw new Error(`Unknown item ${id}.`);
-  if (!("deletedAt" in calendarItemMap(doc, id)[id])) return doc;
+  if (!doc.items[id]) throw new Error(`Unknown item ${id}.`);
+  if (!("deletedAt" in doc.items[id])) return doc;
   return Automerge.change(doc, message, (draft) => {
-    delete calendarItemMap(draft, id)[id].deletedAt;
+    delete draft.items[id].deletedAt;
   });
 }
 
 export function materializeItems(doc, { includeDeleted = false } = {}) {
   assertDocument(doc);
-  const items = new Map();
-  for (const map of calendarItemMaps(doc)) {
-    for (const [id, item] of Object.entries(map)) {
-      if (!items.has(id)) items.set(id, item);
-    }
-  }
-  return [...items.values()]
+  return Object.values(doc.items)
     .filter((item) => includeDeleted || !item.deletedAt)
     .map(plainClone);
 }
 
 export function materializeItem(doc, id, { includeDeleted = false } = {}) {
   assertDocument(doc);
-  const item = calendarItemMap(doc, id)[id];
+  const item = doc.items[id];
   if (!item || (!includeDeleted && item.deletedAt)) return null;
   return plainClone(item);
 }
@@ -299,7 +283,9 @@ export function materializeItem(doc, id, { includeDeleted = false } = {}) {
 export function mergeCalendarDocuments(local, remote) {
   assertDocument(local);
   assertDocument(remote);
-  return Automerge.merge(Automerge.clone(local), Automerge.clone(remote));
+  const merged = Automerge.merge(Automerge.clone(local), Automerge.clone(remote));
+  assertDocument(merged);
+  return merged;
 }
 
 export function saveCalendarDocument(doc) {
@@ -325,7 +311,7 @@ export function mergeSnapshotBytes(storedBytes, incomingBytes) {
 
 export function getItemFieldConflicts(doc, id, field) {
   assertDocument(doc);
-  const item = calendarItemMap(doc, id)[id];
+  const item = doc.items[id];
   if (!item) return [];
   const conflicts = Automerge.getConflicts(item, field);
   return conflicts ? Object.values(conflicts).map(plainClone) : [];

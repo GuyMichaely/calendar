@@ -9,10 +9,10 @@ import {
 } from "./automerge-storage.js";
 import { uploadAttachmentsBeforePersist } from "./attachment-remote.js";
 
-const HISTORY_DB_NAME = "calendar-history";
+const HISTORY_DB_NAME = "calendar-history-2";
 const HISTORY_DB_VERSION = 1;
 const HISTORY_STORE = "sessions";
-const HISTORY_SESSION_KEY = "calendar.historySessionId";
+const HISTORY_SESSION_KEY = "calendar.historySessionId.2";
 const HISTORY_LIMIT = 100;
 
 const undoStack = [];

@@ -1,4 +1,4 @@
-import { mergeSnapshotBytes } from "../../sync/automerge-document.js";
+import { CalendarDocumentError, mergeSnapshotBytes } from "../../sync/automerge-document.js";
 
 import { AUTOMERGE_MEDIA_TYPE } from "../../sync/protocol.js";
 export { AUTOMERGE_MEDIA_TYPE };
@@ -93,6 +93,7 @@ export function createSyncHandler({
         },
       });
     } catch (error) {
+      if (error instanceof CalendarDocumentError) return new Response(error.message, { status: 409 });
       if (error instanceof RangeError || error instanceof TypeError || /Automerge|calendar sync schema|Incoming Automerge/u.test(String(error?.message))) {
         return new Response("Invalid sync document", { status: 400 });
       }

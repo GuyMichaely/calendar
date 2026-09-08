@@ -1,3 +1,4 @@
+import * as Automerge from "@automerge/automerge";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -165,4 +166,17 @@ test("Sync now on an independent device downloads server items and merges its ow
   assert.ok(materializeItem(received, "other-device"));
   const refreshed = await responseDocument(await handler(request(saveCalendarDocument(source))));
   assert.ok(materializeItem(refreshed, "other-device"));
+});
+
+test("incompatible generations and unrelated roots cannot mutate the server", async () => {
+  const bytes = saveCalendarDocument(createCalendarDocument([task()]));
+  const store = createMemoryDocumentStore({ "calendar:primary": bytes });
+  const handler = authorizedHandler(store);
+  for (const schemaVersion of [1, 2]) {
+    const incompatible = Automerge.from({ schemaVersion, items: {} });
+    const response = await handler(request(Automerge.save(incompatible)));
+    assert.equal(response.status, 409);
+    assert.match(await response.text(), /Refresh the app/);
+    assert.deepEqual(await store.get("calendar:primary"), bytes);
+  }
 });

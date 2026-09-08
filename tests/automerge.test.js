@@ -191,31 +191,15 @@ test("independently initialized devices share the root but have distinct editing
   assert.equal(materializeItems(mergeCalendarDocuments(merged, emptyA)).length, 2);
 });
 
-test("legacy root conflicts retain items, late edits, text history and tombstones", () => {
-  const old = Automerge.from({ schemaVersion: 1, items: { "task-1": task() } }, { actor: "aa" });
-  const blank = Automerge.from({ schemaVersion: 1, items: {} }, { actor: "bb" });
-  let merged = mergeCalendarDocuments(old, blank);
-  assert.equal(merged.items["task-1"], undefined); // The formerly hidden root.
-  assert.equal(materializeItems(merged).length, 1);
-  merged = updateItemText(merged, "task-1", "notes", "hello brave world");
-  const late = updateItemText(forkCalendarDocument(old), "task-1", "notes", "hello world!");
-  merged = mergeCalendarDocuments(merged, late);
-  assert.equal(materializeItem(merged, "task-1").notes, "hello brave world!");
-  merged = addTag(merged, "task-1", "recovered");
-  merged = addAttachmentMetadata(merged, "task-1", { id: "file", name: "test.txt" });
-  assert.ok(materializeItem(merged, "task-1").tags.includes("recovered"));
-  assert.equal(materializeItem(merged, "task-1").attachments[0].id, "file");
-  merged = tombstoneItem(merged, "task-1", "2026-09-06T12:00:00Z");
-  merged = mergeCalendarDocuments(merged, late);
-  assert.equal(materializeItems(merged).length, 0);
-  merged = restoreItem(merged, "task-1");
-  assert.equal(materializeItem(loadCalendarDocument(saveCalendarDocument(merged)), "task-1").notes, "hello brave world!");
-  assert.equal(Object.keys(Automerge.getConflicts(merged, "items")).length, 2);
-});
-
-test("duplicate IDs across legacy roots resolve consistently without reviving a tombstone", () => {
-  const a = Automerge.from({ schemaVersion: 1, items: { "task-1": task() } }, { actor: "aa" });
-  const b = Automerge.from({ schemaVersion: 1, items: { "task-1": task({ deletedAt: "2026-09-06T12:00:00Z" }) } }, { actor: "bb" });
-  assert.deepEqual(materializeItems(mergeCalendarDocuments(a, b)), []);
-  assert.deepEqual(materializeItems(mergeCalendarDocuments(b, a)), []);
+test("only the current shared root is accepted, including before merge", () => {
+  const good = createCalendarDocument([task()]);
+  const differentGeneration = Automerge.from({ schemaVersion: 1, items: {} });
+  const unrelated = Automerge.from({ schemaVersion: 2, items: {} });
+  const conflicting = Automerge.merge(Automerge.clone(good), unrelated);
+  for (const invalid of [differentGeneration, unrelated, conflicting]) {
+    assert.throws(() => loadCalendarDocument(Automerge.save(invalid)), /different storage generation/);
+    assert.throws(() => mergeCalendarDocuments(good, invalid), /different storage generation/);
+    assert.throws(() => saveCalendarDocument(invalid), /different storage generation/);
+  }
+  assert.equal(materializeItems(good).length, 1);
 });

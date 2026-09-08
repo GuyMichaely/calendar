@@ -2,11 +2,13 @@
 
 This top-level directory is shared by the frontend and backend: it contains the CRDT document model, protocol constants, and client. Server-only authentication and HTTP handlers live in `backend/auth/` and `backend/sync/`.
 
-Existing calendar data contains concurrent root item maps, so reads and edits resolve across all of them. This is required for the current stored document: taking only the winning root hides items and discards their reachable history. It is not a separate legacy-format importer.
-
 The Solid app stores its canonical local state as the same versioned Automerge document used here. `site/storage.js` exposes serialized snapshots through `readSyncSnapshot()` and merges incoming snapshots through `mergeSyncSnapshot()`.
 
-The canonical synchronized document has schema version `1` and an `items` map keyed by item ID. Item deletion uses an application-level `deletedAt` tombstone rather than immediate CRDT object deletion. Concurrent offline edits therefore cannot silently resurrect a deleted item. Explicit restore removes the tombstone.
+The canonical synchronized document has schema version `2` and one `items` map keyed by item ID. Every device clones the same genesis change. Loading and merging require that exact root identity and reject conflicting roots or other schema versions; there is no legacy decoder or recovery path.
+
+Generation 2 starts with a new Automerge edit history. Current items, task activity history, and deletion tombstones were preserved during the one-time production conversion. Browser document and undo databases are scoped to this generation. Refresh each device and sync to download its calendar; unsynchronized data from the previous generation is not imported automatically.
+
+Item deletion uses an application-level `deletedAt` tombstone rather than immediate CRDT object deletion. Concurrent offline edits therefore cannot silently resurrect a deleted item. Explicit restore removes the tombstone.
 
 `title` and `notes` use Automerge collaborative-text operations. Other fields are updated independently where practical. Tags, attachment metadata, and task history have fine-grained operations. Attachment bytes are excluded from the document and stored separately from the CRDT.
 
@@ -24,7 +26,7 @@ The endpoint is deliberately simple. It does not require Automerge Repo, WebSock
 
 ## Attachment endpoint
 
-`backend/sync/attachments-http.js` exposes attachment bytes separately from the Automerge document. Attachment metadata already contains a stable attachment ID, so the blob route uses that existing ID without changing schema version `1`:
+`backend/sync/attachments-http.js` exposes attachment bytes separately from the Automerge document. Attachment metadata already contains a stable attachment ID, so the blob route uses that existing ID without changing schema version `2`:
 
 ```text
 HEAD /attachments/:id

@@ -33,30 +33,25 @@ Login opens Cloudflare's authorization page; complete it yourself. The wrapper d
 
 Check the deployment's displayed workers.dev URL at /healthz; expect "ok". Do not sign in or sync through the temporary hostname: Google still redirects to the existing calendar hostname.
 
-## Transfer existing data before changing the hostname
+## Production
 
-Sync all devices, then pause editing and close the app on all devices. Stop the old backend to freeze its final snapshot:
-
-    sudo ./scripts/prepare-cloud-migration
-    ./scripts/bun scripts/upload-cloud-data.js .local/cloud-backup
-
-Keep this backup and the original Docker volume. The script transfers attachment files and the actual Automerge snapshot, preserving history and tombstones. Every uploaded object is downloaded again and checked with SHA-256 before cutover. JSON exports alone do not preserve those or contain attachment bytes. The Worker uses the uploaded seed only on its first successful sync when its database is empty; it never overwrites an existing cloud calendar.
-
-Deploy the configured Worker route `calendar-sync.guymichaely.com/*` with `./scripts/worker deploy`. The existing proxied DNS record stays in place; Cloudflare executes the Worker before the tunnel origin. The Worker handles every request itself and never forwards to the tunnel, so no running connector is required. Preserve the tunnel configuration for rollback. Do not also add a Custom Domain: Cloudflare rejects that while the existing tunnel CNAME exists.
-
-The production route was deployed on 2026-09-08. The full source snapshot (19 items) and three attachment blobs were uploaded to private R2 and verified byte-for-byte. Public health still succeeds with the local connector stopped. The user also verified Google sign-in, Sync now, task data, and an existing attachment download through the production hostname.
+Production runs at `https://calendar-sync.guymichaely.com` on Workers Free, with its calendar in Durable Object SQLite and attachment files in private R2. Google login uses the existing encrypted Worker secrets. The configured route `calendar-sync.guymichaely.com/*` handles every request without forwarding to the tunnel origin, so Docker and the connector can stay stopped. The existing proxied DNS record and tunnel configuration remain in place.
 
 Keep the existing Google redirect URI:
 
     https://calendar-sync.guymichaely.com/auth/callback/google
 
-No Google client or allowed subject change is needed. Verify the public /healthz endpoint. Open the app, sign in again (old sessions stay on the old server), sync, compare tasks, and download an existing attachment. Repeat sync on another device.
+Deploy only the current entry point with `./scripts/worker deploy`. New empty server storage is initialized by the first authenticated sync; there is no old-server seed fallback. The one-time root migration is not part of the production runtime or deployment scripts. Generation-2 documents use a single shared root and reject incompatible clients with HTTP 409. Refresh the frontend on each device and sync after the migration. The production conversion on 2026-09-08 verified 19 items and one deletion tombstone unchanged while replacing five root maps with one. Task activity history is preserved; previous Automerge edit history and browser undo history are reset.
 
-Only after verification, stop the connector:
+## Free-plan trial (optional)
 
-    sudo ./scripts/container --profile cloudflare stop cloudflared
+The trial is isolated from production and uses only synthetic data:
 
-If a problem occurs before cloud edits, remove the Worker route from its configuration and redeploy, then start the old backend/connector. The preserved tunnel hostname configuration takes over again. After cloud edits, first sync/export those changes and copy new cloud attachments before rollback; simply starting the old volume would omit newer cloud data.
+    CALENDAR_WORKER_CONFIG=backend/cloudflare/wrangler.trial.jsonc ./scripts/worker deploy
+    CALENDAR_WORKER_CONFIG=backend/cloudflare/wrangler.trial.jsonc ./scripts/worker secret bulk .local/trial-secrets.json
+    ./scripts/bun scripts/test-cloud-trial.js https://calendar-sync-trial.guymichaely.workers.dev
+
+Use a fresh random `TRIAL_TOKEN` in the ignored secret file (mode 0600). The synthetic session lasts one hour after object startup.
 
 ## Local verification
 

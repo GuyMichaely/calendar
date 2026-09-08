@@ -63,7 +63,7 @@ test("Solid persistence uploads attachment bytes before storing metadata-only Au
   assert.equal("blob" in materializeItem(baseDocument, initial.id).attachments[0], false);
 
   const db = await new Promise((resolve, reject) => {
-    const request = indexedDB.open("calendar-automerge", 1);
+    const request = indexedDB.open("calendar-automerge-2", 1);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -158,19 +158,11 @@ test("kind conversion removes obsolete source-kind fields without overwriting un
 });
 
 
-test("recovered legacy items support stale editor saves without losing remote text", async () => {
-  const id = "legacy-hidden-storage";
-  const old = Automerge.from({ schemaVersion: 1, items: { [id]: task({ id }) } }, { actor: "aa" });
-  const blank = Automerge.from({ schemaVersion: 1, items: {} }, { actor: "bb" });
-  await storage.mergeSyncSnapshot(saveCalendarDocument(Automerge.merge(old, blank)));
-  const baseline = (await storage.listItems()).find((item) => item.id === id);
-  assert.ok(baseline);
-  const remote = updateItemText(forkCalendarDocument(old), id, "notes", "hello world!");
-  await storage.mergeSyncSnapshot(saveCalendarDocument(remote));
-  await storage.putItem({ ...baseline, notes: "hello brave world", tags: [...baseline.tags, "local"] }, baseline);
-  const result = (await storage.listItems()).find((item) => item.id === id);
-  assert.equal(result.notes, "hello brave world!");
-  assert.ok(result.tags.includes("local"));
+test("a different document generation cannot replace current browser data", async () => {
+  const before = await storage.readSyncSnapshot();
+  const incompatible = Automerge.from({ schemaVersion: 1, items: {} });
+  await assert.rejects(() => storage.mergeSyncSnapshot(Automerge.save(incompatible)), /different storage generation/);
+  assert.deepEqual(await storage.readSyncSnapshot(), before);
 });
 
 test("repeated autosaves preserve concurrent remote text while the editor stays on its branch", async () => {

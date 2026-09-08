@@ -43,7 +43,7 @@ try {
   assert.equal(await (await fetch(endpoint + "/attachments/test", { headers: fileHeaders })).text(), "original");
   assert.equal((await fetch(endpoint + "/attachments/test")).status, 401);
   assert.equal((await fetch(endpoint + "/sync", { method: "POST", headers: { ...headers, origin: "https://untrusted.example" } })).status, 403);
-  console.log("Worker smoke passed: health, auth, initial snapshot transfer, independent-device merges, immutable R2 attachments, and origin rejection.");
+  console.log("Worker smoke passed: health, auth, persisted snapshot loading, independent-device merges, immutable R2 attachments, and origin rejection.");
 } finally {
   child.kill();
   await child.exited;

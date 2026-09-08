@@ -4,7 +4,6 @@ import {
   addHistoryEntry,
   addTag,
   createCalendarDocument,
-  calendarItemMap,
   deleteItemField,
   getItemFieldConflicts,
   itemForSync,
@@ -23,7 +22,7 @@ import {
   updateItemText,
 } from "../sync/automerge-document.js";
 
-export const CALENDAR_DATA_DB_NAME = "calendar-automerge";
+export const CALENDAR_DATA_DB_NAME = "calendar-automerge-2";
 export const CALENDAR_DATA_DB_VERSION = 1;
 export const CALENDAR_DOCUMENT_STORE = "documents";
 export const CALENDAR_DOCUMENT_ID = "primary";
@@ -159,7 +158,7 @@ function applyDraftValue(root, path, before, after, afterPresent = true) {
 }
 
 function mutateDraftFromIntent(draft, baseline, next) {
-  const items = calendarItemMap(draft, next.id);
+  const items = draft.items;
   const item = items[next.id];
   if (!item) return;
 
