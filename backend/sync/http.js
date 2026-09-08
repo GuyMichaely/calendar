@@ -1,4 +1,4 @@
-import { CalendarDocumentError, mergeSnapshotBytes } from "../../sync/automerge-document.js";
+import { CalendarDocumentError, InvalidCalendarSnapshotError, loadCalendarDocument, saveCalendarDocument, mergeCalendarDocuments, forkCalendarDocument } from "../../sync/automerge-document.js";
 
 import { AUTOMERGE_MEDIA_TYPE } from "../../sync/protocol.js";
 export { AUTOMERGE_MEDIA_TYPE };
@@ -77,13 +77,23 @@ export function createSyncHandler({
       return new Response(`Content-Type must be ${AUTOMERGE_MEDIA_TYPE}`, { status: 415 });
     }
 
-    const incoming = new Uint8Array(await request.arrayBuffer());
-    if (!incoming.byteLength) return new Response("Sync document is empty", { status: 400 });
+    let incoming;
+    try {
+      incoming = loadCalendarDocument(new Uint8Array(await request.arrayBuffer()));
+    } catch (error) {
+      if (error instanceof CalendarDocumentError) return new Response(error.message, { status: 409 });
+      if (error instanceof InvalidCalendarSnapshotError) return new Response("Invalid sync document", { status: 400 });
+      console.error("Reading calendar sync request failed", error);
+      return new Response("Sync failed", { status: 500 });
+    }
 
     try {
       const responseBytes = await documentStore.update(documentKey, async (storedBytes) => {
-        const merged = mergeSnapshotBytes(storedBytes, incoming);
-        return { value: merged.storedBytes, result: merged.responseBytes };
+        const merged = storedBytes
+          ? mergeCalendarDocuments(loadCalendarDocument(storedBytes), incoming)
+          : forkCalendarDocument(incoming);
+        const bytes = saveCalendarDocument(merged);
+        return { value: bytes, result: bytes };
       });
       return new Response(responseBytes, {
         status: 200,
@@ -93,10 +103,6 @@ export function createSyncHandler({
         },
       });
     } catch (error) {
-      if (error instanceof CalendarDocumentError) return new Response(error.message, { status: 409 });
-      if (error instanceof RangeError || error instanceof TypeError || /Automerge|calendar sync schema|Incoming Automerge/u.test(String(error?.message))) {
-        return new Response("Invalid sync document", { status: 400 });
-      }
       console.error("Calendar sync failed", error);
       return new Response("Sync failed", { status: 500 });
     }

@@ -24,6 +24,10 @@ The endpoint is deliberately simple. It does not require Automerge Repo, WebSock
 
 `createSyncHandler()` accepts an optional backend path prefix. The same prefix can therefore be used consistently for OIDC callbacks, `/sync`, attachment routes, and the Solid remote client.
 
+Incoming snapshot decoding and schema validation finish before storage is accessed. Decoder failures are wrapped in `InvalidCalendarSnapshotError` (HTTP 400); incompatible schemas/roots use `CalendarDocumentError` (HTTP 409). Failures reading stored data, merging, or writing storage are server errors (HTTP 500), regardless of Automerge's error wording.
+
+See [native sync assessment](../docs/automerge-sync-plan.md) for the measured transport alternatives.
+
 ## Attachment endpoint
 
 `backend/sync/attachments-http.js` exposes attachment bytes separately from the Automerge document. Attachment metadata already contains a stable attachment ID, so the blob route uses that existing ID without changing schema version `2`:
@@ -33,6 +37,8 @@ HEAD /attachments/:id
 GET  /attachments/:id
 PUT  /attachments/:id
 ```
+
+Attachment entries are immutable CRDT list objects. Adding an identical existing entry is a no-op; changing its metadata requires removing the old entry and inserting a whole replacement. Undo re-adds a whole entry. The file ID can continue to reference the same immutable blob. A replacement concurrent with removal survives as a new insertion; no metadata fields are edited on the removed object.
 
 All three operations require the same injected authentication used by document sync. `HEAD` lets a client avoid re-uploading a blob that is already present. `PUT` is immutable through the blob-store `putIfAbsent()` contract. `GET` returns the stored bytes and media type. The attachment endpoint does not impose an application-level byte limit; concrete runtimes, reverse proxies, and storage providers may still impose technical limits.
 

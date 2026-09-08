@@ -77,7 +77,12 @@ function hydrateItems(items, heads = null) {
 }
 
 function sameValue(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  if (Object.is(left, right)) return true;
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
+  if (left instanceof Date || right instanceof Date) return left instanceof Date && right instanceof Date && left.getTime() === right.getTime();
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every(key => Object.hasOwn(right, key) && sameValue(left[key], right[key]));
 }
 
 function fingerprint(value) {
@@ -181,8 +186,8 @@ function mutateDraftFromIntent(draft, baseline, next) {
   const baselineAttachments = new Map((baseline.attachments || []).map((attachment) => [attachment.id, attachment]));
   const nextAttachments = new Map((next.attachments || []).map((attachment) => [attachment.id, attachment]));
   if (!Array.isArray(item.attachments)) item.attachments = [];
-  for (const [attachmentId] of baselineAttachments) {
-    if (nextAttachments.has(attachmentId)) continue;
+  for (const [attachmentId, beforeAttachment] of baselineAttachments) {
+    if (sameValue(beforeAttachment, nextAttachments.get(attachmentId))) continue;
     const index = item.attachments.findIndex((candidate) => candidate.id === attachmentId);
     if (index >= 0) item.attachments.splice(index, 1);
   }
@@ -191,18 +196,6 @@ function mutateDraftFromIntent(draft, baseline, next) {
     if (beforeAttachment && sameValue(beforeAttachment, attachment)) continue;
     const index = item.attachments.findIndex((candidate) => candidate.id === attachmentId);
     if (index < 0) item.attachments.push(attachment);
-    else {
-      const fields = new Set([...Object.keys(beforeAttachment || {}), ...Object.keys(attachment)]);
-      for (const field of fields) {
-        applyDraftValue(
-          items,
-          [next.id, "attachments", index, field],
-          beforeAttachment?.[field],
-          attachment[field],
-          Object.hasOwn(attachment, field),
-        );
-      }
-    }
   }
 
   if (!Array.isArray(item.history) && ((baseline.history || []).length || (next.history || []).length)) item.history = [];
@@ -262,8 +255,8 @@ function applyItemIntent(doc, baselineItem, nextItem, { restoreDeleted = false }
 
   const baselineAttachments = new Map((baseline.attachments || []).map((attachment) => [attachment.id, attachment]));
   const nextAttachments = new Map((next.attachments || []).map((attachment) => [attachment.id, attachment]));
-  for (const [attachmentId] of baselineAttachments) {
-    if (!nextAttachments.has(attachmentId)) doc = removeAttachmentMetadata(doc, next.id, attachmentId);
+  for (const [attachmentId, beforeAttachment] of baselineAttachments) {
+    if (!sameValue(beforeAttachment, nextAttachments.get(attachmentId))) doc = removeAttachmentMetadata(doc, next.id, attachmentId);
   }
   for (const [attachmentId, attachment] of nextAttachments) {
     const beforeAttachment = baselineAttachments.get(attachmentId);
@@ -317,16 +310,15 @@ function applyHistoryDelta(doc, before, after, side) {
 
   const sourceAttachments = new Map((source.attachments || []).map((attachment) => [attachment.id, attachment]));
   const targetAttachments = new Map((target.attachments || []).map((attachment) => [attachment.id, attachment]));
-  for (const [attachmentId] of sourceAttachments) {
-    if (!targetAttachments.has(attachmentId)) doc = removeAttachmentMetadata(doc, id, attachmentId, `History remove attachment for ${id}`);
-  }
-  for (const [attachmentId, attachment] of targetAttachments) {
+  for (const attachmentId of new Set([...sourceAttachments.keys(), ...targetAttachments.keys()])) {
     const sourceAttachment = sourceAttachments.get(attachmentId);
+    const targetAttachment = targetAttachments.get(attachmentId);
+    if (sameValue(sourceAttachment, targetAttachment)) continue;
     current = materializeItem(doc, id, { includeDeleted: true });
-    const currentAttachment = (current?.attachments || []).find((candidate) => candidate.id === attachmentId);
-    if (!sourceAttachment || (sameValue(currentAttachment, sourceAttachment) && !sameValue(sourceAttachment, attachment))) {
-      doc = addAttachmentMetadata(doc, id, attachment, `History attachment for ${id}`);
-    }
+    const currentAttachment = (current?.attachments || []).find(entry => entry.id === attachmentId);
+    if (!sameValue(currentAttachment, sourceAttachment)) continue;
+    if (sourceAttachment) doc = removeAttachmentMetadata(doc, id, attachmentId, `History remove attachment for ${id}`);
+    if (targetAttachment) doc = addAttachmentMetadata(doc, id, targetAttachment, `History add attachment for ${id}`);
   }
   for (const entry of listDifference(source.history || [], target.history || [])) doc = removeHistoryEntry(doc, id, entry, `History remove audit entry for ${id}`);
   for (const entry of listDifference(target.history || [], source.history || [])) doc = addHistoryEntry(doc, id, entry, `History add audit entry for ${id}`);

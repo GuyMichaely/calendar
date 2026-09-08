@@ -180,3 +180,25 @@ test("incompatible generations and unrelated roots cannot mutate the server", as
     assert.deepEqual(await store.get("calendar:primary"), bytes);
   }
 });
+
+test("client decoding and schema validation happen before any storage access", async () => {
+  let updates = 0;
+  const handler = authorizedHandler({ async update() { updates++; throw new Error("must not run"); } });
+  for (const bytes of [new Uint8Array([1, 2, 3]), saveCalendarDocument(createCalendarDocument()).slice(0, 20)]) {
+    assert.equal((await handler(request(bytes))).status, 400);
+  }
+  assert.equal((await handler(request(Automerge.save(Automerge.from({schemaVersion: 1, items: {}}))))).status, 409);
+  assert.equal(updates, 0);
+});
+
+test("server failures remain server failures regardless of class or wording", async () => {
+  const incoming = saveCalendarDocument(createCalendarDocument([task()]));
+  for (const error of [new TypeError("Automerge"), new RangeError("calendar sync schema"), new Error("Incoming Automerge")]) {
+    const response = await authorizedHandler({ async update() { throw error; } })(request(incoming));
+    assert.equal(response.status, 500);
+  }
+  const corrupt = new Uint8Array([1, 2, 3]);
+  const store = createMemoryDocumentStore({ "calendar:primary": corrupt });
+  assert.equal((await authorizedHandler(store)(request(incoming))).status, 500);
+  assert.deepEqual(await store.get("calendar:primary"), corrupt);
+});

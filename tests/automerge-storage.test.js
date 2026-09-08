@@ -209,3 +209,23 @@ test("removing an attachment in a stale editor preserves a concurrently added at
   const restored = (await storage.listItems()).find(item => item.id === original.id);
   assert.deepEqual(restored.attachments.map(file => file.id).sort(), ["old-file", "remote-file"]);
 });
+
+test("attachment replacement and undo operate on whole entries", async () => {
+  const attachment = { id: "replace-file", name: "before.txt", type: "text/plain", size: 1 };
+  await storage.putItem(task({ id: "replace-attachment", attachments: [attachment] }));
+  const baseline = await storage.getItem("replace-attachment");
+  const before = loadCalendarDocument(await storage.readSyncSnapshot());
+  const objectId = Automerge.getObjectId(before.items[baseline.id].attachments[0]);
+  await storage.putItem({ ...baseline, attachments: [{ ...attachment, name: "after.txt" }] }, baseline);
+  const after = loadCalendarDocument(await storage.readSyncSnapshot());
+  assert.notEqual(Automerge.getObjectId(after.items[baseline.id].attachments[0]), objectId);
+  assert.equal((await storage.getItem(baseline.id)).attachments[0].name, "after.txt");
+  assert.equal(await storage.undo(), true);
+  assert.deepEqual((await storage.getItem(baseline.id)).attachments, [attachment]);
+  assert.equal(await storage.redo(), true);
+  assert.equal((await storage.getItem(baseline.id)).attachments[0].name, "after.txt");
+  const current = await storage.getItem(baseline.id);
+  await storage.putItem({ ...current, attachments: [] }, current);
+  assert.equal(await storage.undo(), true);
+  assert.equal((await storage.getItem(baseline.id)).attachments[0].name, "after.txt");
+});

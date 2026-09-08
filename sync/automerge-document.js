@@ -200,10 +200,10 @@ export function addAttachmentMetadata(doc, id, attachment, message = `Attach fil
 
   const currentIndex = (doc.items[id].attachments || []).findIndex((candidate) => candidate.id === clean.id);
   if (currentIndex >= 0) {
-    return Automerge.change(doc, message, (draft) => {
-      const current = draft.items[id].attachments[currentIndex];
-      for (const [key, value] of Object.entries(clean)) current[key] = value;
-    });
+    const current = doc.items[id].attachments[currentIndex];
+    const fields = new Set([...Object.keys(current), ...Object.keys(clean)]);
+    if ([...fields].every(key => current[key] === clean[key])) return doc;
+    throw new Error("Attachment entries are immutable; remove the entry before adding its replacement.");
   }
 
   return Automerge.change(doc, message, (draft) => {
@@ -293,8 +293,22 @@ export function saveCalendarDocument(doc) {
   return Automerge.save(doc);
 }
 
+export class InvalidCalendarSnapshotError extends Error {
+  constructor(cause) {
+    super("Invalid calendar snapshot", { cause });
+    this.name = "InvalidCalendarSnapshotError";
+  }
+}
+
 export function loadCalendarDocument(bytes) {
-  const doc = Automerge.load(bytes);
+  if (!(bytes instanceof Uint8Array) || !bytes.byteLength) throw new InvalidCalendarSnapshotError();
+  let doc;
+  try {
+    doc = Automerge.load(bytes);
+  } catch (cause) {
+    // This boundary only decodes bytes. Schema and storage failures remain distinct.
+    throw new InvalidCalendarSnapshotError(cause);
+  }
   assertDocument(doc);
   return doc;
 }
