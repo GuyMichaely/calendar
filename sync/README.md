@@ -14,19 +14,9 @@ Item deletion uses an application-level `deletedAt` tombstone rather than immedi
 
 ## Remote document endpoint
 
-`mergeSnapshotBytes(storedBytes, incomingBytes)` is the core merge primitive. `createSyncHandler()` exposes it as authenticated `POST /sync`: the client sends serialized Automerge bytes and receives the server's merged serialized document.
+See [incremental sync](../docs/incremental-sync.md) for the native message protocol, ordered session handling, reconnection behavior, and persistence boundary. The calendar uses `application/vnd.automerge.sync` on `POST /sync`. Saved documents stay as complete Automerge snapshots in IndexedDB and Durable Object storage; only missing changes and protocol metadata travel over the network.
 
-The endpoint is deliberately simple. It does not require Automerge Repo, WebSockets, peer processes, or an Automerge-specific server. Authentication is injected as `authenticate(request)`, so the sync layer does not know about Google, OIDC, or cookies.
-
-`sync/client.js` works at the same serialized boundary as the Solid storage layer. `syncCalendarStorage()` reads one local snapshot, sends it through ordinary Fetch with credentials, then calls the supplied `mergeSnapshot(bytes)` only after the response arrives. Because the merge occurs against the storage layer's current document, edits made while the network request is in flight are preserved.
-
-`POST /sync` does not impose an application-level byte limit. The whole serialized Automerge document is still buffered for merge, so concrete runtimes and infrastructure may impose technical body-size or memory limits. Those belong to the deployment/runtime layer rather than an arbitrary constant in the sync protocol.
-
-`createSyncHandler()` accepts an optional backend path prefix. The same prefix can therefore be used consistently for OIDC callbacks, `/sync`, attachment routes, and the Solid remote client.
-
-Incoming snapshot decoding and schema validation finish before storage is accessed. Decoder failures are wrapped in `InvalidCalendarSnapshotError` (HTTP 400); incompatible schemas/roots use `CalendarDocumentError` (HTTP 409). Failures reading stored data, merging, or writing storage are server errors (HTTP 500), regardless of Automerge's error wording.
-
-See [native sync assessment](../docs/automerge-sync-plan.md) for the measured transport alternatives.
+The server authenticates requests before reading messages, decodes malformed client messages before touching storage, and validates the resulting calendar before writing it. Incompatible calendar changes return HTTP 409; lost peer state returns HTTP 410 and triggers a native handshake restart. Internal storage failures remain HTTP 500, independent of Automerge's error wording.
 
 ## Attachment endpoint
 
@@ -74,7 +64,7 @@ A production adapter must serialize or transact concurrent updates for the same 
 
 `backend/http.js` composes auth, document sync, and optional attachment sync. It allows credentialed CORS only for configured exact origins. Requests carrying an untrusted `Origin` are rejected before reaching state-changing handlers so CORS is not relied on as a server-side authorization mechanism.
 
-The sync endpoint requires `application/vnd.automerge`, a non-simple media type. Attachment uploads use their actual content type. Browser cross-origin requests therefore use the configured preflight path where required.
+The sync endpoint requires `application/vnd.automerge.sync`, a non-simple media type. Attachment uploads use their actual content type. Browser cross-origin requests therefore use the configured preflight path where required.
 
 `backend/app.js` creates the complete provider-neutral handler from injected auth, document, and optional blob stores. `backend/bun-dev.js` provides a memory-only Bun HTTP runtime for local browser testing. `backend/bun-server.js` composes the persistent filesystem stores for a durable single-process deployment; see `backend/README.md` for runtime configuration and backup requirements.
 

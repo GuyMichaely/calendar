@@ -1,119 +1,29 @@
-import assert from "node:assert/strict";
-import test from "node:test";
-import {
-  addTag,
-  createCalendarDocument,
-  loadCalendarDocument,
-  materializeItem,
-  mergeCalendarDocuments,
-  patchItem,
-  saveCalendarDocument,
-} from "../sync/automerge-document.js";
-import { CalendarSyncError, exchangeCalendarSnapshotBytes, syncCalendarStorage } from "../sync/client.js";
-import { createMemoryDocumentStore, createSyncHandler } from "../backend/sync/http.js";
-
-function task() {
-  return {
-    id: "task-1",
-    kind: "task",
-    title: "Buy goggles",
-    notes: "",
-    state: "open",
-    tags: [],
-    attachments: [],
-    deadline: null,
-  };
-}
-
-function handlerFetch(handler, hook = null) {
-  return async (url, init) => {
-    assert.equal(init.credentials, "include");
-    const response = await handler(new Request(url, init));
-    if (hook) await hook();
-    return response;
-  };
-}
-
-test("sync client exchanges serialized Solid Automerge snapshots through ordinary fetch", async () => {
-  const handler = createSyncHandler({
-    authenticate: async () => ({ identity: { issuer: "issuer", subject: "guy" } }),
-    documentStore: createMemoryDocumentStore(),
-  });
-  const local = createCalendarDocument([task()]);
-  const responseBytes = await exchangeCalendarSnapshotBytes(saveCalendarDocument(local), {
-    endpoint: "https://sync.example/sync",
-    fetch: handlerFetch(handler),
-  });
-  const remote = loadCalendarDocument(responseBytes);
-  assert.deepEqual(materializeItem(remote, "task-1"), materializeItem(local, "task-1"));
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {createCalendarDocument,saveCalendarDocument,loadCalendarDocument,mergeCalendarDocuments,patchItem} from '../sync/automerge-document.js';
+import {createCalendarSyncClient,CalendarSyncError} from '../sync/client.js';
+import {createSyncHandler,createMemoryDocumentStore} from '../backend/sync/http.js';
+const server=store=>createSyncHandler({authenticate:async()=>({identity:{issuer:'issuer',subject:'owner'}}),documentStore:store});
+function replica(fetch,items=[]){let doc=createCalendarDocument(items);const client=createCalendarSyncClient({readSnapshot:async()=>saveCalendarDocument(doc),mergeSnapshot:async bytes=>{doc=mergeCalendarDocuments(doc,loadCalendarDocument(bytes));}},{endpoint:'https://sync.example/sync',fetch});return{sync:()=>client.sync(),edit:(id,p)=>{doc=patchItem(doc,id,p);},get doc(){return doc;}};}
+const task={id:'a',kind:'task',title:'Task',state:'open'};
+test('native sync is incremental, includes credentials and survives server restart',async()=>{
+ const store=createMemoryDocumentStore();let handler=server(store),bytes=0;
+ const peer=replica(async(url,init)=>{assert.equal(init.credentials,'include');bytes+=init.body.byteLength;const r=await handler(new Request(url,init));bytes+=(await r.clone().arrayBuffer()).byteLength;return r;},Array.from({length:100},(_,i)=>({...task,id:String(i)})));
+ await peer.sync();bytes=0;await peer.sync();assert.equal(bytes,0);
+ peer.edit('0',{title:'Changed'});await peer.sync();assert.ok(bytes<saveCalendarDocument(peer.doc).length,'small edit sends less than a snapshot');
+ handler=server(store);await peer.sync();assert.equal(loadCalendarDocument(await store.get('calendar:primary')).items['0'].title,'Changed');
 });
-
-test("sync client exposes HTTP authentication failures", async () => {
-  const handler = createSyncHandler({
-    authenticate: async () => null,
-    documentStore: createMemoryDocumentStore(),
-  });
-  const local = createCalendarDocument([task()]);
-
-  await assert.rejects(
-    exchangeCalendarSnapshotBytes(saveCalendarDocument(local), {
-      endpoint: "https://sync.example/sync",
-      fetch: handlerFetch(handler),
-    }),
-    (error) => error instanceof CalendarSyncError && error.status === 401,
-  );
+test('a lost response resets peer state and converges on retry',async()=>{
+ const store=createMemoryDocumentStore(),handler=server(store);let drop=true;
+ const peer=replica(async(url,init)=>{const response=await handler(new Request(url,init));if(drop && loadCalendarDocument(await store.get('calendar:primary')).items.a){drop=false;throw new Error('connection lost');}return response;},[task]);
+ await assert.rejects(peer.sync(),/connection lost/);await peer.sync();assert.equal(loadCalendarDocument(await store.get('calendar:primary')).items.a.title,'Task');
 });
-
-test("storage adapter merges the response into the latest local document so in-flight edits survive", async () => {
-  const store = createMemoryDocumentStore();
-  const handler = createSyncHandler({
-    authenticate: async () => ({ identity: { issuer: "issuer", subject: "guy" } }),
-    documentStore: store,
-  });
-  let current = patchItem(createCalendarDocument([task()]), "task-1", {
-    deadline: "2026-10-02T17:00:00.000Z",
-  });
-
-  let releaseResponse;
-  let responseReady;
-  const responseGate = new Promise((resolve) => { releaseResponse = resolve; });
-  const reachedGate = new Promise((resolve) => { responseReady = resolve; });
-  const fetch = handlerFetch(handler, async () => {
-    responseReady();
-    await responseGate;
-  });
-
-  const syncing = syncCalendarStorage({
-    readSnapshot: async () => saveCalendarDocument(current),
-    mergeSnapshot: async (bytes) => {
-      current = mergeCalendarDocuments(current, loadCalendarDocument(bytes));
-      return current;
-    },
-  }, {
-    endpoint: "https://sync.example/sync",
-    fetch,
-  });
-
-  await reachedGate;
-  current = addTag(current, "task-1", "edited-while-syncing");
-  releaseResponse();
-  await syncing;
-
-  const item = materializeItem(current, "task-1");
-  assert.equal(item.deadline, "2026-10-02T17:00:00.000Z");
-  assert.ok(item.tags.includes("edited-while-syncing"));
+test('edits during an exchange and overlapping sync calls converge',async()=>{
+ const store=createMemoryDocumentStore(),handler=server(store);let edited=false;
+ const peer=replica(async(url,init)=>{const response=await handler(new Request(url,init));if(!edited){edited=true;peer.edit('a',{notes:'edited in flight'});}return response;},[task]);
+ await Promise.all([peer.sync(),peer.sync()]);assert.equal(loadCalendarDocument(await store.get('calendar:primary')).items.a.notes,'edited in flight');
 });
-
-test("sync client rejects a successful response with the wrong media type", async () => {
-  const local = createCalendarDocument([task()]);
-  await assert.rejects(
-    exchangeCalendarSnapshotBytes(saveCalendarDocument(local), {
-      endpoint: "https://sync.example/sync",
-      fetch: async () => new Response("not automerge", {
-        status: 200,
-        headers: { "content-type": "text/plain" },
-      }),
-    }),
-    (error) => error instanceof CalendarSyncError && error.status === 200,
-  );
+test('HTTP auth and invalid response types are surfaced',async()=>{
+ await assert.rejects(replica(async()=>new Response('Unauthorized',{status:401}),[task]).sync(),error=>error instanceof CalendarSyncError&&error.status===401);
+ await assert.rejects(replica(async()=>new Response('wrong',{headers:{'content-type':'text/plain'}}),[task]).sync(),/Invalid sync response/);
 });

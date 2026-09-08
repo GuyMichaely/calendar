@@ -1,5 +1,5 @@
 import { configureRemoteAttachments } from "../../site/attachment-remote.js";
-import { syncCalendarStorage } from "../../sync/client.js";
+import { createCalendarSyncClient } from "../../sync/client.js";
 
 export type RemoteIdentity = {
   issuer: string;
@@ -112,6 +112,7 @@ export function createRemoteCalendarClient({ backendUrl, storage, fetch: fetchIm
   };
 
   configureRemoteAttachments({ upload: uploadAttachments, download: downloadAttachment });
+  const syncClient = createCalendarSyncClient(storage, { endpoint: endpoint("sync"), fetch: fetchImpl, credentials: "include" });
 
   return {
     loginUrl(provider = "google") {
@@ -138,12 +139,7 @@ export function createRemoteCalendarClient({ backendUrl, storage, fetch: fetchIm
     },
 
     sync(signal?: AbortSignal) {
-      return syncCalendarStorage(storage, {
-        endpoint: endpoint("sync"),
-        fetch: fetchImpl,
-        credentials: "include",
-        signal,
-      });
+      return syncClient.sync(signal);
     },
   };
 }

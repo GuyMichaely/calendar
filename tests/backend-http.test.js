@@ -1,3 +1,4 @@
+import { syncCalendarStorage } from "../sync/client.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createAuthHandler, createMemoryAuthStore, readAuthSession } from "../backend/auth/http.js";
@@ -190,19 +191,18 @@ test("an authenticated OIDC session can drive the composed sync endpoint end to 
     tags: [],
     attachments: [],
   }]);
-  const sync = await backend(new Request("https://sync.example/sync", {
-    method: "POST",
-    headers: {
-      origin: "https://app.example",
-      cookie: sessionCookie,
-      "content-type": AUTOMERGE_MEDIA_TYPE,
+  let current = doc;
+  await syncCalendarStorage({
+    readSnapshot: async () => saveCalendarDocument(current),
+    mergeSnapshot: async bytes => { current = loadCalendarDocument(bytes); },
+  }, {
+    endpoint: "https://sync.example/sync",
+    fetch: async (url, init) => {
+      const response = await backend(new Request(url, { ...init, headers: { ...init.headers, origin: "https://app.example", cookie: sessionCookie } }));
+      assert.equal(response.headers.get("access-control-allow-origin"), "https://app.example");
+      assert.equal(response.headers.get("access-control-allow-credentials"), "true");
+      return response;
     },
-    body: saveCalendarDocument(doc),
-  }));
-
-  assert.equal(sync.status, 200);
-  assert.equal(sync.headers.get("access-control-allow-origin"), "https://app.example");
-  assert.equal(sync.headers.get("access-control-allow-credentials"), "true");
-  const merged = loadCalendarDocument(new Uint8Array(await sync.arrayBuffer()));
-  assert.equal(materializeItem(merged, "task-1").title, "Synced task");
+  });
+  assert.equal(materializeItem(current, "task-1").title, "Synced task");
 });

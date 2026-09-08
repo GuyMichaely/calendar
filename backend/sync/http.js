@@ -1,7 +1,11 @@
-import { CalendarDocumentError, InvalidCalendarSnapshotError, loadCalendarDocument, saveCalendarDocument, mergeCalendarDocuments, forkCalendarDocument } from "../../sync/automerge-document.js";
-
-import { AUTOMERGE_MEDIA_TYPE } from "../../sync/protocol.js";
+import * as Automerge from "@automerge/automerge";
+import { CalendarDocumentError, createCalendarDocument, loadCalendarDocument, saveCalendarDocument } from "../../sync/automerge-document.js";
+import { AUTOMERGE_MEDIA_TYPE, SYNC_SESSION_HEADER, SYNC_SEQUENCE_HEADER } from "../../sync/protocol.js";
 export { AUTOMERGE_MEDIA_TYPE };
+
+class SyncRequestError extends Error {
+  constructor(message, status = 400) { super(message); this.status = status; }
+}
 
 function copyBytes(value) {
   return value == null ? null : new Uint8Array(value);
@@ -55,54 +59,70 @@ function mediaType(request) {
 }
 
 export function createSyncHandler({
-  authenticate,
-  documentStore,
-  documentKey = "calendar:primary",
-  basePath = "",
+  authenticate, documentStore, documentKey = "calendar:primary", basePath = "",
+  now = () => Date.now(), sessionTtlMs = 300_000, maxSessions = 100,
 }) {
-  if (typeof authenticate !== "function") throw new Error("Sync requires an authenticate(request) function.");
-  if (!documentStore?.update) throw new Error("Sync requires a document store with atomic update(key, fn).");
+  if (typeof authenticate !== "function" || !documentStore?.update) throw new Error("Sync requires authentication and atomic document storage.");
   const endpointPath = syncPath(basePath);
+  const peers = new Map();
+  let tail = Promise.resolve();
+
+  async function exchange(owner, sessionId, sequence, incoming) {
+    for (const [key, peer] of peers) if (now() - peer.touched > sessionTtlMs) peers.delete(key);
+    const key = JSON.stringify([owner, sessionId]);
+    const existing = peers.get(key);
+    if (!existing && sequence !== 0) throw new SyncRequestError("Sync connection expired; reconnect.", 410);
+    const peer = existing || { state: Automerge.initSyncState(), sequence: 0 };
+    if (sequence !== peer.sequence) throw new SyncRequestError("Sync connection is out of order; reconnect.", 410);
+    const outcome = await documentStore.update(documentKey, async storedBytes => {
+      let doc = storedBytes ? loadCalendarDocument(storedBytes) : createCalendarDocument();
+      let state = peer.state;
+      if (incoming.byteLength) {
+        try { [doc, state] = Automerge.receiveSyncMessage(doc, state, incoming); }
+        catch (cause) { throw new SyncRequestError("Invalid sync message"); }
+      }
+      let bytes;
+      try { bytes = saveCalendarDocument(doc); }
+      catch (error) {
+        if (error instanceof CalendarDocumentError) throw new SyncRequestError(error.message, 409);
+        throw error;
+      }
+      const [nextState, reply] = Automerge.generateSyncMessage(doc, state);
+      return { value: bytes, result: { state: nextState, reply: reply || new Uint8Array() } };
+    });
+    // Advance protocol state only after durable document storage succeeds.
+    peers.delete(key);
+    peers.set(key, { state: outcome.state, sequence: sequence + 1, touched: now() });
+    while (peers.size > maxSessions) peers.delete(peers.keys().next().value);
+    return outcome.reply;
+  }
 
   return async function handleSync(request) {
-    const url = new URL(request.url);
-    if (url.pathname !== endpointPath) return new Response("Not found", { status: 404 });
-    if (request.method !== "POST") {
-      return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
-    }
-
+    if (new URL(request.url).pathname !== endpointPath) return new Response("Not found", { status: 404 });
+    if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
     const session = await authenticate(request);
     if (!session) return new Response("Unauthorized", { status: 401 });
-    if (mediaType(request) !== AUTOMERGE_MEDIA_TYPE) {
-      return new Response(`Content-Type must be ${AUTOMERGE_MEDIA_TYPE}`, { status: 415 });
+    if (mediaType(request) !== AUTOMERGE_MEDIA_TYPE) return new Response(`Refresh the app. Content-Type must be ${AUTOMERGE_MEDIA_TYPE}`, { status: 415 });
+    const sessionId = request.headers.get(SYNC_SESSION_HEADER) || "";
+    const sequenceText = request.headers.get(SYNC_SEQUENCE_HEADER) || "";
+    const sequence = Number(sequenceText);
+    if (!/^[a-zA-Z0-9-]{16,80}$/.test(sessionId) || !/^(0|[1-9][0-9]*)$/.test(sequenceText) || !Number.isSafeInteger(sequence)) {
+      return new Response("Invalid sync session or sequence", { status: 400 });
     }
-
-    let incoming;
-    try {
-      incoming = loadCalendarDocument(new Uint8Array(await request.arrayBuffer()));
-    } catch (error) {
-      if (error instanceof CalendarDocumentError) return new Response(error.message, { status: 409 });
-      if (error instanceof InvalidCalendarSnapshotError) return new Response("Invalid sync document", { status: 400 });
-      console.error("Reading calendar sync request failed", error);
-      return new Response("Sync failed", { status: 500 });
+    const incoming = new Uint8Array(await request.arrayBuffer());
+    if (incoming.byteLength) {
+      try { Automerge.decodeSyncMessage(incoming); }
+      catch (cause) { return new Response("Invalid sync message", { status: 400 }); }
     }
-
+    const owner = [session.identity?.issuer, session.identity?.subject];
+    const run = () => exchange(owner, sessionId, sequence, incoming);
+    const result = tail.then(run);
+    tail = result.catch(() => {});
     try {
-      const responseBytes = await documentStore.update(documentKey, async (storedBytes) => {
-        const merged = storedBytes
-          ? mergeCalendarDocuments(loadCalendarDocument(storedBytes), incoming)
-          : forkCalendarDocument(incoming);
-        const bytes = saveCalendarDocument(merged);
-        return { value: bytes, result: bytes };
-      });
-      return new Response(responseBytes, {
-        status: 200,
-        headers: {
-          "content-type": AUTOMERGE_MEDIA_TYPE,
-          "cache-control": "no-store",
-        },
-      });
+      const reply = await result;
+      return new Response(reply, { headers: { "content-type": AUTOMERGE_MEDIA_TYPE, "cache-control": "no-store" } });
     } catch (error) {
+      if (error instanceof SyncRequestError) return new Response(error.message, { status: error.status });
       console.error("Calendar sync failed", error);
       return new Response("Sync failed", { status: 500 });
     }

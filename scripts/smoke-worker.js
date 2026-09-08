@@ -1,3 +1,4 @@
+import { syncCalendarStorage } from "../sync/client.js";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -28,11 +29,14 @@ try {
   assert.ok(ready, "Worker did not start; see " + directory + "/runtime.log");
   const endpoint = "http://127.0.0.1:8791";
   assert.equal((await fetch(endpoint + "/sync", { method: "POST" })).status, 401);
-  const headers = { cookie: "__Host-calendar_session=local-test", "content-type": "application/vnd.automerge" };
+  const headers = { cookie: "__Host-calendar_session=local-test", "content-type": "application/vnd.automerge.sync" };
   async function sync(doc) {
-    const response = await fetch(endpoint + "/sync", { method: "POST", headers, body: saveCalendarDocument(doc) });
-    assert.equal(response.status, 200, await response.clone().text());
-    return loadCalendarDocument(new Uint8Array(await response.arrayBuffer()));
+    let current = doc;
+    await syncCalendarStorage({ readSnapshot: async () => saveCalendarDocument(current), mergeSnapshot: async bytes => { current = loadCalendarDocument(bytes); } }, {
+      endpoint: endpoint + "/sync",
+      fetch: (url, init) => fetch(url, { ...init, headers: { ...init.headers, cookie: headers.cookie } }),
+    });
+    return current;
   }
   await sync(createCalendarDocument([{ id: "a", kind: "task", title: "First device" }]));
   const merged = await sync(createCalendarDocument([{ id: "b", kind: "task", title: "Second device" }]));

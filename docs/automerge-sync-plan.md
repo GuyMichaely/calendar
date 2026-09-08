@@ -1,5 +1,7 @@
 # Native Automerge sync assessment
 
+Implemented for the calendar using ordered HTTP exchanges; see [current protocol](incremental-sync.md). The measurements below describe the earlier evaluation.
+
 The app uses Automerge's public APIs; it does not fork or patch Automerge. Full-document save/load/merge is a valid but bandwidth-heavy transport. Switching transport does not change CRDT conflict rules or remove the need for task semantics, attachment operations, undo intent, schema validation, and stale editor handling.
 
 ## Measured protocol payloads

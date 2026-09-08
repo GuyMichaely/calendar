@@ -1,3 +1,4 @@
+import { syncCalendarStorage } from "../sync/client.js";
 // Exercise only the isolated trial Worker, never the production hostname.
 import assert from "node:assert/strict";
 import { createCalendarDocument, forkCalendarDocument, loadCalendarDocument, materializeItems, materializeItem, patchItem, saveCalendarDocument, updateItemText } from "../sync/automerge-document.js";
@@ -8,14 +9,12 @@ const prefix = crypto.randomUUID();
 const timings = [];
 async function sync(doc) {
   const start = performance.now();
-  const response = await fetch(new URL("/sync", endpoint), {
-    method: "POST",
-    headers: { "content-type": "application/vnd.automerge", cookie: "__Host-calendar_session=" + TRIAL_TOKEN },
-    body: saveCalendarDocument(doc),
+  let result = doc;
+  await syncCalendarStorage({ readSnapshot: async () => saveCalendarDocument(result), mergeSnapshot: async bytes => { result = loadCalendarDocument(bytes); } }, {
+    endpoint: new URL("/sync", endpoint).href,
+    fetch: (url, init) => fetch(url, { ...init, headers: { ...init.headers, cookie: "__Host-calendar_session=" + TRIAL_TOKEN } }),
     signal: AbortSignal.timeout(60000),
   });
-  assert.equal(response.status, 200, "Trial sync HTTP status");
-  const result = loadCalendarDocument(new Uint8Array(await response.arrayBuffer()));
   timings.push(Math.round(performance.now() - start));
   return result;
 }

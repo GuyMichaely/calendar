@@ -1,4 +1,6 @@
-import { AUTOMERGE_MEDIA_TYPE } from "./protocol.js";
+import * as Automerge from "@automerge/automerge";
+import { loadCalendarDocument, saveCalendarDocument } from "./automerge-document.js";
+import { AUTOMERGE_MEDIA_TYPE, SYNC_SESSION_HEADER, SYNC_SEQUENCE_HEADER } from "./protocol.js";
 
 export class CalendarSyncError extends Error {
   constructor(message, { status = null } = {}) {
@@ -8,60 +10,72 @@ export class CalendarSyncError extends Error {
   }
 }
 
-function copySnapshotBytes(value) {
-  if (value instanceof Uint8Array) return new Uint8Array(value);
-  if (value instanceof ArrayBuffer) return new Uint8Array(value);
-  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength).slice();
-  throw new Error("Calendar sync requires serialized Automerge bytes.");
-}
-
-export async function exchangeCalendarSnapshotBytes(snapshotBytes, {
-  endpoint,
-  fetch: fetchImpl = globalThis.fetch,
-  credentials = "include",
-  signal,
+// Peer state is connection-local, not calendar data. A failed exchange discards
+// it; the native protocol rediscovers shared history on the next connection.
+export function createCalendarSyncClient({ readSnapshot, mergeSnapshot }, {
+  endpoint = "", fetch: fetchImpl = globalThis.fetch, credentials = "include",
 } = {}) {
-  if (!endpoint) throw new Error("Calendar sync requires an endpoint.");
-  if (typeof fetchImpl !== "function") throw new Error("Calendar sync requires Fetch API support.");
-  const outgoing = copySnapshotBytes(snapshotBytes);
-  if (!outgoing.byteLength) throw new Error("Calendar sync snapshot must not be empty.");
+  if (!endpoint || typeof fetchImpl !== "function") throw new Error("Sync requires an endpoint and Fetch.");
+  if (typeof readSnapshot !== "function" || typeof mergeSnapshot !== "function") throw new Error("Sync requires local snapshot storage.");
+  let state, sessionId, sequence;
+  let tail = Promise.resolve();
+  const reset = () => { state = Automerge.initSyncState(); sessionId = crypto.randomUUID(); sequence = 0; };
+  reset();
 
-  const response = await fetchImpl(endpoint, {
-    method: "POST",
-    credentials,
-    signal,
-    headers: { "content-type": AUTOMERGE_MEDIA_TYPE },
-    body: outgoing,
-  });
-
-  if (!response.ok) {
-    let message = `Calendar sync failed (${response.status})`;
-    try {
-      const detail = (await response.text()).trim();
-      if (detail) message = detail;
-    } catch {
-      // Keep the status-based message if the response body cannot be read.
+  async function exchange(signal) {
+    let result;
+    for (let round = 0; round < 100; round++) {
+      signal?.throwIfAborted();
+      const current = loadCalendarDocument(await readSnapshot());
+      const [nextState, message] = Automerge.generateSyncMessage(current, state);
+      state = nextState;
+      // Even when locally unchanged, one empty poll asks the server to generate
+      // any pending messages for changes made by another device.
+      if (!message && round > 0) return result;
+      const response = await fetchImpl(endpoint, {
+        method: "POST", credentials, signal,
+        headers: { "content-type": AUTOMERGE_MEDIA_TYPE, [SYNC_SESSION_HEADER]: sessionId, [SYNC_SEQUENCE_HEADER]: String(sequence) },
+        body: message || new Uint8Array(),
+      });
+      if (!response.ok) {
+        const detail = (await response.text()).trim();
+        throw new CalendarSyncError(detail || `Sync failed (${response.status})`, { status: response.status });
+      }
+      if ((response.headers.get("content-type") || "").split(";", 1)[0] !== AUTOMERGE_MEDIA_TYPE) {
+        throw new CalendarSyncError("Invalid sync response type", { status: response.status });
+      }
+      const reply = new Uint8Array(await response.arrayBuffer());
+      if (reply.byteLength) {
+        // Read again after the request; edits made in flight must participate.
+        const latest = loadCalendarDocument(await readSnapshot());
+        const [updated, receivedState] = Automerge.receiveSyncMessage(latest, state, reply);
+        result = await mergeSnapshot(saveCalendarDocument(updated));
+        state = receivedState;
+      }
+      sequence++;
     }
-    throw new CalendarSyncError(message, { status: response.status });
+    throw new CalendarSyncError("Sync did not finish; try again.");
   }
 
-  const responseType = (response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
-  if (responseType !== AUTOMERGE_MEDIA_TYPE) {
-    throw new CalendarSyncError(`Sync response Content-Type must be ${AUTOMERGE_MEDIA_TYPE}`, { status: response.status });
-  }
-  return new Uint8Array(await response.arrayBuffer());
+  return {
+    sync(signal) {
+      const run = async () => {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try { return await exchange(signal); }
+          catch (error) {
+            reset();
+            if (error instanceof CalendarSyncError && error.status === 410 && attempt === 0) continue;
+            throw error;
+          }
+        }
+      };
+      const result = tail.then(run);
+      tail = result.catch(() => {});
+      return result;
+    },
+  };
 }
 
-export async function syncCalendarStorage({ readSnapshot, mergeSnapshot }, options) {
-  if (typeof readSnapshot !== "function") throw new Error("Calendar sync requires readSnapshot().");
-  if (typeof mergeSnapshot !== "function") throw new Error("Calendar sync requires mergeSnapshot(bytes).");
-
-  const sent = await readSnapshot();
-  const remote = await exchangeCalendarSnapshotBytes(sent, options);
-
-  // mergeSnapshot must merge into the storage layer's current document. It is
-  // intentionally called after the network response so edits made while the
-  // request was in flight are retained by Automerge rather than replaced by
-  // the snapshot that was sent.
-  return mergeSnapshot(remote);
+export function syncCalendarStorage(storage, options) {
+  return createCalendarSyncClient(storage, options).sync(options?.signal);
 }

@@ -1,204 +1,84 @@
-import * as Automerge from "@automerge/automerge";
-import assert from "node:assert/strict";
-import test from "node:test";
-import {
-  addTag,
-  createCalendarDocument,
-  forkCalendarDocument,
-  loadCalendarDocument,
-  materializeItem,
-  patchItem,
-  saveCalendarDocument,
-} from "../sync/automerge-document.js";
-import { AUTOMERGE_MEDIA_TYPE, createMemoryDocumentStore, createSyncHandler } from "../backend/sync/http.js";
-
-function task() {
-  return {
-    id: "task-1",
-    kind: "task",
-    title: "Buy goggles",
-    notes: "",
-    state: "open",
-    tags: [],
-    attachments: [],
-    deadline: null,
-    sleep: null,
-  };
+import * as A from '@automerge/automerge';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createCalendarDocument, loadCalendarDocument, saveCalendarDocument, mergeCalendarDocuments, materializeItems, patchItem } from '../sync/automerge-document.js';
+import { createCalendarSyncClient } from '../sync/client.js';
+import { AUTOMERGE_MEDIA_TYPE, SYNC_SESSION_HEADER, SYNC_SEQUENCE_HEADER } from '../sync/protocol.js';
+import {createSyncHandler,createMemoryDocumentStore} from '../backend/sync/http.js';
+const identity={issuer:'issuer',subject:'owner'};
+const auth=async()=>({identity});
+const task=id=>({id,kind:'task',title:id,state:'open'});
+function request(body=new Uint8Array(),sequence=0,id=crypto.randomUUID(),headers={}) {
+ return new Request('https://sync.example/sync',{method:'POST',headers:{'content-type':AUTOMERGE_MEDIA_TYPE,[SYNC_SESSION_HEADER]:id,[SYNC_SEQUENCE_HEADER]:String(sequence),...headers},body});
 }
-
-function request(bytes, headers = {}) {
-  return new Request("https://sync.example/sync", {
-    method: "POST",
-    headers: { "content-type": AUTOMERGE_MEDIA_TYPE, ...headers },
-    body: bytes,
-  });
+function client(handler,items=[]) {
+ let doc=createCalendarDocument(items);
+ const transport=createCalendarSyncClient({readSnapshot:async()=>saveCalendarDocument(doc),mergeSnapshot:async bytes=>{doc=mergeCalendarDocuments(doc,loadCalendarDocument(bytes));return doc;}},{endpoint:'https://sync.example/sync',fetch:(url,init)=>handler(new Request(url,init))});
+ return {sync:()=>transport.sync(),get doc(){return doc;},edit:(id,patch)=>{doc=patchItem(doc,id,patch);}};
 }
-
-async function responseDocument(response) {
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get("content-type"), AUTOMERGE_MEDIA_TYPE);
-  assert.equal(response.headers.get("cache-control"), "no-store");
-  return loadCalendarDocument(new Uint8Array(await response.arrayBuffer()));
-}
-
-function authorizedHandler(documentStore) {
-  return createSyncHandler({
-    authenticate: async () => ({ identity: { issuer: "https://accounts.example", subject: "guy" } }),
-    documentStore,
-  });
-}
-
-test("sync rejects unauthenticated requests before touching storage", async () => {
-  let updates = 0;
-  const handler = createSyncHandler({
-    authenticate: async () => null,
-    documentStore: {
-      async update() {
-        updates += 1;
-        throw new Error("must not run");
-      },
-    },
-  });
-
-  const response = await handler(request(saveCalendarDocument(createCalendarDocument([task()]))));
-  assert.equal(response.status, 401);
-  assert.equal(updates, 0);
+test('authentication, content type and malformed messages reject before storage',async()=>{
+ let accesses=0;
+ const documentStore={async update(){accesses++;throw new Error('must not access');}};
+ assert.equal((await createSyncHandler({authenticate:async()=>null,documentStore})(request())).status,401);
+ const handler=createSyncHandler({authenticate:auth,documentStore});
+ assert.equal((await handler(request(new Uint8Array([1,2,3])))).status,400);
+ assert.equal((await handler(request(new Uint8Array(),0,'bad'))).status,400);
+ assert.equal((await handler(request(new Uint8Array(),0,crypto.randomUUID(),{'content-type':'application/vnd.automerge'}))).status,415);
+ assert.equal(accesses,0);
 });
-
-test("first sync stores and returns the incoming Automerge document", async () => {
-  const store = createMemoryDocumentStore();
-  const handler = authorizedHandler(store);
-  const local = createCalendarDocument([task()]);
-
-  const response = await handler(request(saveCalendarDocument(local)));
-  const returned = await responseDocument(response);
-  assert.deepEqual(materializeItem(returned, "task-1"), materializeItem(local, "task-1"));
-
-  const stored = loadCalendarDocument(await store.get("calendar:primary"));
-  assert.deepEqual(materializeItem(stored, "task-1"), materializeItem(local, "task-1"));
+test('fresh devices exchange native messages and preserve simultaneous edits',async()=>{
+ const store=createMemoryDocumentStore();const handler=createSyncHandler({authenticate:auth,documentStore:store});
+ const left=client(handler,[task('a')]),right=client(handler,[task('b')]);
+ await Promise.all([left.sync(),right.sync()]);await left.sync();await right.sync();
+ assert.deepEqual(materializeItems(left.doc).map(x=>x.id).sort(),['a','b']);
+ left.edit('a',{title:'left'});right.edit('a',{notes:'right'});
+ await Promise.all([left.sync(),right.sync()]);await left.sync();await right.sync();
+ assert.deepEqual(materializeItems(left.doc).sort((a,b)=>a.id.localeCompare(b.id)),materializeItems(right.doc).sort((a,b)=>a.id.localeCompare(b.id)));
+ const saved=loadCalendarDocument(await store.get('calendar:primary'));
+ assert.equal(saved.items.a.title,'left');assert.equal(saved.items.a.notes,'right');
 });
-
-test("concurrent sync requests are serialized so neither replica is lost", async () => {
-  const base = createCalendarDocument([task()]);
-  const laptop = patchItem(forkCalendarDocument(base), "task-1", { deadline: "2026-10-02T17:00:00.000Z" });
-  const phone = addTag(forkCalendarDocument(base), "task-1", "pool");
-  const store = createMemoryDocumentStore({ "calendar:primary": saveCalendarDocument(base) });
-  const handler = authorizedHandler(store);
-
-  await Promise.all([
-    handler(request(saveCalendarDocument(laptop))),
-    handler(request(saveCalendarDocument(phone))),
-  ]);
-
-  const stored = loadCalendarDocument(await store.get("calendar:primary"));
-  const item = materializeItem(stored, "task-1");
-  assert.equal(item.deadline, "2026-10-02T17:00:00.000Z");
-  assert.ok(item.tags.includes("pool"));
+test('idle polls receive edits from a different peer',async()=>{
+ const handler=createSyncHandler({authenticate:auth,documentStore:createMemoryDocumentStore()});
+ const first=client(handler,[task('a')]),second=client(handler);
+ await first.sync();await second.sync();first.edit('a',{title:'changed remotely'});await first.sync();await second.sync();
+ assert.equal(second.doc.items.a.title,'changed remotely');
 });
-
-test("a later client receives all previously merged replica changes", async () => {
-  const base = createCalendarDocument([task()]);
-  const laptop = patchItem(forkCalendarDocument(base), "task-1", { deadline: "2026-10-02T17:00:00.000Z" });
-  const phone = addTag(forkCalendarDocument(base), "task-1", "pool");
-  const store = createMemoryDocumentStore();
-  const handler = authorizedHandler(store);
-
-  await handler(request(saveCalendarDocument(laptop)));
-  const response = await handler(request(saveCalendarDocument(phone)));
-  const returned = await responseDocument(response);
-  const item = materializeItem(returned, "task-1");
-  assert.equal(item.deadline, "2026-10-02T17:00:00.000Z");
-  assert.ok(item.tags.includes("pool"));
+test('expired, replayed and out-of-order sessions request a fresh connection',async()=>{
+ let now=0;const handler=createSyncHandler({authenticate:auth,documentStore:createMemoryDocumentStore(),now:()=>now,sessionTtlMs:10});
+ const id=crypto.randomUUID();assert.equal((await handler(request(new Uint8Array(),0,id))).status,200);
+ assert.equal((await handler(request(new Uint8Array(),0,id))).status,410);
+ assert.equal((await handler(request(new Uint8Array(),3,id))).status,410);
+ now=11;assert.equal((await handler(request(new Uint8Array(),1,id))).status,410);
 });
-
-test("replaying the same snapshot is safe", async () => {
-  const store = createMemoryDocumentStore();
-  const handler = authorizedHandler(store);
-  const doc = addTag(createCalendarDocument([task()]), "task-1", "pool");
-  const bytes = saveCalendarDocument(doc);
-
-  await handler(request(bytes));
-  await handler(request(bytes));
-  const stored = loadCalendarDocument(await store.get("calendar:primary"));
-  assert.deepEqual(materializeItem(stored, "task-1").tags, ["pool"]);
+test('peer state is isolated by authenticated identity',async()=>{
+ let who='a';const handler=createSyncHandler({authenticate:async()=>({identity:{issuer:'issuer',subject:who}}),documentStore:createMemoryDocumentStore()});
+ const id=crypto.randomUUID();assert.equal((await handler(request(new Uint8Array(),0,id))).status,200);who='b';
+ assert.equal((await handler(request(new Uint8Array(),1,id))).status,410);
+ assert.equal((await handler(request(new Uint8Array(),0,id))).status,200);
 });
-
-test("invalid Automerge bytes are rejected without replacing stored state", async () => {
-  const base = createCalendarDocument([task()]);
-  const store = createMemoryDocumentStore({ "calendar:primary": saveCalendarDocument(base) });
-  const handler = authorizedHandler(store);
-
-  const response = await handler(request(new Uint8Array([1, 2, 3, 4])));
-  assert.equal(response.status, 400);
-  const stored = loadCalendarDocument(await store.get("calendar:primary"));
-  assert.deepEqual(materializeItem(stored, "task-1"), materializeItem(base, "task-1"));
+test('server read/write failures remain 500 irrespective of wording',async()=>{
+ for(const error of [new TypeError('Automerge'),new RangeError('calendar sync schema')]){
+  const handler=createSyncHandler({authenticate:auth,documentStore:{async update(){throw error;}}});
+  assert.equal((await handler(request())).status,500);
+ }
+ const store=createMemoryDocumentStore({'calendar:primary':new Uint8Array([1,2,3])});
+ assert.equal((await createSyncHandler({authenticate:auth,documentStore:store})(request())).status,500);
+ assert.deepEqual(await store.get('calendar:primary'),new Uint8Array([1,2,3]));
 });
-
-test("empty sync bodies are rejected", async () => {
-  const store = createMemoryDocumentStore();
-  const handler = authorizedHandler(store);
-  const empty = await handler(request(new Uint8Array()));
-  assert.equal(empty.status, 400);
+test('incompatible native document changes cannot mutate stored data',async()=>{
+ const bytes=saveCalendarDocument(createCalendarDocument([task('safe')]));const store=createMemoryDocumentStore({'calendar:primary':bytes});
+ const handler=createSyncHandler({authenticate:auth,documentStore:store});
+ let doc=A.from({schemaVersion:1,items:{bad:task('bad')}}),state=A.initSyncState();const id=crypto.randomUUID();let rejected=false;
+ for(let sequence=0;sequence<5;sequence++){
+  let message;[state,message]=A.generateSyncMessage(doc,state);if(!message)break;
+  const response=await handler(request(message,sequence,id));
+  if(response.status===409){rejected=true;break;}
+  assert.equal(response.status,200);const reply=new Uint8Array(await response.arrayBuffer());if(reply.length)[doc,state]=A.receiveSyncMessage(doc,state,reply);
+ }
+ assert.ok(rejected);assert.deepEqual(await store.get('calendar:primary'),bytes);
 });
-
-test("only POST /sync is accepted", async () => {
-  const store = createMemoryDocumentStore();
-  const handler = authorizedHandler(store);
-
-  const get = await handler(new Request("https://sync.example/sync"));
-  assert.equal(get.status, 405);
-  assert.equal(get.headers.get("allow"), "POST");
-
-  const other = await handler(new Request("https://sync.example/other"));
-  assert.equal(other.status, 404);
-});
-
-
-test("Sync now on an independent device downloads server items and merges its own items", async () => {
-  const handler = authorizedHandler(createMemoryDocumentStore());
-  const source = createCalendarDocument([task()]);
-  await responseDocument(await handler(request(saveCalendarDocument(source))));
-  const empty = await responseDocument(await handler(request(saveCalendarDocument(createCalendarDocument()))));
-  assert.equal(materializeItem(empty, "task-1").title, "Buy goggles");
-  const other = createCalendarDocument([{ ...task(), id: "other-device" }]);
-  const received = await responseDocument(await handler(request(saveCalendarDocument(other))));
-  assert.ok(materializeItem(received, "task-1"));
-  assert.ok(materializeItem(received, "other-device"));
-  const refreshed = await responseDocument(await handler(request(saveCalendarDocument(source))));
-  assert.ok(materializeItem(refreshed, "other-device"));
-});
-
-test("incompatible generations and unrelated roots cannot mutate the server", async () => {
-  const bytes = saveCalendarDocument(createCalendarDocument([task()]));
-  const store = createMemoryDocumentStore({ "calendar:primary": bytes });
-  const handler = authorizedHandler(store);
-  for (const schemaVersion of [1, 2]) {
-    const incompatible = Automerge.from({ schemaVersion, items: {} });
-    const response = await handler(request(Automerge.save(incompatible)));
-    assert.equal(response.status, 409);
-    assert.match(await response.text(), /Refresh the app/);
-    assert.deepEqual(await store.get("calendar:primary"), bytes);
-  }
-});
-
-test("client decoding and schema validation happen before any storage access", async () => {
-  let updates = 0;
-  const handler = authorizedHandler({ async update() { updates++; throw new Error("must not run"); } });
-  for (const bytes of [new Uint8Array([1, 2, 3]), saveCalendarDocument(createCalendarDocument()).slice(0, 20)]) {
-    assert.equal((await handler(request(bytes))).status, 400);
-  }
-  assert.equal((await handler(request(Automerge.save(Automerge.from({schemaVersion: 1, items: {}}))))).status, 409);
-  assert.equal(updates, 0);
-});
-
-test("server failures remain server failures regardless of class or wording", async () => {
-  const incoming = saveCalendarDocument(createCalendarDocument([task()]));
-  for (const error of [new TypeError("Automerge"), new RangeError("calendar sync schema"), new Error("Incoming Automerge")]) {
-    const response = await authorizedHandler({ async update() { throw error; } })(request(incoming));
-    assert.equal(response.status, 500);
-  }
-  const corrupt = new Uint8Array([1, 2, 3]);
-  const store = createMemoryDocumentStore({ "calendar:primary": corrupt });
-  assert.equal((await authorizedHandler(store)(request(incoming))).status, 500);
-  assert.deepEqual(await store.get("calendar:primary"), corrupt);
+test('routing and methods are explicit',async()=>{
+ const handler=createSyncHandler({authenticate:auth,documentStore:createMemoryDocumentStore()});
+ assert.equal((await handler(new Request('https://sync.example/sync'))).status,405);
+ assert.equal((await handler(new Request('https://sync.example/other'))).status,404);
 });

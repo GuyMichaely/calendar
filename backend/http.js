@@ -51,7 +51,7 @@ export function createCalendarBackend({ authHandler, syncHandler, attachmentHand
         status: 204,
         headers: {
           "access-control-allow-methods": "GET, HEAD, POST, PUT, OPTIONS",
-          "access-control-allow-headers": "Content-Type",
+          "access-control-allow-headers": "Content-Type, X-Automerge-Session, X-Automerge-Sequence",
           "access-control-max-age": "600",
         },
       }), allowedOrigin);

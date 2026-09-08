@@ -7,7 +7,7 @@ import {
   materializeItem,
   saveCalendarDocument,
 } from "../../sync/automerge-document.js";
-import { AUTOMERGE_MEDIA_TYPE } from "../../backend/sync/http.js";
+import { AUTOMERGE_MEDIA_TYPE, createSyncHandler, createMemoryDocumentStore } from "../../backend/sync/http.js";
 import { configuredBackendUrl, createRemoteCalendarClient, createRemoteSyncQueue } from "../src/remote-sync.ts";
 
 function task() {
@@ -73,10 +73,11 @@ test("remote sync sends current serialized storage and delegates the response to
   const document = createCalendarDocument([task()]);
   const bytes = saveCalendarDocument(document);
   let mergedBytes: Uint8Array | null = null;
+  const handler = createSyncHandler({ authenticate: async () => ({ identity: { issuer: "issuer", subject: "owner" } }), documentStore: createMemoryDocumentStore() });
   const client = createRemoteCalendarClient({
     backendUrl: "https://sync.example/",
     storage: {
-      readSnapshot: async () => bytes,
+      readSnapshot: async () => mergedBytes || bytes,
       mergeSnapshot: async (incoming) => {
         mergedBytes = incoming;
         return [materializeItem(loadCalendarDocument(incoming), "task-remote-client")];
@@ -86,11 +87,7 @@ test("remote sync sends current serialized storage and delegates the response to
       assert.equal(String(input), "https://sync.example/sync");
       assert.equal(init?.method, "POST");
       assert.equal(init?.credentials, "include");
-      assert.deepEqual(new Uint8Array(init?.body as Uint8Array), bytes);
-      return new Response(bytes, {
-        status: 200,
-        headers: { "content-type": AUTOMERGE_MEDIA_TYPE },
-      });
+      return handler(new Request(String(input), init));
     },
   });
 

@@ -1,3 +1,4 @@
+import { syncCalendarStorage } from "../sync/client.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createAuthHandler, createMemoryAuthStore } from "../backend/auth/http.js";
@@ -71,17 +72,15 @@ test("composed backend routes the real sync handler and CORS under one optional 
   assert.equal(await auth.text(), "auth");
 
   const bytes = saveCalendarDocument(createCalendarDocument([]));
-  const sync = await backend(new Request("https://sync.example/calendar-api/sync", {
-    method: "POST",
-    headers: {
-      origin: "https://app.example",
-      "content-type": AUTOMERGE_MEDIA_TYPE,
+  await syncCalendarStorage({ readSnapshot: async () => bytes, mergeSnapshot: async () => {} }, {
+    endpoint: "https://sync.example/calendar-api/sync",
+    fetch: async (url, init) => {
+      const response = await backend(new Request(url, { ...init, headers: { ...init.headers, origin: "https://app.example" } }));
+      assert.equal(response.headers.get("access-control-allow-origin"), "https://app.example");
+      assert.equal(response.headers.get("content-type"), AUTOMERGE_MEDIA_TYPE);
+      return response;
     },
-    body: bytes,
-  }));
-  assert.equal(sync.status, 200);
-  assert.equal(sync.headers.get("access-control-allow-origin"), "https://app.example");
-  assert.equal(sync.headers.get("content-type"), AUTOMERGE_MEDIA_TYPE);
+  });
 
   const outside = await backend(new Request("https://sync.example/sync", {
     method: "POST",
@@ -95,5 +94,7 @@ test("composed backend routes the real sync handler and CORS under one optional 
     headers: { origin: "https://app.example" },
   }));
   assert.equal(preflight.status, 204);
+  assert.match(preflight.headers.get("access-control-allow-headers"), /X-Automerge-Session/);
+  assert.match(preflight.headers.get("access-control-allow-headers"), /X-Automerge-Sequence/);
   assert.equal(preflight.headers.get("access-control-allow-origin"), "https://app.example");
 });
