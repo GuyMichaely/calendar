@@ -1,3 +1,4 @@
+import { validateTaskParent } from "./task-tree.js";
 import {
   applyLocalHistoryChange,
   deleteLocalItem,
@@ -218,17 +219,18 @@ export async function putItem(item, baseline = null) {
   await uploadAttachmentsBeforePersist(uploads);
   const cleanItem = withoutAttachmentBytes(item);
   const cleanBaseline = withoutAttachmentBytes(baseline);
-  const { before, after, editBaseline } = await putLocalItem(cleanItem, cleanBaseline);
+  const { before, after, editBaseline, relatedChanges } = await putLocalItem(cleanItem, cleanBaseline);
   const cleanBefore = withoutAttachmentBytes(before);
   const cleanAfter = withoutAttachmentBytes(after);
   syncLiveItem(item.id, cleanAfter);
+  for (const change of relatedChanges) syncLiveItem(change.id, change.after);
   if (applyingHistory) return editBaseline;
 
   const historyBefore = cleanBaseline == null ? cleanBefore : cleanBaseline;
   const historyAfter = cleanBaseline == null ? cleanAfter : cleanItem;
   await pushHistory({
     label: actionLabel(cleanBefore, cleanAfter),
-    changes: [{ id: item.id, before: historyBefore, after: historyAfter }],
+    changes: [{ id: item.id, before: historyBefore, after: historyAfter }, ...relatedChanges],
   });
   return editBaseline;
 }
@@ -331,11 +333,15 @@ export function parseBackup(text) {
   if (items.some((item) => (item?.attachments || []).some((attachment) => attachment?.dataUrl || attachment?.blob))) {
     throw new Error("This backup contains embedded attachment bytes. Import supports attachment references only.");
   }
+  for (const item of items) if (item.kind === "task") validateTaskParent(items, item.id, item.parentId);
   return items;
 }
 
 export async function importData(text) {
   const items = parseBackup(text);
+  const combined = new Map((await listLocalItems()).map(item => [item.id, item]));
+  for (const item of items) combined.set(item.id, item);
+  for (const item of items) if (item.kind === "task") validateTaskParent([...combined.values()], item.id, item.parentId);
   await beginBatch("Import backup");
   let imported = 0;
   try {

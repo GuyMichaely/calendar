@@ -40,6 +40,7 @@ export type BaseItem = {
 export type Task = BaseItem & {
   kind: "task";
   state: TaskState;
+  parentId?: string | null;
   availableFrom?: string | null;
   deadline?: string | null;
   latestStart?: string | null;

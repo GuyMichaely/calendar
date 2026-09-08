@@ -1,3 +1,4 @@
+import { taskDescendants, taskAncestors, validateTaskParent } from "./task-tree.js";
 import * as Automerge from "@automerge/automerge";
 import {
   addAttachmentMetadata,
@@ -32,7 +33,7 @@ const COMMON_ITEM_FIELDS = new Set([
   "id", "kind", "title", "notes", "tags", "attachments", "createdAt", "updatedAt", "deletedAt",
 ]);
 const TASK_ITEM_FIELDS = new Set([
-  ...COMMON_ITEM_FIELDS, "state", "availableFrom", "deadline", "latestStart", "sleep",
+  ...COMMON_ITEM_FIELDS, "state", "parentId", "availableFrom", "deadline", "latestStart", "sleep",
   "availabilitySchedule", "completedAt", "history",
 ]);
 const EVENT_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end"]);
@@ -391,15 +392,32 @@ export function putLocalItem(item, baseline = null) {
     const currentHeads = Automerge.getHeads(doc);
     const before = hydrateItem(materializeItem(doc, item.id), currentHeads);
     const current = materializeItem(doc, item.id, { includeDeleted: true });
+    if (item.kind === "task") validateTaskParent(materializeItems(doc), item.id, item.parentId);
     const historicalEdit = baseline && baselineHeads ? applyItemIntentAtHeads(doc, baselineHeads, baseline, item) : null;
     let nextDoc = historicalEdit?.newDoc || applyItemIntent(doc, baseline || current, item, { restoreDeleted: baseline == null });
     if (baseline && baseline.kind !== item.kind) nextDoc = enforceMaterializedKindShape(nextDoc, item.id);
+    const relatedChanges = [];
+    const savedTask = materializeItem(nextDoc, item.id);
+    if (savedTask?.kind === "task") {
+      const tasks = materializeItems(nextDoc);
+      const completing = savedTask.state === "completed" && before?.state !== "completed";
+      const related = completing ? taskDescendants(tasks, item.id) : savedTask.state === "open" ? taskAncestors(tasks, item.id) : [];
+      const desiredState = completing ? "completed" : "open";
+      const at = item.updatedAt || new Date().toISOString();
+      for (const target of related) {
+        if (target.state === desiredState) continue;
+        const relatedBefore = hydrateItem(materializeItem(nextDoc, target.id), Automerge.getHeads(nextDoc));
+        nextDoc = patchItem(nextDoc, target.id, { state: desiredState, completedAt: completing ? at : null, updatedAt: at, ...(completing ? { sleep: null } : {}) });
+        nextDoc = addHistoryEntry(nextDoc, target.id, { at, type: completing ? "completed" : "reopened", viaTaskId: item.id });
+        relatedChanges.push({ id: target.id, before: relatedBefore, after: hydrateItem(materializeItem(nextDoc, target.id), Automerge.getHeads(nextDoc)) });
+      }
+    }
     const after = hydrateItem(materializeItem(nextDoc, item.id), Automerge.getHeads(nextDoc));
     // Keep an editor on its own branch between autosaves. Using merged heads
     // with still-unmerged form text would erase concurrent remote text next time.
     const editHeads = historicalEdit?.newHeads || Automerge.getHeads(nextDoc);
     const editBaseline = hydrateItem(materializeItem(Automerge.clone(Automerge.view(nextDoc, editHeads)), item.id), editHeads);
-    return { doc: nextDoc, result: { before, after, editBaseline } };
+    return { doc: nextDoc, result: { before, after, editBaseline, relatedChanges } };
   });
 }
 

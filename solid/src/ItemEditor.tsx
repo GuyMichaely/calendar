@@ -1,3 +1,4 @@
+import { taskDescendants } from "../../site/task-tree.js";
 import { For, Show, createSignal, onMount, onCleanup } from "solid-js";
 import {
   isoToLocalInput,
@@ -16,6 +17,7 @@ export type EditorRequest = {
   item: Item | null;
   kind: "task" | "event";
   date?: Date;
+  parentId?: string;
   nonce: number;
 };
 
@@ -60,6 +62,9 @@ function serializeForm(form: HTMLFormElement, files: File[], removed: Set<string
 
 export function ItemEditor(props: {
   request: EditorRequest;
+  items: Item[];
+  onAddSubtask: (task: Task) => void;
+  onEditItem: (task: Task) => void;
   onClose: () => void;
   onDelete: (item: Item) => Promise<void>;
   onSave: (item: Item, created: boolean, baseline: Item | null) => Promise<Item>;
@@ -69,6 +74,7 @@ export function ItemEditor(props: {
   let currentItem = existing;
   const [hasSavedItem, setHasSavedItem] = createSignal(!!existing);
   const itemId = existing?.id || uuid();
+  const [parentId, setParentId] = createSignal((existing?.kind === "task" ? existing.parentId : null) || props.request.parentId || "");
   const [removedAttachments, setRemovedAttachments] = createSignal(new Set<string>());
   const [notes, setNotes] = createSignal(existing?.notes || "");
   const [previewNotes, setPreviewNotes] = createSignal(false);
@@ -199,6 +205,7 @@ export function ItemEditor(props: {
         title,
         notes: String(data.get("notes") || ""),
         state: nextState,
+        parentId: String(data.get("parentId") || "") || null,
         completedAt: nextState === "completed" ? task?.completedAt || now : null,
         tags: parseTags(data.get("tags")),
         attachments: [...(currentItem?.attachments || []).filter(file => !submittedRemoved.has(file.id)), ...attachments],
@@ -279,8 +286,21 @@ export function ItemEditor(props: {
     return inFlight;
   };
 
+  const descendants = () => taskDescendants(props.items, itemId);
+  const children = () => props.items.filter((item): item is Task => item.kind === "task" && item.parentId === itemId);
+  const parentChoices = () => { const excluded = new Set([itemId, ...descendants().map(task => task.id)]); return props.items.filter((item): item is Task => item.kind === "task" && !excluded.has(item.id)).sort((a,b) => a.title.localeCompare(b.title)); };
+  const navigateTask = async (task?: Task) => {
+    closing = true; clearTimeout(saveTimer);
+    if (inFlight) await inFlight;
+    do { if (!(await persist())) { closing = false; return; } } while (dirty());
+    if (task) props.onEditItem(task);
+    else if (currentItem?.kind === "task") props.onAddSubtask(currentItem);
+    else closing = false;
+  };
+
   const deleteCurrent = async () => {
     if (!currentItem || saving()) return;
+    if (children().length && !window.confirm("Delete this task? Its subtasks will be kept as separate tasks.")) return;
     closing = true;
     clearTimeout(saveTimer);
     try { await props.onDelete(currentItem); }
@@ -376,7 +396,9 @@ export function ItemEditor(props: {
         }>
           <div>
             <div class="form-grid">
-              <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><button type="button" class={taskState() === "open" ? "primary-button" : "secondary-button"} onClick={toggleCompleted}>{taskState() === "open" ? "✓ Complete task" : "↶ Reopen task"}</button><span class="muted">{taskState() === "completed" ? "Completed" : "Open"}</span></div>
+              <label class="field full-span">Parent task<select name="parentId" onChange={event => { setParentId(event.currentTarget.value); syncDirty(); }}><option value="" selected={!parentId()}>No parent</option><For each={parentChoices()}>{parent => <option value={parent.id} selected={parent.id === parentId()}>{parent.title || "Untitled task"}</option>}</For></select></label>
+              <div class="subtask-editor full-span"><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" disabled={!hasSavedItem()} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button>}</For><small class="muted">Completing a task completes all its subtasks. Reopening a subtask also reopens its parents.</small></div>
+              <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><button type="button" class={taskState() === "open" ? "primary-button" : "secondary-button"} onClick={toggleCompleted}>{taskState() === "open" ? (descendants().length ? `✓ Complete task + ${descendants().length} subtasks` : "✓ Complete task") : "↶ Reopen task"}</button><span class="muted">{taskState() === "completed" ? "Completed" : "Open"}</span></div>
               <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" value={isoToLocalInput(task?.availableFrom)} /></label>
               <label class="field"><span>Due</span><input name="deadline" type="datetime-local" value={isoToLocalInput(task?.deadline)} /></label>
               <label class="field"><span>Latest start</span><input name="latestStart" type="datetime-local" value={isoToLocalInput(task?.latestStart)} /></label>
@@ -403,7 +425,7 @@ export function ItemEditor(props: {
 
         <div class="dialog-actions">
           <Show when={hasSavedItem()}><button type="button" class="danger-button" disabled={saving()} onClick={() => void deleteCurrent()}>Delete</button></Show>
-          <span role="status">{saving() ? "Saving…" : saveError() || (dirty() ? "Unsaved changes" : "Saved on this device")}</span>
+          <span role="status">{saving() ? "Saving…" : saveError() || (dirty() ? "Unsaved changes" : (hasSavedItem() ? "Saved locally" : "Not saved yet"))}</span>
           <div class="spacer" />
           <Show when={dirty() && saveError()}><button type="button" class="secondary-button" disabled={saving()} onClick={() => { if (window.confirm("Discard your unsaved changes?")) { closing = true; clearTimeout(saveTimer); props.onClose(); } }}>Discard unsaved changes</button></Show>
           <button type="submit" class="secondary-button">Close</button>

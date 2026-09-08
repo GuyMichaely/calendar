@@ -214,3 +214,16 @@
   .tasks-panel .task-main { align-items: flex-start; }
   .tasks-panel .task-actions .text-button { white-space: normal; }
 }
+
+/* Hierarchy stays compact on phones; indentation is capped, nesting is not. */
+.task-parent-link { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; border: 0; background: none; color: var(--muted); font-size: .75rem; text-align: left; }
+.task-disclosure { border: 0; background: none; color: inherit; padding: 0 .35rem; min-width: 28px; min-height: 28px; }
+.subtask-progress { font-size: .75rem; color: var(--muted); }
+.subtask-editor { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; }
+.subtask-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.subtask-editor-link { text-align: left; border: 0; background: none; color: inherit; padding: 6px 0; }
+
+.task-title-row:has(.task-disclosure) { flex-wrap: nowrap; gap: 2px; }
+.task-title-row h3 { min-width: 0; }
+.add-subtask-button { font-size: 22px; width: 32px; height: 32px; padding: 0; }
+@media (max-width: 600px) { .tasks-panel .task-actions { max-width: 76px; } }

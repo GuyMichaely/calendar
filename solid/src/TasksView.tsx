@@ -1,3 +1,4 @@
+import { nestTaskRows, taskDescendants } from "../../site/task-tree.js";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
 import {
@@ -17,7 +18,7 @@ import { actionForKey, normalizeEventKey, TaskActionIcon, type Shortcuts } from 
 import { availabilitySummary, taskTiming } from "./task-display";
 import type { Attachment, HorizonMode, Item, Task } from "./types";
 
-type TaskRow = { task: Task; upcomingAt?: Date | null };
+type TaskRow = { task: Task; upcomingAt?: Date | null; depth?: number; hasChildren?: boolean };
 
 const taskSections = [
   { id: "now", label: "Can do now", defaultOpen: true },
@@ -104,6 +105,7 @@ type TasksViewProps = {
   onCompactChange: (value: boolean) => void;
   onHorizonChange: (value: number | null) => void;
   onHorizonModeChange: (value: HorizonMode) => void;
+  onAddSubtask: (task: Task) => void;
   onEdit: (task: Task) => void;
   onComplete: (task: Task) => Promise<void>;
   onWake: (task: Task) => Promise<void>;
@@ -115,6 +117,9 @@ type TasksViewProps = {
 };
 
 export function TasksView(props: TasksViewProps) {
+  const [collapsed, setCollapsed] = createSignal(new Set<string>());
+  const nested = (rows: TaskRow[]) => nestTaskRows(rows, props.items, props.query ? new Set<string>() : collapsed());
+  const toggle = (id: string) => setCollapsed(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
   const [openSections, setOpenSections] = createSignal<Record<SectionId, boolean>>(
     Object.fromEntries(taskSections.map((section) => [section.id, readSectionOpen(section.id, section.defaultOpen)])) as Record<SectionId, boolean>,
   );
@@ -146,6 +151,7 @@ export function TasksView(props: TasksViewProps) {
 
   createEffect(() => {
     rows();
+    collapsed();
     openSections();
     queueMicrotask(() => {
       const cards = visibleTaskCards();
@@ -188,6 +194,10 @@ export function TasksView(props: TasksViewProps) {
   const taskCard = (row: TaskRow, showAvailability: boolean) => (
     <TaskCard
       row={row}
+      items={props.items}
+      collapsed={collapsed().has(row.task.id) && !props.query}
+      onToggle={() => toggle(row.task.id)}
+      onAddSubtask={props.onAddSubtask}
       now={props.now}
       showAvailability={showAvailability}
       shortcuts={props.shortcuts}
@@ -270,7 +280,7 @@ export function TasksView(props: TasksViewProps) {
 
                 <div class="task-list section-task-list">
                   <Show when={sectionRows().length} fallback={<div class="section-empty">{emptyText(section.id)}</div>}>
-                    <For each={sectionRows()}>{(row) => taskCard(row, section.id === "upcoming")}</For>
+                    <For each={nested(sectionRows())}>{(row) => taskCard(row, section.id === "upcoming")}</For>
                   </Show>
                 </div>
 
@@ -278,7 +288,7 @@ export function TasksView(props: TasksViewProps) {
                   <div class="sleeping-block">
                     <div class="sleeping-heading"><span>Sleeping</span><span>{sleepingRows().length}</span></div>
                     <div class="task-list section-task-list sleeping-task-list">
-                      <For each={sleepingRows()}>{(row) => taskCard(row, true)}</For>
+                      <For each={nested(sleepingRows())}>{(row) => taskCard(row, true)}</For>
                     </div>
                   </div>
                 </Show>
@@ -293,9 +303,13 @@ export function TasksView(props: TasksViewProps) {
 
 function TaskCard(props: {
   row: TaskRow;
+  items: Item[];
+  collapsed: boolean;
+  onToggle: () => void;
   now: Date;
   showAvailability: boolean;
   shortcuts: Shortcuts;
+  onAddSubtask: (task: Task) => void;
   onEdit: (task: Task) => void;
   onComplete: (task: Task) => Promise<void>;
   onWake: (task: Task) => Promise<void>;
@@ -305,6 +319,8 @@ function TaskCard(props: {
   onSleepToWait: (task: Task) => Promise<void>;
   onWaitToSleep: (task: Task) => Promise<void>;
 }) {
+  const descendants = createMemo(() => taskDescendants(props.items, props.row.task.id));
+  const parent = createMemo(() => props.items.find((item): item is Task => item.kind === "task" && item.id === props.row.task.parentId));
   const result = createMemo(() => actionability(props.row.task, props.now));
   const sleep = createMemo(() => sleepInfo(props.row.task, props.now));
   const closed = createMemo(() => props.row.task.state === "completed");
@@ -356,6 +372,7 @@ function TaskCard(props: {
   return (
     <article
       class={`task-card ${sleep().sleeping ? "sleeping-task" : ""}`}
+      style={{ "margin-inline-start": `${Math.min(props.row.depth || 0, 5) * 12}px` }}
       data-id={props.row.task.id}
       data-task-card="true"
       tabIndex={-1}
@@ -371,15 +388,18 @@ function TaskCard(props: {
       <div class="task-main">
         <Show
           when={closed()}
-          fallback={<button class="complete-button" aria-label="Mark complete" title="Mark complete" onClick={() => void props.onComplete(props.row.task)} />}
+          fallback={<button class="complete-button" aria-label="Mark complete" title={descendants().length ? "Complete task and all its subtasks" : "Mark complete"} onClick={() => void props.onComplete(props.row.task)} />}
         >
           <span class="complete-indicator" aria-hidden="true">✓</span>
         </Show>
         <div class="task-copy">
+          <Show when={parent()}>{parentTask => <button class="task-parent-link" onClick={() => props.onEdit(parentTask())}>↳ {taskTitle(parentTask())}</button>}</Show>
           <div class="task-title-row">
+            <Show when={props.row.hasChildren}><button class="task-disclosure" aria-label={props.collapsed ? "Expand subtasks" : "Collapse subtasks"} aria-expanded={!props.collapsed} onClick={props.onToggle}>{props.collapsed ? "▸" : "▾"}</button></Show>
             <h3><button class="task-title-link" aria-label={`Edit ${taskTitle(props.row.task)}`} title={`Edit ${taskTitle(props.row.task)}`} onClick={() => props.onEdit(props.row.task)}>{taskTitle(props.row.task)}</button></h3>
             <span class={`status-pill ${result().actionable && !sleep().sleeping ? "ready" : sleep().sleeping ? "sleeping" : "quiet"}`}>{statusText()}</span>
           </div>
+          <Show when={descendants().length}><div class="subtask-progress">{descendants().filter(task => task.state === "completed").length}/{descendants().length} subtasks completed</div></Show>
           <Show when={summary()}><div class="availability-summary">{summary()}</div></Show>
           <Show when={props.row.task.notes}><MarkdownNotes text={props.row.task.notes || ""} attachments={props.row.task.attachments || []} onDownload={file => void openAttachment(file)} onError={message => window.alert(message)} /></Show>
           <Show when={timing().length}><div class="timing"><For each={timing()}>{(value) => <span>{value}</span>}</For></div></Show>
@@ -389,6 +409,7 @@ function TaskCard(props: {
       </div>
       <Show when={!closed()}>
         <div class="task-actions">
+          <button class="text-button add-subtask-button" title="Add subtask" aria-label={`Add subtask to ${taskTitle(props.row.task)}`} onClick={() => props.onAddSubtask(props.row.task)}>+</button>
           <Show
             when={sleep().sleeping}
             fallback={

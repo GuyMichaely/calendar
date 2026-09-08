@@ -229,3 +229,30 @@ test("attachment replacement and undo operate on whole entries", async () => {
   assert.equal(await storage.undo(), true);
   assert.equal((await storage.getItem(baseline.id)).attachments[0].name, "after.txt");
 });
+
+test("completing a parent closes descendants atomically and one undo restores their states", async () => {
+  for (const [id, parentId] of [['tree-parent', null], ['tree-child', 'tree-parent'], ['tree-grandchild', 'tree-child'], ['tree-unrelated', null]]) await storage.putItem(task({id, parentId}));
+  const parent = await storage.getItem('tree-parent');
+  await storage.putItem({...parent, state: 'completed', completedAt: '2026-09-08T12:00:00Z'}, parent);
+  for (const id of ['tree-parent', 'tree-child', 'tree-grandchild']) assert.equal((await storage.getItem(id)).state, 'completed');
+  assert.equal((await storage.getItem('tree-unrelated')).state, 'open');
+  await storage.undo();
+  for (const id of ['tree-parent', 'tree-child', 'tree-grandchild']) assert.equal((await storage.getItem(id)).state, 'open');
+  await storage.redo();
+  const child = await storage.getItem('tree-grandchild');
+  await storage.putItem({...child, state: 'open', completedAt: null}, child);
+  for (const id of ['tree-parent', 'tree-child', 'tree-grandchild']) assert.equal((await storage.getItem(id)).state, 'open');
+  await storage.undo();
+  for (const id of ['tree-parent', 'tree-child', 'tree-grandchild']) assert.equal((await storage.getItem(id)).state, 'completed');
+  const root = await storage.getItem('tree-parent');
+  await assert.rejects(storage.putItem({...root, parentId: 'tree-grandchild'}, root), /own ancestor/);
+  assert.equal((await storage.getItem('tree-parent')).parentId, null);
+  await storage.deleteItem('tree-parent');
+  assert.ok(await storage.getItem('tree-child'));
+});
+
+test("an invalid imported hierarchy is rejected before changing stored items", async () => {
+  const before = JSON.parse(await storage.exportData());
+  await assert.rejects(storage.importData(JSON.stringify({items: [task({id: 'cycle-a', parentId: 'cycle-b'}), task({id: 'cycle-b', parentId: 'cycle-a'})]})), /own ancestor/);
+  assert.deepEqual(JSON.parse(await storage.exportData()), before);
+});
