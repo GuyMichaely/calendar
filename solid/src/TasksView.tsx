@@ -1,3 +1,4 @@
+import { startTaskDrag } from "./task-drag";
 import { nestTaskRows, taskDescendants } from "../../site/task-tree.js";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
@@ -18,7 +19,7 @@ import { actionForKey, normalizeEventKey, TaskActionIcon, type Shortcuts } from 
 import { availabilitySummary, taskTiming } from "./task-display";
 import type { Attachment, HorizonMode, Item, Task } from "./types";
 
-type TaskRow = { task: Task; upcomingAt?: Date | null; depth?: number; hasChildren?: boolean };
+type TaskRow = { hidden?: boolean; task: Task; upcomingAt?: Date | null; depth?: number; hasChildren?: boolean };
 
 const taskSections = [
   { id: "now", label: "Can do now", defaultOpen: true },
@@ -31,11 +32,12 @@ type SectionId = (typeof taskSections)[number]["id"];
 
 let rememberedTaskId: string | null = null;
 let rememberedTaskIndex = 0;
-let taskFocusActive = false;
+let rememberedSection: string | undefined;
+
 
 function visibleTaskCards() {
   return [...document.querySelectorAll<HTMLElement>('[data-task-card="true"]')].filter((card) => {
-    if (card.closest("details:not([open])")) return false;
+    if (card.closest("[inert]")) return false;
     return card.getClientRects().length > 0;
   });
 }
@@ -45,6 +47,7 @@ function rememberCard(card: HTMLElement) {
   const index = cards.indexOf(card);
   if (index >= 0) rememberedTaskIndex = index;
   rememberedTaskId = card.dataset.id || rememberedTaskId;
+  rememberedSection = card.closest<HTMLElement>("[data-section]")?.dataset.section;
   cards.forEach((candidate) => { candidate.tabIndex = candidate === card ? 0 : -1; });
 }
 
@@ -95,6 +98,8 @@ function taskTitle(task: Task) {
 }
 
 type TasksViewProps = {
+  animations: boolean;
+  onMove: (id: string, target: string | null, placement: string) => Promise<void>;
   items: Item[];
   query: string;
   compact: boolean;
@@ -118,7 +123,7 @@ type TasksViewProps = {
 
 export function TasksView(props: TasksViewProps) {
   const [collapsed, setCollapsed] = createSignal(new Set<string>());
-  const nested = (rows: TaskRow[]) => nestTaskRows(rows, props.items, props.query ? new Set<string>() : collapsed());
+  const nested = (rows: TaskRow[]) => nestTaskRows(rows, props.items, props.query ? new Set<string>() : collapsed(), true);
   const toggle = (id: string) => setCollapsed(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
   const [openSections, setOpenSections] = createSignal<Record<SectionId, boolean>>(
     Object.fromEntries(taskSections.map((section) => [section.id, readSectionOpen(section.id, section.defaultOpen)])) as Record<SectionId, boolean>,
@@ -156,17 +161,18 @@ export function TasksView(props: TasksViewProps) {
     queueMicrotask(() => {
       const cards = visibleTaskCards();
       if (!cards.length) return;
-      const remembered = rememberedTaskId ? cards.find((card) => card.dataset.id === rememberedTaskId) : null;
-      const roving = remembered || cards[Math.min(rememberedTaskIndex, cards.length - 1)] || cards[0];
+      const remembered = rememberedTaskId ? cards.find((card) => card.dataset.id === rememberedTaskId && card.closest<HTMLElement>("[data-section]")?.dataset.section === rememberedSection) : null;
+      const active = cards.find(card => card.contains(document.activeElement));
+      const roving = active || remembered || cards[Math.min(rememberedTaskIndex, cards.length - 1)] || cards[0];
       cards.forEach((card) => { card.tabIndex = card === roving ? 0 : -1; });
-      if (taskFocusActive && document.activeElement === document.body) focusCard(roving, { scroll: false });
+
     });
   });
 
   onMount(() => {
     const onFocusIn = (event: FocusEvent) => {
       const card = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-task-card="true"]') : null;
-      taskFocusActive = !!card;
+
       if (card) rememberCard(card);
     };
     document.addEventListener("focusin", onFocusIn);
@@ -191,12 +197,28 @@ export function TasksView(props: TasksViewProps) {
     return "No open tasks.";
   };
 
-  const taskCard = (row: TaskRow, showAvailability: boolean) => (
+  const move = async (id: string, target: string | null, placement: string) => {
+    await props.onMove(id, target, placement);
+    if (placement === "inside" && target) setCollapsed(current => { const next = new Set(current); next.delete(target); return next; });
+  };
+  const moveWithKey = (event: KeyboardEvent, row: TaskRow) => {
+    if (!["ArrowUp", "ArrowDown", "ArrowLeft"].includes(event.key)) return;
+    event.preventDefault(); event.stopPropagation();
+    if (event.key === "ArrowLeft") { void move(row.task.id, null, "root"); return; }
+    const card = (event.currentTarget as HTMLElement).closest<HTMLElement>("[data-task-card]")!;
+    const section = card.closest("[data-section]");
+    const siblings = visibleTaskCards().filter(candidate => candidate.closest("[data-section]") === section && candidate.dataset.parent === (row.task.parentId || ""));
+    const target = siblings[siblings.indexOf(card) + (event.key === "ArrowUp" ? -1 : 1)];
+    if (target?.dataset.id) void move(row.task.id, target.dataset.id, event.key === "ArrowUp" ? "before" : "after");
+  };
+  const taskCard = (row: () => TaskRow, showAvailability: boolean) => (
     <TaskCard
-      row={row}
+      row={row()}
+      onMoveKey={event => moveWithKey(event, row())}
+      onDrag={event => startTaskDrag(event, row().task.id, move)}
       items={props.items}
-      collapsed={collapsed().has(row.task.id) && !props.query}
-      onToggle={() => toggle(row.task.id)}
+      collapsed={collapsed().has(row().task.id) && !props.query}
+      onToggle={() => toggle(row().task.id)}
       onAddSubtask={props.onAddSubtask}
       now={props.now}
       showAvailability={showAvailability}
@@ -212,8 +234,18 @@ export function TasksView(props: TasksViewProps) {
     />
   );
 
+  const taskList = (getRows: () => TaskRow[], showAvailability: boolean) => {
+    const tree = createMemo(() => nested(getRows()));
+    const byId = createMemo(() => new Map(tree().map(row => [row.task.id, row])));
+    return <For each={tree().map(row => row.task.id)}>{id => {
+      let last = byId().get(id)!;
+      const row = () => (last = byId().get(id) || last);
+      return <div class="task-collapse" data-expanded={!row().hidden} inert={row().hidden || undefined}><div class="collapse-inner"><div class="task-row-spacing">{taskCard(row, showAvailability)}</div></div></div>;
+    }}</For>;
+  };
+
   return (
-    <section class={`panel tasks-panel ${props.compact ? "compact" : ""}`}>
+    <section class={`panel tasks-panel ${props.compact ? "compact" : ""} ${props.animations ? "motion-enabled" : ""}`}>
       <div class="panel-heading">
         <div>
           <h1>Tasks</h1>
@@ -231,27 +263,24 @@ export function TasksView(props: TasksViewProps) {
         >Compact</button>
       </div>
 
+      <p class="drag-help">Drag ⋮⋮ to reorder; drop in the middle of a task to make it a subtask.</p>
+      <div class="root-drop" data-drop-root="true">Drop here to make a top-level task</div>
       <div class="task-sections">
         <For each={taskSections}>{(section) => {
           const sectionRows = () => rows()[section.id];
           const sleepingRows = () => section.id === "upcoming" ? sleeping() : [];
           const label = () => section.id === "upcoming" && props.horizonDays === null ? "Waiting" : section.label;
           return (
-            <details
-              class="task-section"
-              data-section={section.id}
-              open={openSections()[section.id]}
-              onToggle={(event) => {
-                const open = event.currentTarget.open;
-                if (openSections()[section.id] === open) return;
-                setOpenSections((current) => ({ ...current, [section.id]: open }));
+            <section class="task-section" data-section={section.id} data-expanded={openSections()[section.id]}>
+              <button class="task-section-toggle" aria-expanded={openSections()[section.id]} onClick={() => {
+                const open = !openSections()[section.id];
+                setOpenSections(current => ({ ...current, [section.id]: open }));
                 localStorage.setItem(`calendar.section.${section.id}`, open ? "open" : "closed");
-              }}
-            >
-              <summary>
+              }}>
                 <span class="section-heading"><span class="section-chevron" aria-hidden="true">›</span><strong>{label()}</strong></span>
                 <span class="section-count">{sectionRows().length + sleepingRows().length}</span>
-              </summary>
+              </button>
+              <div class="task-collapse" data-expanded={openSections()[section.id]} inert={!openSections()[section.id] || undefined}><div class="collapse-inner">
               <div class="task-section-body">
                 <Show when={section.id === "upcoming"}>
                   <div class="horizon-row">
@@ -280,7 +309,7 @@ export function TasksView(props: TasksViewProps) {
 
                 <div class="task-list section-task-list">
                   <Show when={sectionRows().length} fallback={<div class="section-empty">{emptyText(section.id)}</div>}>
-                    <For each={nested(sectionRows())}>{(row) => taskCard(row, section.id === "upcoming")}</For>
+                    {taskList(sectionRows, section.id === "upcoming")}
                   </Show>
                 </div>
 
@@ -288,12 +317,13 @@ export function TasksView(props: TasksViewProps) {
                   <div class="sleeping-block">
                     <div class="sleeping-heading"><span>Sleeping</span><span>{sleepingRows().length}</span></div>
                     <div class="task-list section-task-list sleeping-task-list">
-                      <For each={nested(sleepingRows())}>{(row) => taskCard(row, true)}</For>
+                      {taskList(sleepingRows, true)}
                     </div>
                   </div>
                 </Show>
               </div>
-            </details>
+              </div></div>
+            </section>
           );
         }}</For>
       </div>
@@ -303,6 +333,8 @@ export function TasksView(props: TasksViewProps) {
 
 function TaskCard(props: {
   row: TaskRow;
+  onDrag: (event: PointerEvent) => void;
+  onMoveKey: (event: KeyboardEvent) => void;
   items: Item[];
   collapsed: boolean;
   onToggle: () => void;
@@ -373,19 +405,21 @@ function TaskCard(props: {
     <article
       class={`task-card ${sleep().sleeping ? "sleeping-task" : ""}`}
       style={{ "margin-inline-start": `${Math.min(props.row.depth || 0, 5) * 12}px` }}
+      data-parent={props.row.task.parentId || ""}
       data-id={props.row.task.id}
       data-task-card="true"
       tabIndex={-1}
       onFocus={(event) => rememberCard(event.currentTarget)}
       onPointerDown={(event) => {
         if (isInteractiveTarget(event.target)) return;
-        taskFocusActive = true;
+
         focusCard(event.currentTarget, { scroll: false });
       }}
       onDblClick={(event) => { if (!isInteractiveTarget(event.target)) props.onEdit(props.row.task); }}
       onKeyDown={onKeyDown}
     >
       <div class="task-main">
+        <button class="task-drag-handle" aria-label={`Drag ${taskTitle(props.row.task)} to reorder or nest`} title="Drag to reorder or nest. Arrow keys: move up/down; left: make top-level." onKeyDown={props.onMoveKey} onPointerDown={props.onDrag}>⋮⋮</button>
         <Show
           when={closed()}
           fallback={<button class="complete-button" aria-label="Mark complete" title={descendants().length ? "Complete task and all its subtasks" : "Mark complete"} onClick={() => void props.onComplete(props.row.task)} />}
@@ -395,7 +429,7 @@ function TaskCard(props: {
         <div class="task-copy">
           <Show when={parent()}>{parentTask => <button class="task-parent-link" onClick={() => props.onEdit(parentTask())}>↳ {taskTitle(parentTask())}</button>}</Show>
           <div class="task-title-row">
-            <Show when={props.row.hasChildren}><button class="task-disclosure" aria-label={props.collapsed ? "Expand subtasks" : "Collapse subtasks"} aria-expanded={!props.collapsed} onClick={props.onToggle}>{props.collapsed ? "▸" : "▾"}</button></Show>
+            <Show when={props.row.hasChildren}><button class="task-disclosure" aria-label={props.collapsed ? "Expand subtasks" : "Collapse subtasks"} aria-expanded={!props.collapsed} onClick={props.onToggle}><span class="section-chevron" aria-hidden="true">›</span></button></Show>
             <h3><button class="task-title-link" aria-label={`Edit ${taskTitle(props.row.task)}`} title={`Edit ${taskTitle(props.row.task)}`} onClick={() => props.onEdit(props.row.task)}>{taskTitle(props.row.task)}</button></h3>
             <span class={`status-pill ${result().actionable && !sleep().sleeping ? "ready" : sleep().sleeping ? "sleeping" : "quiet"}`}>{statusText()}</span>
           </div>

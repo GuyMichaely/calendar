@@ -16,7 +16,7 @@ Item deletion uses an application-level `deletedAt` tombstone rather than immedi
 
 See [incremental sync](../docs/incremental-sync.md) for the native message protocol, ordered session handling, reconnection behavior, and persistence boundary. The calendar uses `application/vnd.automerge.sync` on `POST /sync`. Saved documents stay as complete Automerge snapshots in IndexedDB and Durable Object storage; only missing changes and protocol metadata travel over the network.
 
-The server authenticates requests before reading messages, decodes malformed client messages before touching storage, and validates the resulting calendar before writing it. Incompatible calendar changes return HTTP 409; lost peer state returns HTTP 410 and triggers a native handshake restart. Internal storage failures remain HTTP 500, independent of Automerge's error wording.
+The server authenticates requests before reading messages, decodes malformed client messages before touching storage, and validates the resulting calendar before writing it. Incompatible calendar changes return HTTP 409; lost peer state returns HTTP 200 with `X-Automerge-Reset: 1` and triggers a native handshake restart. Internal storage failures remain HTTP 500, independent of Automerge's error wording.
 
 ## Attachment endpoint
 

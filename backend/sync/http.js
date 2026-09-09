@@ -1,7 +1,9 @@
 import * as Automerge from "@automerge/automerge";
 import { CalendarDocumentError, createCalendarDocument, loadCalendarDocument, saveCalendarDocument } from "../../sync/automerge-document.js";
-import { AUTOMERGE_MEDIA_TYPE, SYNC_SESSION_HEADER, SYNC_SEQUENCE_HEADER } from "../../sync/protocol.js";
+import { AUTOMERGE_MEDIA_TYPE, SYNC_SESSION_HEADER, SYNC_SEQUENCE_HEADER, SYNC_RESET_HEADER, AUTOMERGE_RESET_MEDIA_TYPE } from "../../sync/protocol.js";
 export { AUTOMERGE_MEDIA_TYPE };
+
+class SyncSessionReset extends Error {}
 
 class SyncRequestError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -71,9 +73,9 @@ export function createSyncHandler({
     for (const [key, peer] of peers) if (now() - peer.touched > sessionTtlMs) peers.delete(key);
     const key = JSON.stringify([owner, sessionId]);
     const existing = peers.get(key);
-    if (!existing && sequence !== 0) throw new SyncRequestError("Sync connection expired; reconnect.", 410);
+    if (!existing && sequence !== 0) throw new SyncSessionReset();
     const peer = existing || { state: Automerge.initSyncState(), sequence: 0 };
-    if (sequence !== peer.sequence) throw new SyncRequestError("Sync connection is out of order; reconnect.", 410);
+    if (sequence !== peer.sequence) throw new SyncSessionReset();
     const outcome = await documentStore.update(documentKey, async storedBytes => {
       let doc = storedBytes ? loadCalendarDocument(storedBytes) : createCalendarDocument();
       let state = peer.state;
@@ -122,6 +124,7 @@ export function createSyncHandler({
       const reply = await result;
       return new Response(reply, { headers: { "content-type": AUTOMERGE_MEDIA_TYPE, "cache-control": "no-store" } });
     } catch (error) {
+      if (error instanceof SyncSessionReset) return new Response(null, { headers: { "content-type": AUTOMERGE_RESET_MEDIA_TYPE, [SYNC_RESET_HEADER]: "1", "cache-control": "no-store" } });
       if (error instanceof SyncRequestError) return new Response(error.message, { status: error.status });
       console.error("Calendar sync failed", error);
       return new Response("Sync failed", { status: 500 });

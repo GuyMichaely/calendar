@@ -1,6 +1,8 @@
 import * as Automerge from "@automerge/automerge";
 import { loadCalendarDocument, saveCalendarDocument } from "./automerge-document.js";
-import { AUTOMERGE_MEDIA_TYPE, SYNC_SESSION_HEADER, SYNC_SEQUENCE_HEADER } from "./protocol.js";
+import { AUTOMERGE_MEDIA_TYPE, SYNC_SESSION_HEADER, SYNC_SEQUENCE_HEADER, SYNC_RESET_HEADER, AUTOMERGE_RESET_MEDIA_TYPE } from "./protocol.js";
+
+class SyncSessionReset extends Error {}
 
 export class CalendarSyncError extends Error {
   constructor(message, { status = null } = {}) {
@@ -41,7 +43,9 @@ export function createCalendarSyncClient({ readSnapshot, mergeSnapshot }, {
         const detail = (await response.text()).trim();
         throw new CalendarSyncError(detail || `Sync failed (${response.status})`, { status: response.status });
       }
-      if ((response.headers.get("content-type") || "").split(";", 1)[0] !== AUTOMERGE_MEDIA_TYPE) {
+      const mediaType = (response.headers.get("content-type") || "").split(";", 1)[0];
+      if (mediaType === AUTOMERGE_RESET_MEDIA_TYPE && response.headers.get(SYNC_RESET_HEADER) === "1") throw new SyncSessionReset();
+      if (mediaType !== AUTOMERGE_MEDIA_TYPE) {
         throw new CalendarSyncError("Invalid sync response type", { status: response.status });
       }
       const reply = new Uint8Array(await response.arrayBuffer());
@@ -64,7 +68,10 @@ export function createCalendarSyncClient({ readSnapshot, mergeSnapshot }, {
           try { return await exchange(signal); }
           catch (error) {
             reset();
-            if (error instanceof CalendarSyncError && error.status === 410 && attempt === 0) continue;
+            if (error instanceof SyncSessionReset) {
+              if (attempt === 0) continue;
+              throw new CalendarSyncError("Sync server repeatedly restarted the connection; try again.");
+            }
             throw error;
           }
         }

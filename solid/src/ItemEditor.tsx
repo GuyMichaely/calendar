@@ -74,7 +74,6 @@ export function ItemEditor(props: {
   let currentItem = existing;
   const [hasSavedItem, setHasSavedItem] = createSignal(!!existing);
   const itemId = existing?.id || uuid();
-  const [parentId, setParentId] = createSignal((existing?.kind === "task" ? existing.parentId : null) || props.request.parentId || "");
   const [removedAttachments, setRemovedAttachments] = createSignal(new Set<string>());
   const [notes, setNotes] = createSignal(existing?.notes || "");
   const [previewNotes, setPreviewNotes] = createSignal(false);
@@ -205,7 +204,7 @@ export function ItemEditor(props: {
         title,
         notes: String(data.get("notes") || ""),
         state: nextState,
-        parentId: String(data.get("parentId") || "") || null,
+        parentId: task?.parentId || props.request.parentId || null,
         completedAt: nextState === "completed" ? task?.completedAt || now : null,
         tags: parseTags(data.get("tags")),
         attachments: [...(currentItem?.attachments || []).filter(file => !submittedRemoved.has(file.id)), ...attachments],
@@ -288,7 +287,6 @@ export function ItemEditor(props: {
 
   const descendants = () => taskDescendants(props.items, itemId);
   const children = () => props.items.filter((item): item is Task => item.kind === "task" && item.parentId === itemId);
-  const parentChoices = () => { const excluded = new Set([itemId, ...descendants().map(task => task.id)]); return props.items.filter((item): item is Task => item.kind === "task" && !excluded.has(item.id)).sort((a,b) => a.title.localeCompare(b.title)); };
   const navigateTask = async (task?: Task) => {
     closing = true; clearTimeout(saveTimer);
     if (inFlight) await inFlight;
@@ -350,7 +348,7 @@ export function ItemEditor(props: {
     <DialogShell labelledBy="editor-title" onClose={close}>
       <form ref={(element) => { formRef = element; }} onSubmit={(event) => { event.preventDefault(); void close(); }} onInput={syncDirty}>
         <div class="dialog-header">
-          <label class="editor-title-field"><span class="visually-hidden" id="editor-title">Item title</span><input class="editor-title-input" name="title" aria-label="Item title" required maxLength={240} placeholder="Untitled item" value={existing?.title || ""} autofocus /><span class="title-edit-hint" aria-hidden="true">✎</span></label>
+          <label class="editor-title-field"><span class="visually-hidden" id="editor-title">Item title</span><input class="editor-title-input" name="title" aria-label="Item title" required maxLength={240} placeholder="Untitled item" value={existing?.title || ""} data-dialog-autofocus={true} /><span class="title-edit-hint" aria-hidden="true">✎</span></label>
           <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
         </div>
 
@@ -396,7 +394,6 @@ export function ItemEditor(props: {
         }>
           <div>
             <div class="form-grid">
-              <label class="field full-span">Parent task<select name="parentId" onChange={event => { setParentId(event.currentTarget.value); syncDirty(); }}><option value="" selected={!parentId()}>No parent</option><For each={parentChoices()}>{parent => <option value={parent.id} selected={parent.id === parentId()}>{parent.title || "Untitled task"}</option>}</For></select></label>
               <div class="subtask-editor full-span"><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" disabled={!hasSavedItem()} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button>}</For><small class="muted">Completing a task completes all its subtasks. Reopening a subtask also reopens its parents.</small></div>
               <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><button type="button" class={taskState() === "open" ? "primary-button" : "secondary-button"} onClick={toggleCompleted}>{taskState() === "open" ? (descendants().length ? `✓ Complete task + ${descendants().length} subtasks` : "✓ Complete task") : "↶ Reopen task"}</button><span class="muted">{taskState() === "completed" ? "Completed" : "Open"}</span></div>
               <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" value={isoToLocalInput(task?.availableFrom)} /></label>
@@ -468,7 +465,7 @@ export function SleepDialog(props: {
           <div><h2 id="sleep-title">Sleep task</h2><p class="muted">{title}</p></div>
           <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
         </div>
-        <label class="field full"><span>Sleep until</span><input type="datetime-local" required value={value()} onInput={(event) => setValue(event.currentTarget.value)} autofocus /></label>
+        <label class="field full"><span>Sleep until</span><input type="datetime-local" required value={value()} onInput={(event) => setValue(event.currentTarget.value)} data-dialog-autofocus={true} /></label>
         <div class="dialog-actions">
           <button type="button" class="secondary-button" onClick={() => void props.onSave(null)}>Sleep indefinitely</button>
           <div class="spacer" />

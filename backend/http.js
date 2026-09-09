@@ -1,3 +1,4 @@
+import { SYNC_RESET_HEADER } from "../sync/protocol.js";
 function normalizeOrigins(allowedOrigins) {
   return new Set((allowedOrigins || []).map((origin) => new URL(origin).origin));
 }
@@ -20,6 +21,7 @@ function applyCors(response, origin) {
   if (!origin) return response;
   response.headers.set("access-control-allow-origin", origin);
   response.headers.set("access-control-allow-credentials", "true");
+  response.headers.set("access-control-expose-headers", SYNC_RESET_HEADER);
   const vary = response.headers.get("vary");
   response.headers.set("vary", vary ? `${vary}, Origin` : "Origin");
   return response;

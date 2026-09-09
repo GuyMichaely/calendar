@@ -263,3 +263,18 @@ test("an invalid imported hierarchy is rejected before changing stored items", a
   await assert.rejects(storage.importData(JSON.stringify({items: [task({id: 'cycle-a', parentId: 'cycle-b'}), task({id: 'cycle-b', parentId: 'cycle-a'})]})), /own ancestor/);
   assert.deepEqual(JSON.parse(await storage.exportData()), before);
 });
+
+
+test('drag moves persist parent and sibling order with grouped undo and redo', async () => {
+  for (const id of ['drag-a', 'drag-b', 'drag-c']) await storage.putItem(task({id}));
+  await storage.moveTask('drag-c', 'drag-a', 'inside');
+  assert.equal((await storage.getItem('drag-c')).parentId, 'drag-a');
+  await storage.undo();
+  assert.equal((await storage.getItem('drag-c')).parentId ?? null, null);
+  await storage.redo();
+  assert.equal((await storage.getItem('drag-c')).parentId, 'drag-a');
+  await assert.rejects(storage.moveTask('drag-a', 'drag-c', 'inside'), /own ancestor/);
+  await storage.moveTask('drag-c', 'drag-b', 'before');
+  assert.equal((await storage.getItem('drag-c')).parentId, null);
+  assert.ok((await storage.getItem('drag-c')).sortOrder < (await storage.getItem('drag-b')).sortOrder);
+});

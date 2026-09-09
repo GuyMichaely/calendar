@@ -2,7 +2,7 @@
 
 The calendar now uses Automerge's native `generateSyncMessage` / `receiveSyncMessage` protocol over ordered HTTP exchanges. `POST /sync` accepts `application/vnd.automerge.sync`, with a random `X-Automerge-Session` and increasing `X-Automerge-Sequence`. Full snapshots remain a local persistence format; they are no longer the wire protocol. No document migration is required.
 
-The browser keeps one native peer state per remote client. The backend keeps authenticated identity-scoped peer states in memory, expiring after five idle minutes and bounded to 100 sessions. A Worker restart, expired state, or out-of-order request returns 410; the client restarts the native handshake. Network failures discard peer state for the next attempt. Calendar changes already committed to storage survive those resets.
+The browser keeps one native peer state per remote client. The backend keeps authenticated identity-scoped peer states in memory, expiring after five idle minutes and bounded to 100 sessions. A Worker restart, expired state, or out-of-order request returns HTTP 200 with `X-Automerge-Reset: 1`; the client restarts the native handshake. Network failures discard peer state for the next attempt. Calendar changes already committed to storage survive those resets.
 
 One sync operation exchanges messages until the client has nothing further to send. When locally unchanged, its first request is an empty poll so the server can generate messages for other-device edits. Existing autosave triggers and configurable polling continue to work. This is incremental HTTP synchronization, not WebSocket push. A quiet poll has no Automerge payload, though HTTP overhead remains.
 

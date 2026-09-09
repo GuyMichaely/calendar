@@ -15,8 +15,8 @@ export function DialogShell(props: {
     previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const initial = dialogRef.querySelector<HTMLElement>("[autofocus]") || dialogRef.querySelector<HTMLElement>(
-      "[autofocus], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])",
+    const initial = dialogRef.querySelector<HTMLElement>('[data-dialog-autofocus="true"]') || dialogRef.querySelector<HTMLElement>(
+      "input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])",
     );
     initial?.focus({ preventScroll: true });
   });

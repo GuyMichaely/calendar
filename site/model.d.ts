@@ -41,6 +41,7 @@ export type Task = BaseItem & {
   kind: "task";
   state: TaskState;
   parentId?: string | null;
+  sortOrder?: number;
   availableFrom?: string | null;
   deadline?: string | null;
   latestStart?: string | null;

@@ -227,3 +227,28 @@
 .task-title-row h3 { min-width: 0; }
 .add-subtask-button { font-size: 22px; width: 32px; height: 32px; padding: 0; }
 @media (max-width: 600px) { .tasks-panel .task-actions { max-width: 76px; } }
+
+.task-section-toggle { width: 100%; color: inherit; background: none; border: 0; text-align: left; }
+.task-collapse { display: grid; grid-template-rows: 0fr; }
+.task-collapse[data-expanded="true"] { grid-template-rows: 1fr; }
+.collapse-inner { min-height: 0; overflow: hidden; }
+.section-task-list { gap: 0; }
+.task-row-spacing { padding-block: 4px; }
+.task-disclosure .section-chevron { display: inline-block; }
+.task-disclosure[aria-expanded="true"] .section-chevron { transform: rotate(90deg); }
+.tasks-panel .section-chevron { transition: none; }
+.motion-enabled .task-collapse { transition: grid-template-rows 200ms ease; }
+.motion-enabled .section-chevron { transition: transform 200ms ease; }
+@media (prefers-reduced-motion: reduce) { .motion-enabled .task-collapse, .motion-enabled .section-chevron { transition: none; } }
+.task-drag-handle { touch-action: none; cursor: grab; border: 0; background: none; color: var(--muted); padding: 0 2px; min-height: 28px; }
+.task-main { gap: 7px; }
+.drag-help { color: var(--muted); font-size: .8rem; }
+.root-drop { display: none; position: fixed; top: 8px; left: 15%; right: 15%; z-index: 30; padding: 14px; background: var(--surface); border: 2px dashed var(--accent); }
+body.task-dragging .root-drop { display: block; }
+[data-drop="inside"], [data-drop="root"] { outline: 2px solid var(--accent); background: var(--accent-soft); }
+[data-drop="before"] { box-shadow: 0 -3px var(--accent); }
+[data-drop="after"] { box-shadow: 0 3px var(--accent); }
+.animation-setting { display: flex; align-items: center; gap: 8px; }
+
+.tasks-panel .section-task-list, .tasks-panel.compact .section-task-list { gap: 0; }
+.tasks-panel.compact .task-row-spacing { padding-block: 2.5px; }

@@ -1,3 +1,4 @@
+import { SYNC_RESET_HEADER, AUTOMERGE_RESET_MEDIA_TYPE } from "../sync/protocol.js";
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createCalendarDocument,saveCalendarDocument,loadCalendarDocument,mergeCalendarDocuments,patchItem} from '../sync/automerge-document.js';
@@ -8,7 +9,7 @@ function replica(fetch,items=[]){let doc=createCalendarDocument(items);const cli
 const task={id:'a',kind:'task',title:'Task',state:'open'};
 test('native sync is incremental, includes credentials and survives server restart',async()=>{
  const store=createMemoryDocumentStore();let handler=server(store),bytes=0;
- const peer=replica(async(url,init)=>{assert.equal(init.credentials,'include');bytes+=init.body.byteLength;const r=await handler(new Request(url,init));bytes+=(await r.clone().arrayBuffer()).byteLength;return r;},Array.from({length:100},(_,i)=>({...task,id:String(i)})));
+ const peer=replica(async(url,init)=>{assert.equal(init.credentials,'include');bytes+=init.body.byteLength;const r=await handler(new Request(url,init));assert.equal(r.status,200);bytes+=(await r.clone().arrayBuffer()).byteLength;return r;},Array.from({length:100},(_,i)=>({...task,id:String(i)})));
  await peer.sync();bytes=0;await peer.sync();assert.equal(bytes,0);
  peer.edit('0',{title:'Changed'});await peer.sync();assert.ok(bytes<saveCalendarDocument(peer.doc).length,'small edit sends less than a snapshot');
  handler=server(store);await peer.sync();assert.equal(loadCalendarDocument(await store.get('calendar:primary')).items['0'].title,'Changed');
@@ -26,4 +27,11 @@ test('edits during an exchange and overlapping sync calls converge',async()=>{
 test('HTTP auth and invalid response types are surfaced',async()=>{
  await assert.rejects(replica(async()=>new Response('Unauthorized',{status:401}),[task]).sync(),error=>error instanceof CalendarSyncError&&error.status===401);
  await assert.rejects(replica(async()=>new Response('wrong',{headers:{'content-type':'text/plain'}}),[task]).sync(),/Invalid sync response/);
+});
+
+test('repeated session resets stop after one retry',async()=>{
+ let attempts=0;
+ const peer=replica(async()=>{attempts++;return new Response(null,{headers:{'content-type':AUTOMERGE_RESET_MEDIA_TYPE,[SYNC_RESET_HEADER]:'1'}});},[task]);
+ await assert.rejects(peer.sync(),/repeatedly restarted/);
+ assert.equal(attempts,2);
 });

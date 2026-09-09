@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createCalendarDocument, loadCalendarDocument, saveCalendarDocument, mergeCalendarDocuments, materializeItems, patchItem } from '../sync/automerge-document.js';
 import { createCalendarSyncClient } from '../sync/client.js';
-import { AUTOMERGE_MEDIA_TYPE, SYNC_SESSION_HEADER, SYNC_SEQUENCE_HEADER } from '../sync/protocol.js';
+import { AUTOMERGE_MEDIA_TYPE, SYNC_SESSION_HEADER, SYNC_SEQUENCE_HEADER, SYNC_RESET_HEADER } from '../sync/protocol.js';
 import {createSyncHandler,createMemoryDocumentStore} from '../backend/sync/http.js';
 const identity={issuer:'issuer',subject:'owner'};
 const auth=async()=>({identity});
@@ -46,14 +46,14 @@ test('idle polls receive edits from a different peer',async()=>{
 test('expired, replayed and out-of-order sessions request a fresh connection',async()=>{
  let now=0;const handler=createSyncHandler({authenticate:auth,documentStore:createMemoryDocumentStore(),now:()=>now,sessionTtlMs:10});
  const id=crypto.randomUUID();assert.equal((await handler(request(new Uint8Array(),0,id))).status,200);
- assert.equal((await handler(request(new Uint8Array(),0,id))).status,410);
- assert.equal((await handler(request(new Uint8Array(),3,id))).status,410);
- now=11;assert.equal((await handler(request(new Uint8Array(),1,id))).status,410);
+ assert.equal((await handler(request(new Uint8Array(),0,id))).headers.get(SYNC_RESET_HEADER),"1");
+ assert.equal((await handler(request(new Uint8Array(),3,id))).headers.get(SYNC_RESET_HEADER),"1");
+ now=11;assert.equal((await handler(request(new Uint8Array(),1,id))).headers.get(SYNC_RESET_HEADER),"1");
 });
 test('peer state is isolated by authenticated identity',async()=>{
  let who='a';const handler=createSyncHandler({authenticate:async()=>({identity:{issuer:'issuer',subject:who}}),documentStore:createMemoryDocumentStore()});
  const id=crypto.randomUUID();assert.equal((await handler(request(new Uint8Array(),0,id))).status,200);who='b';
- assert.equal((await handler(request(new Uint8Array(),1,id))).status,410);
+ assert.equal((await handler(request(new Uint8Array(),1,id))).headers.get(SYNC_RESET_HEADER),"1");
  assert.equal((await handler(request(new Uint8Array(),0,id))).status,200);
 });
 test('server read/write failures remain 500 irrespective of wording',async()=>{

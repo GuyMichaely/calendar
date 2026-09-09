@@ -6,6 +6,7 @@ import {
   listLocalItems,
   mergeLocalSyncSnapshot,
   putLocalItem,
+  moveLocalTask,
   readLocalSyncSnapshot,
 } from "./automerge-storage.js";
 import { uploadAttachmentsBeforePersist } from "./attachment-remote.js";
@@ -365,4 +366,10 @@ export async function mergeSyncSnapshot(bytes) {
 
 export async function getItem(id) {
   return withoutAttachmentBytes(await getLocalItem(id));
+}
+
+export async function moveTask(id, targetId, placement) {
+  const changes = await moveLocalTask(id, targetId, placement);
+  for (const change of changes) syncLiveItem(change.id, change.after);
+  if (changes.length) await pushHistory({label: 'Move task', changes});
 }

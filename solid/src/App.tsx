@@ -10,6 +10,7 @@ import {
   canRedo,
   canUndo,
   deleteItem,
+  moveTask,
   exportData,
   importData,
   parseBackup,
@@ -33,7 +34,7 @@ import {
   type RemoteSession,
 } from "./remote-sync";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
-import { currentRovingTaskCard, focusBoundaryTask, TasksView } from "./TasksView";
+import { focusBoundaryTask, TasksView } from "./TasksView";
 import { ToastStack, type ToastMessage } from "./ToastStack";
 import { loadPollSeconds } from "./settings";
 import type { CalendarSleepMode, HorizonMode, Item, Task, View } from "./types";
@@ -61,6 +62,7 @@ export function App() {
   const [loadingError, setLoadingError] = createSignal("");
   const [view, setView] = createSignal<View>(readView());
   const [query, setQuery] = createSignal("");
+  const [animations, setAnimations] = createSignal(localStorage.getItem("calendar.animations") !== "off");
   const [compact, setCompact] = createSignal(localStorage.getItem("calendar.compactTasks") === "1");
   const [horizonDays, setHorizonDays] = createSignal<number | null>(readHorizon());
   const [horizonMode, setHorizonMode] = createSignal<HorizonMode>(readHorizonMode());
@@ -219,8 +221,8 @@ export function App() {
     } catch (error) { showToast(errorMessage(error, "Import failed")); }
     finally { setImporting(false); }
   };
-  const openSettings = () => { settingsReturnTask = currentRovingTaskCard(); setShowSettings(true); };
-  const closeSettings = () => { if (shortcutsDirty() && !window.confirm("Discard your unsaved shortcut changes?")) return; setShowSettings(false); const task = settingsReturnTask; settingsReturnTask = null; if (task?.isConnected) requestAnimationFrame(() => task.focus()); };
+  const openSettings = () => { settingsReturnTask = document.activeElement instanceof HTMLElement && document.activeElement.matches("[data-task-card]") ? document.activeElement : null; setShowSettings(true); };
+  const closeSettings = () => { if (shortcutsDirty() && !window.confirm("Discard your unsaved shortcut changes?")) return; setShowSettings(false); const task = settingsReturnTask; settingsReturnTask = null; if (task?.isConnected) requestAnimationFrame(() => task.focus({ preventScroll: true })); };
 
   createEffect(() => {
     const seconds = pollSeconds();
@@ -290,7 +292,7 @@ export function App() {
         <div class="solid-menu-status" role="status">{remoteBusy() ? "Syncing…" : remoteError() ? `Saved locally · ${remoteError()}` : lastSyncedAt() ? `Synced at ${lastSyncedAt()!.toLocaleTimeString()}` : "Saved locally"}</div>
         <main>
           <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={(mode) => { setCalendarSleepMode(mode); localStorage.setItem("calendar.calendarSleepMode", mode); }} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => { localStorage.setItem("calendar.section.now", "open"); localStorage.setItem("calendar.section.upcoming", "open"); navigate("tasks"); requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" })); }} />}>
-            <TasksView onAddSubtask={task => setEditor({ item: null, kind: "task", parentId: task.id, nonce: Date.now() })} items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={(task) => openEditor(task)} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
+            <TasksView animations={animations()} onMove={async (id, target, placement) => { try { await moveTask(id, target, placement); await refresh(); void requestRemoteSync(); } catch (error) { showToast(errorMessage(error, "Could not move task")); } }} onAddSubtask={task => setEditor({ item: null, kind: "task", parentId: task.id, nonce: Date.now() })} items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={(task) => openEditor(task)} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
           </Show>
         </main>
         <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} onEditItem={task => openEditor(task)} onAddSubtask={task => setEditor({ item: null, kind: "task", parentId: task.id, nonce: Date.now() })} request={request} onClose={() => setEditor(null)} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await deleteItem(item.id); setEditor(null); await refresh(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}</Show>
@@ -304,6 +306,7 @@ export function App() {
             </div>
             <Show when={settingsTab() === "data"} fallback={<KeyboardShortcutSettings onDirtyChange={setShortcutsDirty} shortcuts={shortcuts()} onClose={closeSettings} onSave={(next) => { setShortcuts(next); showToast("Shortcuts saved"); }} />}>
               <section class="data-settings" aria-label="Data settings">
+                <label class="animation-setting"><input type="checkbox" checked={animations()} onChange={event => { setAnimations(event.currentTarget.checked); localStorage.setItem("calendar.animations", event.currentTarget.checked ? "on" : "off"); }} /> Animate expanding and collapsing</label>
                 <h3>Backup &amp; sync</h3>
                 <button class="text-button" onClick={() => void exportBackup()}>Export backup</button>
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>

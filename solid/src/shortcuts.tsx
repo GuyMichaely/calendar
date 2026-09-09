@@ -62,7 +62,7 @@ export function KeyboardShortcutSettings(props: {
             <input
               class="shortcut-key-input"
               readOnly
-              autofocus={index() === 0}
+              data-dialog-autofocus={index() === 0}
               aria-label={`${labels[action]} shortcut`}
               value={keyLabel(draft()[action])}
               onKeyDown={(event) => capture(action, event)}

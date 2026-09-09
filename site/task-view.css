@@ -10,7 +10,7 @@
   background: var(--surface);
 }
 
-.task-section > summary {
+.task-section > .task-section-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -22,11 +22,11 @@
   user-select: none;
 }
 
-.task-section > summary::-webkit-details-marker { display: none; }
-.task-section[open] > summary { border-bottom: 1px solid var(--line); }
+.task-section > .task-section-toggle::-webkit-details-marker { display: none; }
+.task-section[data-expanded="true"] > .task-section-toggle { border-bottom: 1px solid var(--line); }
 .section-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .section-chevron { color: var(--muted); font-size: 22px; line-height: 1; transition: transform 120ms ease; }
-.task-section[open] .section-chevron { transform: rotate(90deg); }
+.task-section-toggle[aria-expanded="true"] .section-chevron { transform: rotate(90deg); }
 .section-count {
   min-width: 27px;
   border-radius: 999px;

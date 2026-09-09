@@ -70,6 +70,7 @@ test("backend routes auth and sync while applying CORS to allowed browser reques
   const sync = await backend(new Request("https://sync.example/sync", { method: "POST", headers }));
   assert.equal(await sync.text(), "sync response");
   assert.equal(sync.headers.get("access-control-allow-origin"), "https://app.example");
+  assert.equal(sync.headers.get("access-control-expose-headers"), "x-automerge-reset");
 });
 
 test("untrusted Origin requests are rejected before auth or sync handlers run", async () => {

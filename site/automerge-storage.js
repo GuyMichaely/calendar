@@ -1,4 +1,4 @@
-import { taskDescendants, taskAncestors, validateTaskParent } from "./task-tree.js";
+import { taskDescendants, taskAncestors, validateTaskParent, taskMoveUpdates } from "./task-tree.js";
 import * as Automerge from "@automerge/automerge";
 import {
   addAttachmentMetadata,
@@ -33,7 +33,7 @@ const COMMON_ITEM_FIELDS = new Set([
   "id", "kind", "title", "notes", "tags", "attachments", "createdAt", "updatedAt", "deletedAt",
 ]);
 const TASK_ITEM_FIELDS = new Set([
-  ...COMMON_ITEM_FIELDS, "state", "parentId", "availableFrom", "deadline", "latestStart", "sleep",
+  ...COMMON_ITEM_FIELDS, "state", "parentId", "sortOrder", "availableFrom", "deadline", "latestStart", "sleep",
   "availabilitySchedule", "completedAt", "history",
 ]);
 const EVENT_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end"]);
@@ -456,4 +456,26 @@ export function mergeLocalSyncSnapshot(incomingBytes) {
 
 export async function getLocalItemFieldConflicts(id, field) {
   return getItemFieldConflicts(await readState(), id, field);
+}
+
+export function moveLocalTask(id, targetId, placement) {
+  return writeState(doc => {
+    let nextDoc = doc;
+    const changes = [];
+    const items = materializeItems(doc);
+    for (const update of taskMoveUpdates(items, id, targetId, placement)) {
+      const before = hydrateItem(materializeItem(nextDoc, update.id), Automerge.getHeads(nextDoc));
+      if ((before.parentId || null) === update.parentId && before.sortOrder === update.sortOrder) continue;
+      nextDoc = patchItem(nextDoc, update.id, {parentId: update.parentId, sortOrder: update.sortOrder});
+      changes.push({id: update.id, before, after: hydrateItem(materializeItem(nextDoc, update.id), Automerge.getHeads(nextDoc))});
+    }
+    const moved = materializeItem(nextDoc, id);
+    if (moved?.state === 'open') for (const ancestor of taskAncestors(materializeItems(nextDoc), id)) {
+      if (ancestor.state !== 'completed') continue;
+      const before = hydrateItem(ancestor, Automerge.getHeads(nextDoc));
+      nextDoc = patchItem(nextDoc, ancestor.id, {state: 'open', completedAt: null});
+      changes.push({id: ancestor.id, before, after: hydrateItem(materializeItem(nextDoc, ancestor.id), Automerge.getHeads(nextDoc))});
+    }
+    return {doc: nextDoc, result: changes};
+  });
 }

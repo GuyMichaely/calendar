@@ -1,3 +1,4 @@
+import { sortTasks } from './domain.js';
 /** @param {import('./model').Item[]} items */
 export function taskDescendants(items, id) {
   const children = new Map();
@@ -35,10 +36,11 @@ export function validateTaskParent(items, id, parentId) {
 
 // Preserve the section's ordering among siblings. Missing/filtered parents are
 // skipped; concurrent move cycles become visible roots instead of hiding tasks.
-export function nestTaskRows(rows, items, collapsed = new Set()) {
+export function nestTaskRows(rows, items, collapsed = new Set(), includeHidden = false) {
   const visible = new Set(rows.map(row => row.task.id));
   const children = new Map(), roots = [];
-  for (const row of rows) {
+  const ordered = [...rows].sort((a, b) => (a.task.sortOrder ?? Infinity) - (b.task.sortOrder ?? Infinity));
+  for (const row of ordered) {
     const parent = taskAncestors(items, row.task.id).find(task => visible.has(task.id));
     if (!parent) roots.push(row);
     else { const list = children.get(parent.id) || []; list.push(row); children.set(parent.id, list); }
@@ -51,11 +53,26 @@ export function nestTaskRows(rows, items, collapsed = new Set()) {
       if (seen.has(row.task.id)) continue;
       seen.add(row.task.id);
       const nested = children.get(row.task.id) || [];
-      if (!hidden) result.push({ ...row, depth, hasChildren: nested.length > 0 });
+      if (!hidden || includeHidden) result.push({ ...row, depth, hidden, hasChildren: nested.length > 0 });
       for (const child of [...nested].reverse()) pending.push({ row: child, depth: depth + 1, hidden: hidden || collapsed.has(row.task.id) });
     }
   }
   roots.forEach(visit);
   for (const row of rows) if (!seen.has(row.task.id)) visit(row);
   return result;
+}
+
+export function taskMoveUpdates(items, id, targetId, placement) {
+  const task = items.find(item => item.id === id && item.kind === 'task');
+  const target = items.find(item => item.id === targetId && item.kind === 'task');
+  if (!task || (targetId && !target)) throw new Error('The task is no longer available.');
+  if (id === targetId) return [];
+  if (!['before', 'after', 'inside', 'root'].includes(placement)) throw new Error('Invalid task placement.');
+  const parentId = placement === 'root' ? null : placement === 'inside' ? target.id : target.parentId || null;
+  validateTaskParent(items, id, parentId);
+  const siblings = sortTasks(items.filter(item => item.kind === 'task' && item.id !== id && (item.parentId || null) === parentId));
+  siblings.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity));
+  const index = placement === 'before' || placement === 'after' ? siblings.findIndex(item => item.id === targetId) + (placement === 'after' ? 1 : 0) : siblings.length;
+  siblings.splice(index, 0, task);
+  return siblings.map((item, sortOrder) => ({id: item.id, parentId, sortOrder}));
 }
