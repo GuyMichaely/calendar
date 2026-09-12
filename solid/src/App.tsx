@@ -37,7 +37,7 @@ import {
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
 import { focusBoundaryTask, TasksView } from "./TasksView";
 import { ToastStack, type ToastMessage } from "./ToastStack";
-import { loadPollSeconds } from "./settings";
+import { loadPollSeconds, animationsEnabled } from "./settings";
 import type { CalendarSleepMode, HorizonMode, Item, Task, View } from "./types";
 
 function readView(): View { return location.hash === "#calendar" ? "calendar" : "tasks"; }
@@ -63,7 +63,15 @@ export function App() {
   const [loadingError, setLoadingError] = createSignal("");
   const [view, setView] = createSignal<View>(readView());
   const [query, setQuery] = createSignal("");
-  const [animations, setAnimations] = createSignal(localStorage.getItem("calendar.animations") !== "off");
+  const [animationPreference, setAnimationPreference] = createSignal(localStorage.getItem("calendar.animations"));
+  const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const [reducedMotion, setReducedMotion] = createSignal(motionQuery.matches);
+  const animations = () => animationsEnabled(animationPreference(), reducedMotion());
+  onMount(() => {
+    const update = () => setReducedMotion(motionQuery.matches);
+    motionQuery.addEventListener("change", update);
+    onCleanup(() => motionQuery.removeEventListener("change", update));
+  });
   const [compact, setCompact] = createSignal(localStorage.getItem("calendar.compactTasks") === "1");
   const [horizonDays, setHorizonDays] = createSignal<number | null>(readHorizon());
   const [horizonMode, setHorizonMode] = createSignal<HorizonMode>(readHorizonMode());
@@ -322,8 +330,9 @@ export function App() {
             </div>
             <Show when={settingsTab() === "animations"}>
             <section class="appearance-settings" aria-label="Appearance">
-              <label class="animation-setting"><span><strong>Animations</strong><small>Animate expanding, collapsing, completing, and undoing tasks.</small></span><input aria-label="Animations" type="checkbox" role="switch" checked={animations()} onChange={event => { setAnimations(event.currentTarget.checked); localStorage.setItem("calendar.animations", event.currentTarget.checked ? "on" : "off"); }} /></label>
-              <Show when={window.matchMedia("(prefers-reduced-motion: reduce)").matches}><p class="field-hint">Your device’s reduced-motion preference also turns animations off.</p></Show>
+              <label class="animation-setting"><span><strong>Animations</strong><small>Animate expanding, collapsing, completing, and undoing tasks.</small></span><input aria-label="Animations" type="checkbox" role="switch" checked={animations()} onChange={event => { const value = event.currentTarget.checked ? "on" : "off"; setAnimationPreference(value); localStorage.setItem("calendar.animations", value); }} /></label>
+              <p class="field-hint">{animationPreference() === "on" ? "Animations are on for this browser, overriding its reduced-motion preference." : animationPreference() === "off" ? "Animations are off for this browser." : reducedMotion() ? "Following your device: reduced motion is on. Enable the switch to animate anyway." : "Following your device: animations are on."}</p>
+              <button type="button" class="text-button" disabled={animationPreference() === null} onClick={() => { localStorage.removeItem("calendar.animations"); setAnimationPreference(null); }}>Use device preference</button>
             </section>
             </Show>
             <Show when={settingsTab() === "data"} fallback={<Show when={settingsTab() === "keyboard"}><KeyboardShortcutSettings onDirtyChange={setShortcutsDirty} shortcuts={shortcuts()} onClose={closeSettings} onSave={(next) => { setShortcuts(next); showToast("Shortcuts saved"); }} /></Show>}>

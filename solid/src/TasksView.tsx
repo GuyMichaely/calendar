@@ -264,7 +264,7 @@ export function TasksView(props: TasksViewProps) {
         >Compact</button>
       </div>
 
-      <p class="drag-help">Drag the grip beside a task to reorder; drop in the middle of a task to make it a subtask.</p>
+      <p class="drag-help">Drag a task to reorder; drop in its middle to make a subtask. On touch screens, hold first.</p>
       <div class="root-drop" data-drop-root="true">Drop here to make a top-level task</div>
       <div class="task-sections">
         <For each={taskSections}>{(section) => {
@@ -409,9 +409,11 @@ function TaskCard(props: {
       tabIndex={-1}
       onFocus={(event) => rememberCard(event.currentTarget)}
       onPointerDown={(event) => {
-        if (isInteractiveTarget(event.target)) return;
-
-        focusCard(event.currentTarget, { scroll: false });
+        const title = event.target instanceof Element && event.target.closest(".task-title-link");
+        if (isInteractiveTarget(event.target) && !title) return;
+        if (event.button !== 0) return;
+        if (!title) focusCard(event.currentTarget, { scroll: false });
+        props.onDrag(event);
       }}
       onDblClick={(event) => { if (!isInteractiveTarget(event.target)) props.onEdit(props.row.task); }}
       onKeyDown={onKeyDown}

@@ -239,7 +239,6 @@
 .tasks-panel .section-chevron { transition: none; }
 .motion-enabled .task-collapse { transition: grid-template-rows 200ms ease; }
 .motion-enabled .section-chevron { transition: transform 200ms ease; }
-@media (prefers-reduced-motion: reduce) { .motion-enabled .task-collapse, .motion-enabled .section-chevron { transition: none; } }
 .task-drag-handle { touch-action: none; cursor: grab; border: 0; background: none; color: var(--muted); padding: 0 2px; min-height: 28px; }
 .task-main { gap: 7px; }
 .drag-help { color: var(--muted); font-size: .8rem; }
@@ -266,3 +265,6 @@ body.task-dragging .root-drop { display: block; }
 .task-title-row { flex-wrap: nowrap; gap: 2px; }
 .task-disclosure-slot .task-disclosure { vertical-align: top; min-height: 22px; height: 22px; }
 .settings-tabs { flex-wrap: wrap; }
+
+.task-card { cursor: grab; }
+body.task-dragging .task-card { user-select: none; cursor: grabbing; }

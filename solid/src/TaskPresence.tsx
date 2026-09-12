@@ -9,7 +9,7 @@ export function TaskPresence(props: { fallback?: JSX.Element; ids: Accessor<stri
   const frames = new Set<number>();
   let initialized = false;
   createEffect(on([props.ids, props.animate], ([next, enabled]) => {
-    const animate = enabled && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const animate = enabled;
     const previous = untrack(ids);
     const nextSet = new Set(next);
     for (const id of next) { clearTimeout(removals.get(id)); removals.delete(id); }
