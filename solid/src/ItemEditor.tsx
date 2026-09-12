@@ -288,6 +288,7 @@ export function ItemEditor(props: {
   const descendants = () => taskDescendants(props.items, itemId);
   const children = () => props.items.filter((item): item is Task => item.kind === "task" && item.parentId === itemId);
   const navigateTask = async (task?: Task) => {
+    if (!hasSavedItem() || !props.items.some(item => item.id === itemId)) return;
     closing = true; clearTimeout(saveTimer);
     if (inFlight) await inFlight;
     do { if (!(await persist())) { closing = false; return; } } while (dirty());
@@ -357,35 +358,6 @@ export function ItemEditor(props: {
           <label><input type="radio" name="kind" value="event" checked={kind() === "event"} onChange={() => { setKind("event"); syncDirty(); }} /><span>Event</span></label>
         </div>
 
-        <section class="notes-editor" aria-label="Notes">
-          <div class="notes-toolbar"><label for="item-notes">Notes</label><button type="button" class="text-button" aria-pressed={previewNotes()} onClick={() => setPreviewNotes(value => !value)}>{previewNotes() ? "Write" : "Preview"}</button></div>
-          <textarea ref={notesRef} id="item-notes" name="notes" rows={5} hidden={previewNotes()} value={notes()} onInput={event => setNotes(event.currentTarget.value)} placeholder="Write notes… Markdown supported" />
-          <Show when={previewNotes()}><MarkdownNotes text={notes() || "*No notes yet.*"} attachments={savedAttachments().filter(file => !removedAttachments().has(file.id))} onDownload={file => void download(file)} onError={props.onError} /></Show>
-          <small class="field-hint">Use **bold**, *italic*, lists, or [label](https://…). Use “Link in notes” beside an attachment to insert its download link.</small>
-        </section>
-
-        <div class="form-grid shared-item-fields">
-          <label class="field full-span"><span>Tags</span><input name="tags" placeholder="project, errands" value={(existing?.tags || []).join(", ")} /></label>
-          <section class="attachments-section full-span" aria-labelledby="attachments-title">
-            <h3 id="attachments-title">Attachments</h3>
-            <div class={`attachment-drop-zone ${draggingAttachments() ? "dragging" : ""}`}
-              onDragEnter={event => { event.preventDefault(); setDraggingAttachments(true); }}
-              onDragOver={event => { event.preventDefault(); setDraggingAttachments(true); }}
-              onDragLeave={() => setDraggingAttachments(false)}
-              onDrop={event => { event.preventDefault(); setDraggingAttachments(false); addFiles([...(event.dataTransfer?.files || [])]); }}>
-              <label class="field"><span>Add files or drop them here</span><input type="file" multiple onChange={event => { addFiles([...(event.currentTarget.files || [])]); event.currentTarget.value = ""; }} /></label>
-            </div>
-            <ul class="attachment-list">
-              <For each={savedAttachments().filter(file => !removedAttachments().has(file.id))}>{attachment => <li>
-                <button type="button" class="attachment-name" onClick={() => void download(attachment)} title="Download attachment">↓ {attachment.name}</button>
-                <div class="attachment-actions"><button type="button" class="text-button" onClick={() => insertAttachmentLink(attachment)}>Link in notes</button><button type="button" class="text-button danger-text" aria-label={`Remove ${attachment.name}`} onClick={() => removeAttachment(attachment)}>Remove</button></div>
-              </li>}</For>
-              <For each={pendingFiles()}>{file => <li><span>{file.name} · waiting to save</span><button type="button" class="text-button" disabled={saving()} onClick={() => { setPendingFiles(files => files.filter(candidate => candidate !== file)); syncDirty(); }}>Remove</button></li>}</For>
-            </ul>
-            <small class="field-hint">Click a filename to download. Removing a file detaches it from this item; stored copies remain available for undo and other devices.</small>
-          </section>
-        </div>
-
         <Show when={kind() === "task"} fallback={
           <div class="form-grid">
             <label class="field"><span>Starts</span><input name="eventStart" type="datetime-local" required value={eventStart()} onInput={(event) => { deriveEnd(event.currentTarget.value); syncDirty(); }} /></label>
@@ -394,8 +366,8 @@ export function ItemEditor(props: {
         }>
           <div>
             <div class="form-grid">
-              <div class="subtask-editor full-span"><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" disabled={!hasSavedItem()} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button>}</For><small class="muted">Completing a task completes all its subtasks. Reopening a subtask also reopens its parents.</small></div>
-              <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><button type="button" class={taskState() === "open" ? "primary-button" : "secondary-button"} onClick={toggleCompleted}>{taskState() === "open" ? (descendants().length ? `✓ Complete task + ${descendants().length} subtasks` : "✓ Complete task") : "↶ Reopen task"}</button><span class="muted">{taskState() === "completed" ? "Completed" : "Open"}</span></div>
+              <div class="subtask-editor full-span"><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button>}</For><small class="muted">Completing a task completes all its subtasks. Reopening a subtask also reopens its parents.</small></div>
+              <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><button type="button" class={taskState() === "open" ? "primary-button" : "secondary-button"} onClick={toggleCompleted}>{taskState() === "open" ? (descendants().length ? `✓ Complete task + ${descendants().length} subtasks` : "✓ Complete task") : "↶ Reopen task"}</button></div>
               <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" value={isoToLocalInput(task?.availableFrom)} /></label>
               <label class="field"><span>Due</span><input name="deadline" type="datetime-local" value={isoToLocalInput(task?.deadline)} /></label>
               <label class="field"><span>Latest start</span><input name="latestStart" type="datetime-local" value={isoToLocalInput(task?.latestStart)} /></label>
@@ -420,9 +392,41 @@ export function ItemEditor(props: {
           </div>
         </Show>
 
+        <section class="notes-editor" aria-label="Notes">
+          <div class="notes-toolbar"><label for="item-notes">Notes</label><button type="button" class="text-button" aria-pressed={previewNotes()} onClick={() => setPreviewNotes(value => !value)}>{previewNotes() ? "Write" : "Preview"}</button></div>
+          <textarea ref={notesRef} id="item-notes" name="notes" rows={5} hidden={previewNotes()} value={notes()} onInput={event => setNotes(event.currentTarget.value)} placeholder="Write notes… Markdown supported" />
+          <Show when={previewNotes()}><MarkdownNotes text={notes() || "*No notes yet.*"} attachments={savedAttachments().filter(file => !removedAttachments().has(file.id))} onDownload={file => void download(file)} onError={props.onError} /></Show>
+          <small class="field-hint">Use **bold**, *italic*, lists, or [label](https://…). Use “Link in notes” beside an attachment to insert its download link.</small>
+        </section>
+
+        <div class="form-grid shared-item-fields">
+          <label class="field full-span"><span>Tags</span><input name="tags" placeholder="project, errands" value={(existing?.tags || []).join(", ")} /></label>
+
+        </div>
+
+
+          <section class="attachments-section full-span" aria-labelledby="attachments-title">
+            <h3 id="attachments-title">Attachments</h3>
+            <div class={`attachment-drop-zone ${draggingAttachments() ? "dragging" : ""}`}
+              onDragEnter={event => { event.preventDefault(); setDraggingAttachments(true); }}
+              onDragOver={event => { event.preventDefault(); setDraggingAttachments(true); }}
+              onDragLeave={() => setDraggingAttachments(false)}
+              onDrop={event => { event.preventDefault(); setDraggingAttachments(false); addFiles([...(event.dataTransfer?.files || [])]); }}>
+              <label class="field"><span>Add files or drop them here</span><input type="file" multiple onChange={event => { addFiles([...(event.currentTarget.files || [])]); event.currentTarget.value = ""; }} /></label>
+            </div>
+            <ul class="attachment-list">
+              <For each={savedAttachments().filter(file => !removedAttachments().has(file.id))}>{attachment => <li>
+                <button type="button" class="attachment-name" onClick={() => void download(attachment)} title="Download attachment">↓ {attachment.name}</button>
+                <div class="attachment-actions"><button type="button" class="text-button" onClick={() => insertAttachmentLink(attachment)}>Link in notes</button><button type="button" class="text-button danger-text" aria-label={`Remove ${attachment.name}`} onClick={() => removeAttachment(attachment)}>Remove</button></div>
+              </li>}</For>
+              <For each={pendingFiles()}>{file => <li><span>{file.name} · waiting to save</span><button type="button" class="text-button" disabled={saving()} onClick={() => { setPendingFiles(files => files.filter(candidate => candidate !== file)); syncDirty(); }}>Remove</button></li>}</For>
+            </ul>
+            <small class="field-hint">Click a filename to download. Removing a file detaches it from this item; stored copies remain available for undo and other devices.</small>
+          </section>
+
         <div class="dialog-actions">
           <Show when={hasSavedItem()}><button type="button" class="danger-button" disabled={saving()} onClick={() => void deleteCurrent()}>Delete</button></Show>
-          <span role="status">{saving() ? "Saving…" : saveError() || (dirty() ? "Unsaved changes" : (hasSavedItem() ? "Saved locally" : "Not saved yet"))}</span>
+          <span role="status" title="Saved locally means this browser has stored the edit. Remote sync is reported above the task list.">{saving() ? "Saving…" : saveError() || (dirty() ? "Unsaved changes" : (hasSavedItem() ? "Saved locally" : "Not saved yet"))}</span>
           <div class="spacer" />
           <Show when={dirty() && saveError()}><button type="button" class="secondary-button" disabled={saving()} onClick={() => { if (window.confirm("Discard your unsaved changes?")) { closing = true; clearTimeout(saveTimer); props.onClose(); } }}>Discard unsaved changes</button></Show>
           <button type="submit" class="secondary-button">Close</button>

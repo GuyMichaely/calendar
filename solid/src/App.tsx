@@ -15,6 +15,7 @@ import {
   importData,
   parseBackup,
   listItems,
+  getItem,
   mergeSyncSnapshot,
   putItem,
   readSyncSnapshot,
@@ -76,7 +77,7 @@ export function App() {
   const [shortcuts, setShortcuts] = createSignal<Shortcuts>(loadShortcuts());
   const [shortcutsDirty, setShortcutsDirty] = createSignal(false);
   const [showSettings, setShowSettings] = createSignal(false);
-  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard">("data");
+  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations">("data");
   const [pollSeconds, setPollSeconds] = createSignal(loadPollSeconds());
   const [remoteSession, setRemoteSession] = createSignal<RemoteSession | null>(null);
   const [remoteBusy, setRemoteBusy] = createSignal(false);
@@ -165,7 +166,21 @@ export function App() {
     const hash = `#${next}`;
     if (location.hash !== hash) history.pushState(null, "", hash);
   };
-  const openEditor = (item: Item | null = null, kind?: "task" | "event", date?: Date) => setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() });
+  const editorParents: string[] = [];
+  const closeEditor = async () => {
+    while (editorParents.length) {
+      const item = await getItem(editorParents.pop()!);
+      if (item) { setEditor({item, kind: item.kind, nonce: Date.now()}); return; }
+    }
+    setEditor(null);
+  };
+  const addEditorSubtask = async (task: Task) => {
+    const parent = await getItem(task.id);
+    if (parent?.kind !== "task") { showToast("Save the parent task before adding a subtask."); return; }
+    editorParents.push(parent.id);
+    setEditor({item: null, kind: "task", parentId: parent.id, nonce: Date.now()});
+  };
+  const openEditor = (item: Item | null = null, kind?: "task" | "event", date?: Date) => { editorParents.length = 0; setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() }); };
   const mutateTask = async (task: Task, patch: Partial<Task>, historyEntry: { type: string; [key: string]: unknown }, message: string) => {
     const now = new Date().toISOString();
     const next: Task = { ...task, ...patch, updatedAt: now, history: [...(task.history || []), { at: now, ...historyEntry }] };
@@ -295,20 +310,23 @@ export function App() {
             <TasksView animations={animations()} onMove={async (id, target, placement) => { try { await moveTask(id, target, placement); await refresh(); void requestRemoteSync(); } catch (error) { showToast(errorMessage(error, "Could not move task")); } }} onAddSubtask={task => setEditor({ item: null, kind: "task", parentId: task.id, nonce: Date.now() })} items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={(task) => openEditor(task)} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
           </Show>
         </main>
-        <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} onEditItem={task => openEditor(task)} onAddSubtask={task => setEditor({ item: null, kind: "task", parentId: task.id, nonce: Date.now() })} request={request} onClose={() => setEditor(null)} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await deleteItem(item.id); setEditor(null); await refresh(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}</Show>
+        <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await deleteItem(item.id); await refresh(); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}</Show>
         <Show when={sleepTask()} keyed>{(task) => <SleepDialog task={task} onClose={() => setSleepTask(null)} onInvalid={() => showToast("Choose a future sleep time")} onSave={async (until) => { const now = new Date().toISOString(); await mutateTask(task, { sleep: { until, startedAt: task.sleep?.startedAt || now } }, { type: "slept", until }, until ? `Sleeping until ${formatDateTime(until)}` : "Sleeping indefinitely"); setSleepTask(null); }} />}</Show>
         <Show when={showSettings()}><DialogShell labelledBy="settings-title" className="settings-dialog" onClose={closeSettings}>
           <div class="settings-content">
             <div class="dialog-header"><h2 id="settings-title">Settings</h2><button class="icon-button" aria-label="Close settings" onClick={closeSettings}>×</button></div>
-            <section class="appearance-settings" aria-label="Appearance">
-              <label class="animation-setting"><span><strong>Animations</strong><small>Animate task groups, subtasks, and expand arrows.</small></span><input aria-label="Animations" type="checkbox" role="switch" checked={animations()} onChange={event => { setAnimations(event.currentTarget.checked); localStorage.setItem("calendar.animations", event.currentTarget.checked ? "on" : "off"); }} /></label>
-              <Show when={window.matchMedia("(prefers-reduced-motion: reduce)").matches}><p class="field-hint">Your device’s reduced-motion preference also turns animations off.</p></Show>
-            </section>
             <div class="settings-tabs" role="tablist" aria-label="Settings sections">
               <button role="tab" aria-selected={settingsTab() === "data"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("data"); }}>Data</button>
+              <button role="tab" aria-selected={settingsTab() === "animations"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("animations"); }}>Animations</button>
               <button class="keyboard-settings-tab" role="tab" aria-selected={settingsTab() === "keyboard"} onClick={() => setSettingsTab("keyboard")}>Keyboard shortcuts</button>
             </div>
-            <Show when={settingsTab() === "data"} fallback={<KeyboardShortcutSettings onDirtyChange={setShortcutsDirty} shortcuts={shortcuts()} onClose={closeSettings} onSave={(next) => { setShortcuts(next); showToast("Shortcuts saved"); }} />}>
+            <Show when={settingsTab() === "animations"}>
+            <section class="appearance-settings" aria-label="Appearance">
+              <label class="animation-setting"><span><strong>Animations</strong><small>Animate expanding, collapsing, completing, and undoing tasks.</small></span><input aria-label="Animations" type="checkbox" role="switch" checked={animations()} onChange={event => { setAnimations(event.currentTarget.checked); localStorage.setItem("calendar.animations", event.currentTarget.checked ? "on" : "off"); }} /></label>
+              <Show when={window.matchMedia("(prefers-reduced-motion: reduce)").matches}><p class="field-hint">Your device’s reduced-motion preference also turns animations off.</p></Show>
+            </section>
+            </Show>
+            <Show when={settingsTab() === "data"} fallback={<Show when={settingsTab() === "keyboard"}><KeyboardShortcutSettings onDirtyChange={setShortcutsDirty} shortcuts={shortcuts()} onClose={closeSettings} onSave={(next) => { setShortcuts(next); showToast("Shortcuts saved"); }} /></Show>}>
               <section class="data-settings" aria-label="Data settings">
                 <h3>Backup &amp; sync</h3>
                 <button class="text-button" onClick={() => void exportBackup()}>Export backup</button>

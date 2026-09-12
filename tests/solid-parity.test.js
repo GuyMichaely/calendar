@@ -31,7 +31,7 @@ test("Solid task cards retain icon actions, semantic hotkeys, and roving focus",
 test("Solid task availability formatting follows vanilla section behavior", () => {
   const tasks = source("solid/src/TasksView.tsx");
   const display = source("solid/src/task-display.ts");
-  assert.match(tasks, /taskList\(sectionRows, section\.id === "upcoming"\)/);
+  assert.match(tasks, /taskList\(sectionRows, section\.id === "upcoming", emptyText\(section\.id\)\)/);
   assert.match(tasks, /taskList\(sleepingRows, true\)/);
   assert.match(display, /if \(!showAvailability && task\.availableFrom\) values\.push\(`Starts /);
   assert.match(display, /if \(!showAvailability && sleep\.sleeping\)/);

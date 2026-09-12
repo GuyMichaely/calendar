@@ -14,4 +14,6 @@ Saved locally means the browser has persisted the edit. It does not confirm remo
 
 Manual sibling order is stored in `sortOrder` and travels with backups and sync. A move writes the parent link and affected sibling positions together; undo restores the move as a group. Concurrent positions use Automerge merge semantics.
 
-The top of Settings includes an Animations switch for category/subtask expansion and the shared rotating chevron. Reduced-motion system preferences also disable these transitions. Cards are keyed by task ID so refresh and collapse changes preserve their DOM identity; refresh never restores focus to an unfocused task.
+Settings has an Animations tab with a switch for category/subtask expansion, completion/undo transitions, and the shared rotating chevron. Reduced-motion system preferences also disable these transitions. Cards are keyed by task ID so refresh and collapse changes preserve their DOM identity; refresh never restores focus to an unfocused task.
+
+Closing an editor opened from a parent's Add subtask control returns to that parent's editor, loading its latest saved data. This works at any depth. Unsaved tasks cannot be parents. Up/Down task navigation wraps from the first task to the last and vice versa.

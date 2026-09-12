@@ -1,3 +1,4 @@
+import { TaskPresence } from "./TaskPresence";
 import { startTaskDrag } from "./task-drag";
 import { nestTaskRows, taskDescendants } from "../../site/task-tree.js";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
@@ -16,7 +17,7 @@ import {
 } from "../../site/domain.js";
 import { MarkdownNotes } from "./MarkdownNotes";
 import { actionForKey, normalizeEventKey, TaskActionIcon, type Shortcuts } from "./shortcuts";
-import { availabilitySummary, taskTiming } from "./task-display";
+import { availabilitySummary } from "./task-display";
 import type { Attachment, HorizonMode, Item, Task } from "./types";
 
 type TaskRow = { hidden?: boolean; task: Task; upcomingAt?: Date | null; depth?: number; hasChildren?: boolean };
@@ -78,7 +79,7 @@ function moveTaskFocus(direction: number, activeCard?: HTMLElement) {
   }
   const index = cards.indexOf(activeCard);
   if (index < 0) return;
-  const nextIndex = Math.max(0, Math.min(cards.length - 1, index + direction));
+  const nextIndex = (index + direction + cards.length) % cards.length;
   focusCard(cards[nextIndex]);
 }
 
@@ -234,14 +235,14 @@ export function TasksView(props: TasksViewProps) {
     />
   );
 
-  const taskList = (getRows: () => TaskRow[], showAvailability: boolean) => {
+  const taskList = (getRows: () => TaskRow[], showAvailability: boolean, empty?: string) => {
     const tree = createMemo(() => nested(getRows()));
     const byId = createMemo(() => new Map(tree().map(row => [row.task.id, row])));
-    return <For each={tree().map(row => row.task.id)}>{id => {
+    return <TaskPresence fallback={empty ? <div class="section-empty">{empty}</div> : undefined} ids={() => tree().map(row => row.task.id)} animate={() => props.animations}>{(id, present) => {
       let last = byId().get(id)!;
       const row = () => (last = byId().get(id) || last);
-      return <div class="task-collapse" data-expanded={!row().hidden} inert={row().hidden || undefined}><div class="collapse-inner"><div class="task-row-spacing">{taskCard(row, showAvailability)}</div></div></div>;
-    }}</For>;
+      return <div class="task-collapse" data-expanded={present() && !row().hidden} inert={!present() || row().hidden || undefined}><div class="collapse-inner"><div class="task-row-spacing">{taskCard(row, showAvailability)}</div></div></div>;
+    }}</TaskPresence>;
   };
 
   return (
@@ -308,14 +309,12 @@ export function TasksView(props: TasksViewProps) {
                 </Show>
 
                 <div class="task-list section-task-list">
-                  <Show when={sectionRows().length} fallback={<div class="section-empty">{emptyText(section.id)}</div>}>
-                    {taskList(sectionRows, section.id === "upcoming")}
-                  </Show>
+                    {taskList(sectionRows, section.id === "upcoming", emptyText(section.id))}
                 </div>
 
-                <Show when={section.id === "upcoming" && sleepingRows().length}>
+                <Show when={section.id === "upcoming"}>
                   <div class="sleeping-block">
-                    <div class="sleeping-heading"><span>Sleeping</span><span>{sleepingRows().length}</span></div>
+                    <Show when={sleepingRows().length}><div class="sleeping-heading"><span>Sleeping</span><span>{sleepingRows().length}</span></div></Show>
                     <div class="task-list section-task-list sleeping-task-list">
                       {taskList(sleepingRows, true)}
                     </div>
@@ -358,7 +357,6 @@ function TaskCard(props: {
   const closed = createMemo(() => props.row.task.state === "completed");
   const futureAvailable = createMemo(() => toDate(props.row.task.availableFrom));
   const canConvertWaitToSleep = createMemo(() => !sleep().sleeping && !!futureAvailable() && futureAvailable()! > props.now);
-  const timing = createMemo(() => taskTiming(props.row.task, props.now, props.showAvailability));
   const summary = createMemo(() => availabilitySummary(props.row.task, props.now, props.row.upcomingAt, props.showAvailability));
   const statusText = createMemo(() => {
     const currentSleep = sleep();
@@ -429,14 +427,13 @@ function TaskCard(props: {
         <div class="task-copy">
           <Show when={parent()}>{parentTask => <button class="task-parent-link" onClick={() => props.onEdit(parentTask())}>↳ {taskTitle(parentTask())}</button>}</Show>
           <div class="task-title-row">
-            <Show when={props.row.hasChildren}><button class="task-disclosure" aria-label={props.collapsed ? "Expand subtasks" : "Collapse subtasks"} aria-expanded={!props.collapsed} onClick={props.onToggle}><span class="section-chevron" aria-hidden="true">›</span></button></Show>
+            <span class="task-disclosure-slot"><Show when={props.row.hasChildren}><button class="task-disclosure" aria-label={props.collapsed ? "Expand subtasks" : "Collapse subtasks"} aria-expanded={!props.collapsed} onClick={props.onToggle}><span class="section-chevron" aria-hidden="true">›</span></button></Show></span>
             <h3><button class="task-title-link" aria-label={`Edit ${taskTitle(props.row.task)}`} title={`Edit ${taskTitle(props.row.task)}`} onClick={() => props.onEdit(props.row.task)}>{taskTitle(props.row.task)}</button></h3>
-            <span class={`status-pill ${result().actionable && !sleep().sleeping ? "ready" : sleep().sleeping ? "sleeping" : "quiet"}`}>{statusText()}</span>
+            <Show when={!closed()}><span class={`status-pill ${result().actionable && !sleep().sleeping ? "ready" : sleep().sleeping ? "sleeping" : "quiet"}`}>{statusText()}</span></Show>
           </div>
           <Show when={descendants().length}><div class="subtask-progress">{descendants().filter(task => task.state === "completed").length}/{descendants().length} subtasks completed</div></Show>
           <Show when={summary()}><div class="availability-summary">{summary()}</div></Show>
           <Show when={props.row.task.notes}><MarkdownNotes text={props.row.task.notes || ""} attachments={props.row.task.attachments || []} onDownload={file => void openAttachment(file)} onError={message => window.alert(message)} /></Show>
-          <Show when={timing().length}><div class="timing"><For each={timing()}>{(value) => <span>{value}</span>}</For></div></Show>
           <Show when={props.row.task.tags?.length}><div class="tags"><For each={props.row.task.tags}>{(tag) => <span class="tag">{tag}</span>}</For></div></Show>
           <Show when={props.row.task.attachments?.length}><div class="attachments"><For each={props.row.task.attachments}>{(attachment) => <button class="attachment" onClick={() => void openAttachment(attachment)}>Attachment: {attachment.name || "Attachment"}</button>}</For></div></Show>
         </div>

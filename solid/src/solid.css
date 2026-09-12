@@ -261,3 +261,8 @@ body.task-dragging .root-drop { display: block; }
 .task-drag-handle { display: inline-grid; place-items: center; width: 24px; flex: 0 0 24px; border-radius: 5px; }
 .task-drag-handle:hover, .task-drag-handle:focus-visible { background: var(--surface-2); color: var(--text); }
 .task-drag-handle:active { cursor: grabbing; }
+
+.task-disclosure-slot { flex: 0 0 28px; width: 28px; height: 22px; }
+.task-title-row { flex-wrap: nowrap; gap: 2px; }
+.task-disclosure-slot .task-disclosure { vertical-align: top; min-height: 22px; height: 22px; }
+.settings-tabs { flex-wrap: wrap; }
