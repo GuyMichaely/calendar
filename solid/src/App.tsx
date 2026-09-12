@@ -300,13 +300,16 @@ export function App() {
         <Show when={showSettings()}><DialogShell labelledBy="settings-title" className="settings-dialog" onClose={closeSettings}>
           <div class="settings-content">
             <div class="dialog-header"><h2 id="settings-title">Settings</h2><button class="icon-button" aria-label="Close settings" onClick={closeSettings}>×</button></div>
+            <section class="appearance-settings" aria-label="Appearance">
+              <label class="animation-setting"><span><strong>Animations</strong><small>Animate task groups, subtasks, and expand arrows.</small></span><input aria-label="Animations" type="checkbox" role="switch" checked={animations()} onChange={event => { setAnimations(event.currentTarget.checked); localStorage.setItem("calendar.animations", event.currentTarget.checked ? "on" : "off"); }} /></label>
+              <Show when={window.matchMedia("(prefers-reduced-motion: reduce)").matches}><p class="field-hint">Your device’s reduced-motion preference also turns animations off.</p></Show>
+            </section>
             <div class="settings-tabs" role="tablist" aria-label="Settings sections">
               <button role="tab" aria-selected={settingsTab() === "data"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("data"); }}>Data</button>
               <button class="keyboard-settings-tab" role="tab" aria-selected={settingsTab() === "keyboard"} onClick={() => setSettingsTab("keyboard")}>Keyboard shortcuts</button>
             </div>
             <Show when={settingsTab() === "data"} fallback={<KeyboardShortcutSettings onDirtyChange={setShortcutsDirty} shortcuts={shortcuts()} onClose={closeSettings} onSave={(next) => { setShortcuts(next); showToast("Shortcuts saved"); }} />}>
               <section class="data-settings" aria-label="Data settings">
-                <label class="animation-setting"><input type="checkbox" checked={animations()} onChange={event => { setAnimations(event.currentTarget.checked); localStorage.setItem("calendar.animations", event.currentTarget.checked ? "on" : "off"); }} /> Animate expanding and collapsing</label>
                 <h3>Backup &amp; sync</h3>
                 <button class="text-button" onClick={() => void exportBackup()}>Export backup</button>
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>

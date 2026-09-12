@@ -263,7 +263,7 @@ export function TasksView(props: TasksViewProps) {
         >Compact</button>
       </div>
 
-      <p class="drag-help">Drag ⋮⋮ to reorder; drop in the middle of a task to make it a subtask.</p>
+      <p class="drag-help">Drag the grip beside a task to reorder; drop in the middle of a task to make it a subtask.</p>
       <div class="root-drop" data-drop-root="true">Drop here to make a top-level task</div>
       <div class="task-sections">
         <For each={taskSections}>{(section) => {
@@ -419,7 +419,7 @@ function TaskCard(props: {
       onKeyDown={onKeyDown}
     >
       <div class="task-main">
-        <button class="task-drag-handle" aria-label={`Drag ${taskTitle(props.row.task)} to reorder or nest`} title="Drag to reorder or nest. Arrow keys: move up/down; left: make top-level." onKeyDown={props.onMoveKey} onPointerDown={props.onDrag}>⋮⋮</button>
+        <button class="task-drag-handle" aria-label={`Drag ${taskTitle(props.row.task)} to reorder or nest`} title="Drag to reorder or nest. Arrow keys: move up/down; left: make top-level." onKeyDown={props.onMoveKey} onPointerDown={props.onDrag}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6h8M4 10h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg></button>
         <Show
           when={closed()}
           fallback={<button class="complete-button" aria-label="Mark complete" title={descendants().length ? "Complete task and all its subtasks" : "Mark complete"} onClick={() => void props.onComplete(props.row.task)} />}

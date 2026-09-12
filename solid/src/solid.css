@@ -252,3 +252,12 @@ body.task-dragging .root-drop { display: block; }
 
 .tasks-panel .section-task-list, .tasks-panel.compact .section-task-list { gap: 0; }
 .tasks-panel.compact .task-row-spacing { padding-block: 2.5px; }
+
+.appearance-settings { margin: 16px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; }
+.appearance-settings .animation-setting { justify-content: space-between; gap: 20px; }
+.appearance-settings .animation-setting span { display: grid; gap: 4px; }
+.appearance-settings small { color: var(--muted); }
+.appearance-settings input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--accent); }
+.task-drag-handle { display: inline-grid; place-items: center; width: 24px; flex: 0 0 24px; border-radius: 5px; }
+.task-drag-handle:hover, .task-drag-handle:focus-visible { background: var(--surface-2); color: var(--text); }
+.task-drag-handle:active { cursor: grabbing; }
