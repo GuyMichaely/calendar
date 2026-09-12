@@ -268,3 +268,8 @@ body.task-dragging .root-drop { display: block; }
 
 .task-card { cursor: grab; }
 body.task-dragging .task-card { user-select: none; cursor: grabbing; }
+
+.task-drag-preview { border: 0; position: fixed; top: 0; left: 0; z-index: 1000; pointer-events: none; overflow: hidden; border-radius: 13px; opacity: .96; box-shadow: 0 16px 40px #0008, 0 0 0 1px var(--accent); will-change: transform; }
+.task-drag-preview * { pointer-events: none !important; }
+.task-drag-preview .task-card { cursor: grabbing; }
+.task-drag-source { opacity: .3; }

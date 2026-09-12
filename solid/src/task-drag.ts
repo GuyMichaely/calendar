@@ -5,6 +5,8 @@ type Move = (id: string, target: string | null, placement: string) => Promise<vo
 export function startTaskDrag(event: PointerEvent, id: string, move: Move) {
   if (event.button !== 0) return;
   const handle = event.currentTarget as HTMLElement;
+  const source = handle.closest<HTMLElement>("[data-task-card]");
+  if (!source) return;
   const immediate = handle.matches(".task-drag-handle");
   if (immediate) { event.preventDefault(); event.stopPropagation(); }
   const holdToDrag = event.pointerType === "touch" && !immediate;
@@ -14,8 +16,34 @@ export function startTaskDrag(event: PointerEvent, id: string, move: Move) {
   let target: HTMLElement | null = null;
   let placement = "";
   let holdTimer: ReturnType<typeof setTimeout> | undefined;
+  let preview: HTMLElement | null = null;
+  let offsetX = 0, offsetY = 0;
+  const positionPreview = () => {
+    if (preview) preview.style.transform = `translate3d(${x - offsetX}px, ${y - offsetY}px, 0)`;
+  };
   const activate = () => {
     active = true; handle.setPointerCapture(event.pointerId);
+    const box = source.getBoundingClientRect();
+    preview = document.createElement("div");
+    preview.className = `task-drag-preview task-section tasks-panel${source.closest(".compact") ? " compact" : ""}`;
+    preview.dataset.section = source.closest<HTMLElement>("[data-section]")?.dataset.section || "";
+    preview.setAttribute("aria-hidden", "true");
+    preview.inert = true;
+    const width = Math.min(box.width, innerWidth - 24);
+    const height = Math.min(box.height, innerHeight * .65);
+    preview.style.width = `${width}px`;
+    preview.style.maxHeight = `${height}px`;
+    offsetX = Math.max(0, Math.min(event.clientX - box.left, width - 12));
+    offsetY = Math.max(0, Math.min(event.clientY - box.top, height - 12));
+    const copy = source.cloneNode(true) as HTMLElement;
+    for (const element of [copy, ...copy.querySelectorAll<HTMLElement>("*")]) {
+      for (const name of ["id", "data-id", "data-task-card", "data-drop", "tabindex"]) element.removeAttribute(name);
+    }
+    copy.style.marginInlineStart = "0";
+    preview.append(copy);
+    document.body.append(preview);
+    source.classList.add("task-drag-source");
+    positionPreview();
     document.body.classList.add("task-dragging");
   };
   const clearTarget = () => { if (target) delete target.dataset.drop; target = null; };
@@ -30,13 +58,16 @@ export function startTaskDrag(event: PointerEvent, id: string, move: Move) {
       if (target) { const box = target.getBoundingClientRect(); const fraction = (y - box.top) / box.height; placement = fraction < .25 ? 'before' : fraction > .75 ? 'after' : 'inside'; }
     }
     if (target) target.dataset.drop = placement;
+    positionPreview();
   };
   const tick = () => {
+    if (active && !source.isConnected) { cleanup(); return; }
     if (active) { const speed = y < 70 ? -12 : y > innerHeight - 70 ? 12 : 0; if (speed) window.scrollBy(0, speed); locate(); }
     frame = requestAnimationFrame(tick);
   };
   const cleanup = () => {
     controller.abort(); clearTimeout(holdTimer); cancelAnimationFrame(frame); clearTarget();
+    preview?.remove(); preview = null; source.classList.remove('task-drag-source');
     document.body.classList.remove('task-dragging');
     if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
   };
