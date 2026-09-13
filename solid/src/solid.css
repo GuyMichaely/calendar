@@ -243,10 +243,11 @@
 .task-main { gap: 7px; }
 .drag-help { color: var(--muted); font-size: .8rem; }
 .root-drop { display: none; position: fixed; top: 8px; left: 15%; right: 15%; z-index: 30; padding: 14px; background: var(--surface); border: 2px dashed var(--accent); }
-body.task-dragging .root-drop { display: block; }
+body.task-dragging-child .root-drop { display: block; }
 [data-drop="inside"], [data-drop="root"] { outline: 2px solid var(--accent); background: var(--accent-soft); }
-[data-drop="before"] { box-shadow: 0 -3px var(--accent); }
-[data-drop="after"] { box-shadow: 0 3px var(--accent); }
+.task-drop-gap { box-sizing: border-box; padding-block: 4px; }
+.task-drop-space { height: 100%; box-sizing: border-box; display: grid; place-items: center; border: 1px dashed var(--accent); border-radius: 13px; background: var(--accent-soft); color: var(--muted); font-size: .8rem; }
+body.task-dragging { overflow-anchor: none; }
 .animation-setting { display: flex; align-items: center; gap: 8px; }
 
 .tasks-panel .section-task-list, .tasks-panel.compact .section-task-list { gap: 0; }

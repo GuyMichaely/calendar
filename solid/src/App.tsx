@@ -330,7 +330,7 @@ export function App() {
             </div>
             <Show when={settingsTab() === "animations"}>
             <section class="appearance-settings" aria-label="Appearance">
-              <label class="animation-setting"><span><strong>Animations</strong><small>Animate expanding, collapsing, completing, and undoing tasks.</small></span><input aria-label="Animations" type="checkbox" role="switch" checked={animations()} onChange={event => { const value = event.currentTarget.checked ? "on" : "off"; setAnimationPreference(value); localStorage.setItem("calendar.animations", value); }} /></label>
+              <label class="animation-setting"><span><strong>Animations</strong><small>Animate expanding, collapsing, completing, undoing, and dragging tasks.</small></span><input aria-label="Animations" type="checkbox" role="switch" checked={animations()} onChange={event => { const value = event.currentTarget.checked ? "on" : "off"; setAnimationPreference(value); localStorage.setItem("calendar.animations", value); }} /></label>
               <p class="field-hint">{animationPreference() === "on" ? "Animations are on for this browser, overriding its reduced-motion preference." : animationPreference() === "off" ? "Animations are off for this browser." : reducedMotion() ? "Following your device: reduced motion is on. Enable the switch to animate anyway." : "Following your device: animations are on."}</p>
               <button type="button" class="text-button" disabled={animationPreference() === null} onClick={() => { localStorage.removeItem("calendar.animations"); setAnimationPreference(null); }}>Use device preference</button>
             </section>

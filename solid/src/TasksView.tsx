@@ -216,7 +216,7 @@ export function TasksView(props: TasksViewProps) {
     <TaskCard
       row={row()}
       onMoveKey={event => moveWithKey(event, row())}
-      onDrag={event => startTaskDrag(event, row().task.id, move)}
+      onDrag={event => startTaskDrag(event, row().task.id, move, taskDescendants(props.items, row().task.id).map(task => task.id))}
       items={props.items}
       collapsed={collapsed().has(row().task.id) && !props.query}
       onToggle={() => toggle(row().task.id)}
@@ -404,6 +404,7 @@ function TaskCard(props: {
       class={`task-card ${sleep().sleeping ? "sleeping-task" : ""}`}
       style={{ "margin-inline-start": `${Math.min(props.row.depth || 0, 5) * 12}px` }}
       data-parent={props.row.task.parentId || ""}
+      data-depth={props.row.depth || 0}
       data-id={props.row.task.id}
       data-task-card="true"
       tabIndex={-1}
