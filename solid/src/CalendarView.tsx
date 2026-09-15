@@ -1,4 +1,5 @@
-import { For, Show, createMemo } from "solid-js";
+import { Icon } from "./Icon";
+import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import {
   calendarGridStart,
   dateKey,
@@ -41,6 +42,11 @@ export function CalendarView(props: {
   onCreateForDay: (date: Date) => void;
   onOpenTodayTasks: () => void;
 }) {
+  const [selectedDay, setSelectedDay] = createSignal(props.now);
+  createEffect(() => {
+    const month = props.month;
+    setSelectedDay(current => current.getMonth() === month.getMonth() && current.getFullYear() === month.getFullYear() ? current : (props.now.getMonth() === month.getMonth() && props.now.getFullYear() === month.getFullYear() ? props.now : new Date(month)));
+  });
   const today = createMemo(() => dateKey(props.now));
   const days = createMemo(() => {
     const start = calendarGridStart(props.month);
@@ -116,93 +122,52 @@ export function CalendarView(props: {
     return entries.sort((a, b) => a.sort - b.sort || a.title.localeCompare(b.title));
   };
 
-  return (
-    <section class="panel calendar-panel">
-      <div class="calendar-toolbar">
-        <div class="month-controls">
-          <button class="icon-button" aria-label="Previous month" onClick={() => props.onMonthChange(new Date(props.month.getFullYear(), props.month.getMonth() - 1, 1))}>‹</button>
-          <button class="text-button" onClick={() => {
-            const date = props.now;
-            props.onMonthChange(new Date(date.getFullYear(), date.getMonth(), 1));
-          }}>Today</button>
-          <button class="icon-button" aria-label="Next month" onClick={() => props.onMonthChange(new Date(props.month.getFullYear(), props.month.getMonth() + 1, 1))}>›</button>
+  const pendingForDay = (day: Date) => dateKey(day) === today() ? props.items.filter((item): item is Task => item.kind === "task" && isPendingOnDate(item, day)) : [];
+  const matchingPending = (day: Date) => props.query ? pendingForDay(day).filter(item => textMatches(item, props.query)) : pendingForDay(day);
+  const pendingText = (day: Date) => {
+    const count = matchingPending(day).length;
+    const noun = count === 1 ? "task" : "tasks";
+    const sleeping = matchingPending(day).filter(item => isSleeping(item, props.now)).length;
+    return `${props.query ? `${count} matching ${noun}` : `${count} ${noun}`} for today${sleeping ? ` · ${sleeping} sleeping` : ""}`;
+  };
+  const selectedEntries = createMemo(() => entriesForDay(selectedDay()).filter(entry => !props.query || textMatches(entry.item, props.query)));
+  return <section class="panel calendar-panel">
+    <div class="panel-heading">
+      <div><p class="page-eyebrow">Calendar</p><h1>{new Intl.DateTimeFormat(undefined, {month: "long", year: "numeric"}).format(props.month)}</h1><p class="page-description">A little perspective on what's ahead.</p></div>
+      <div class="month-controls">
+        <button class="icon-button" aria-label="Previous month" onClick={() => props.onMonthChange(new Date(props.month.getFullYear(), props.month.getMonth() - 1, 1))}>‹</button>
+        <button class="secondary-button" onClick={() => { props.onMonthChange(new Date(props.now.getFullYear(), props.now.getMonth(), 1)); setSelectedDay(props.now); }}>Today</button>
+        <button class="icon-button" aria-label="Next month" onClick={() => props.onMonthChange(new Date(props.month.getFullYear(), props.month.getMonth() + 1, 1))}>›</button>
+      </div>
+    </div>
+    <div class="calendar-layout">
+      <div class="calendar-board">
+        <div class="calendar-grid">
+          <For each={["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]}>{name => <div class="weekday">{name}</div>}</For>
+          <For each={days()}>{day => {
+            const entries = () => entriesForDay(day);
+            const matching = () => props.query ? entries().filter(entry => textMatches(entry.item, props.query)) : entries();
+            return <div class={`calendar-day ${day.getMonth() !== props.month.getMonth() ? "outside" : ""} ${dateKey(day) === today() ? "today" : ""}`} classList={{selected: dateKey(day) === dateKey(selectedDay())}} onClick={() => setSelectedDay(day)}>
+              <button class="day-number" aria-label={new Intl.DateTimeFormat(undefined, {dateStyle: "full"}).format(day)} aria-pressed={dateKey(day) === dateKey(selectedDay())} onClick={() => setSelectedDay(day)}>{day.getDate()}</button>
+              <div class="calendar-cell-entries">
+                <Show when={matchingPending(day).length}><button class="calendar-chip task start" title="Open today's tasks" onClick={event => { event.stopPropagation(); props.onOpenTodayTasks(); }}>{matchingPending(day).length} tasks for today</button></Show>
+                <For each={entries().slice(0, pendingForDay(day).length ? 2 : 3)}>{entry => <button class={`calendar-chip ${entry.className} ${props.query && !textMatches(entry.item, props.query) ? "search-dimmed" : ""}`} title={entry.title} onClick={event => { event.stopPropagation(); props.onEdit(entry.item); }}>{entry.label}</button>}</For>
+                <Show when={entries().length > (pendingForDay(day).length ? 2 : 3)}><button class="more-count" onClick={() => setSelectedDay(day)}>+{entries().length - (pendingForDay(day).length ? 2 : 3)} more</button></Show>
+              </div>
+              <div class="calendar-day-dots" aria-hidden="true"><For each={matching().slice(0, 3)}>{entry => <i class={`legend-dot ${entry.className.includes("event") ? "event" : entry.className.includes("due") ? "due" : "start"}`} />}</For><Show when={matchingPending(day).length}><i class="legend-dot start" /></Show></div>
+            </div>;
+          }}</For>
         </div>
-        <div class="calendar-heading-actions">
-          <button
-            type="button"
-            class={`secondary-button calendar-sleep-toggle ${props.sleepMode === "respect" ? "active" : ""}`}
-            aria-pressed={props.sleepMode === "respect"}
-            title={props.sleepMode === "respect"
-              ? "Sleeping tasks are treated as unavailable until they wake."
-              : "Sleep is ignored when projecting task opportunities. Sleeping projections are shown differently."}
-            onClick={() => props.onSleepModeChange(props.sleepMode === "respect" ? "ignore" : "respect")}
-          >
-            {props.sleepMode === "respect" ? "Respect sleep" : "Ignore sleep"}
-          </button>
-          <h1>{new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(props.month)}</h1>
+        <div class="calendar-footnotes"><div class="calendar-legend"><span><i class="legend-dot event" />Event</span><span><i class="legend-dot start" />Can start</span><span><i class="legend-dot latest" />Latest start</span><span><i class="legend-dot due" />Due</span></div>
+          <button type="button" class="text-button calendar-sleep-toggle" aria-pressed={props.sleepMode === "respect"} title={props.sleepMode === "respect" ? "Sleeping tasks are treated as unavailable until they wake." : "Sleep is ignored when projecting task opportunities. Sleeping projections are shown differently."} onClick={() => props.onSleepModeChange(props.sleepMode === "respect" ? "ignore" : "respect")}><Icon name="moon" size={14} />{props.sleepMode === "respect" ? "Respect sleep" : "Ignore sleep"}</button>
         </div>
       </div>
-      <div class="calendar-grid">
-        <For each={["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]}>{(name) => <div class="weekday">{name}</div>}</For>
-        <For each={days()}>{(day) => {
-          const key = () => dateKey(day);
-          const pending = () => key() === today()
-            ? props.items.filter((item): item is Task => item.kind === "task" && isPendingOnDate(item, day))
-            : [];
-          const matchingPending = () => props.query ? pending().filter((item) => textMatches(item, props.query)) : pending();
-          const sleepingCount = () => matchingPending().filter((item) => isSleeping(item, props.now)).length;
-          const pendingText = () => {
-            const count = matchingPending().length;
-            const noun = count === 1 ? "task" : "tasks";
-            const prefix = props.query ? `${count} matching ${noun}` : `${count} ${noun}`;
-            return `${prefix}${sleepingCount() ? ` - ${sleepingCount()} sleeping` : ""}`;
-          };
-          const entries = () => entriesForDay(day);
-          const itemLimit = () => 4 - (pending().length ? 1 : 0);
-          return (
-            <div
-              class={`calendar-day clickable ${day.getMonth() !== props.month.getMonth() ? "outside" : ""} ${key() === today() ? "today" : ""}`}
-              onClick={(event) => {
-                if ((event.target as Element).closest("button")) return;
-                props.onCreateForDay(day);
-              }}
-            >
-              <div class="day-number">{day.getDate()}</div>
-              <Show when={pending().length}>
-                <button
-                  class={`calendar-chip task start ${props.query && !matchingPending().length ? "search-dimmed" : ""}`}
-                  title="Open today's tasks"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    props.onOpenTodayTasks();
-                  }}
-                >
-                  {pendingText()}
-                </button>
-              </Show>
-              <For each={entries().slice(0, itemLimit())}>{(entry) => (
-                <button
-                  class={`calendar-chip ${entry.className} ${props.query && !textMatches(entry.item, props.query) ? "search-dimmed" : ""}`}
-                  title={entry.title}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    props.onEdit(entry.item);
-                  }}
-                >
-                  {entry.label}
-                </button>
-              )}</For>
-              <Show when={entries().length > itemLimit()}><div class="more-count">+{entries().length - itemLimit()} more</div></Show>
-            </div>
-          );
-        }}</For>
-      </div>
-      <div class="calendar-legend">
-        <span><i class="legend-dot event" />Event</span>
-        <span><i class="legend-dot start" />Task start</span>
-        <span><i class="legend-dot latest" />Latest start</span>
-        <span><i class="legend-dot due" />Due</span>
-      </div>
-    </section>
-  );
+      <aside class="day-agenda" aria-label="Selected day">
+        <div class="agenda-date"><span>{new Intl.DateTimeFormat(undefined, {weekday: "long"}).format(selectedDay())}</span><h2>{new Intl.DateTimeFormat(undefined, {month: "long", day: "numeric"}).format(selectedDay())}</h2><Show when={dateKey(selectedDay()) === today()}><span class="today-label">Today</span></Show></div>
+        <Show when={matchingPending(selectedDay()).length}><button class="agenda-tasks" onClick={props.onOpenTodayTasks}><Icon name="sun" /><span>{pendingText(selectedDay())}</span><Icon name="arrow" size={16} /></button></Show>
+        <div class="agenda-entries"><For each={selectedEntries()} fallback={<div class="agenda-empty"><Icon name="calendar" size={29} /><strong>A little breathing room</strong><p>{props.query ? "No matches on this day." : "Nothing scheduled for this day."}</p></div>}>{entry => <button class="agenda-entry" onClick={() => props.onEdit(entry.item)}><span class={`agenda-entry-mark ${entry.className}`} /><span><small>{entry.item.kind === "event" ? shortTime(entry.item.start) : entry.className.includes("due") ? "Due" : entry.className.includes("latest") ? "Latest start" : "Can start"}</small><strong>{entry.title}</strong></span><Icon name="arrow" size={15} /></button>}</For></div>
+        <button class="secondary-button agenda-add" onClick={() => props.onCreateForDay(selectedDay())}><Icon name="plus" size={16} />Add an event</button>
+      </aside>
+    </div>
+  </section>;
 }

@@ -24,6 +24,7 @@ import {
   undo,
   undoLabel,
 } from "../../site/storage.js";
+import { WorkspaceShell, type TaskScope } from "./WorkspaceShell";
 import { DialogShell } from "./DialogShell";
 import { CalendarView } from "./CalendarView";
 import { ItemEditor, SleepDialog, type EditorRequest } from "./ItemEditor";
@@ -62,6 +63,9 @@ export function App() {
   const [items, setItems] = createSignal<Item[]>([]);
   const [loadingError, setLoadingError] = createSignal("");
   const [view, setView] = createSignal<View>(readView());
+  const initialScope = localStorage.getItem("calendar.taskScope");
+  const [taskScope, setTaskScope] = createSignal<TaskScope>(initialScope === "all" || initialScope === "completed" ? initialScope : "focus");
+  const changeTaskScope = (scope: TaskScope) => { setTaskScope(scope); localStorage.setItem("calendar.taskScope", scope); };
   const [query, setQuery] = createSignal("");
   const [animationPreference, setAnimationPreference] = createSignal(localStorage.getItem("calendar.animations"));
   const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -194,6 +198,13 @@ export function App() {
     const next: Task = { ...task, ...patch, updatedAt: now, history: [...(task.history || []), { at: now, ...historyEntry }] };
     await putItem(next, task); await refresh(); void requestRemoteSync(); showToast(message);
   };
+  const quickAddTask = async (title: string) => {
+    const now = new Date().toISOString();
+    try {
+      await putItem({id: crypto.randomUUID(), kind: "task", title: title.trim(), state: "open", tags: [], attachments: [], history: [{at: now, type: "created"}], createdAt: now, updatedAt: now});
+      await refresh(); setQuery(""); void requestRemoteSync(); return true;
+    } catch (error) { showToast(errorMessage(error, "Could not add task.")); return false; }
+  };
   const completeTask = async (task: Task) => {
     const now = new Date().toISOString();
     const next: Task = { ...task, state: "completed", completedAt: now, sleep: null, updatedAt: now, history: [...(task.history || []), { at: now, type: "completed" }] };
@@ -294,30 +305,20 @@ export function App() {
   return (
     <Show when={!loadingError()} fallback={<div class="solid-error">Could not open local storage. {loadingError()}</div>}>
       <div class="app-shell">
-        <header class="topbar">
-          <div class="brand-row">
-            <button class="icon-button settings-trigger" aria-label="Settings" title="Settings" onClick={openSettings}>⚙</button>
-            <div class="mobile-history" aria-label="History">
-              <button class="icon-button" aria-label="Undo" title={historyState().undoLabel || "Undo"} disabled={!historyState().canUndo} onClick={() => void applyUndo()}>↶</button>
-              <button class="icon-button" aria-label="Redo" title={historyState().redoLabel || "Redo"} disabled={!historyState().canRedo} onClick={() => void applyRedo()}>↷</button>
-            </div>
-            <nav class="primary-nav" aria-label="Primary">
-              <button class={`nav-button ${view() === "tasks" ? "active" : ""}`} aria-current={view() === "tasks" ? "page" : undefined} onClick={() => navigate("tasks")}>Tasks</button>
-              <button class={`nav-button ${view() === "calendar" ? "active" : ""}`} aria-current={view() === "calendar" ? "page" : undefined} onClick={() => navigate("calendar")}>Calendar</button>
-            </nav>
-          </div>
-          <div class="top-actions">
-            <label class="search-box"><span aria-hidden="true">⌕</span><span class="visually-hidden">{view() === "calendar" ? "Search calendar" : "Search tasks"}</span><input type="search" placeholder={view() === "calendar" ? "Search calendar" : "Search tasks"} value={query()} onInput={(event) => setQuery(event.currentTarget.value)} autocomplete="off" /></label>
-            <button class="primary-button" onClick={() => openEditor(null, view() === "calendar" ? "event" : "task")}>New</button>
-            <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = "";  }} />
-          </div>
-        </header>
-        <div class="solid-menu-status" role="status">{remoteBusy() ? "Syncing…" : remoteError() ? `Saved locally · ${remoteError()}` : lastSyncedAt() ? `Synced at ${lastSyncedAt()!.toLocaleTimeString()}` : "Saved locally"}</div>
-        <main>
-          <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={(mode) => { setCalendarSleepMode(mode); localStorage.setItem("calendar.calendarSleepMode", mode); }} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => { localStorage.setItem("calendar.section.now", "open"); localStorage.setItem("calendar.section.upcoming", "open"); navigate("tasks"); requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" })); }} />}>
-            <TasksView animations={animations()} onMove={async (id, target, placement) => { try { await moveTask(id, target, placement); await refresh(); void requestRemoteSync(); } catch (error) { showToast(errorMessage(error, "Could not move task")); } }} onAddSubtask={task => setEditor({ item: null, kind: "task", parentId: task.id, nonce: Date.now() })} items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={(task) => openEditor(task)} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
+        <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = ""; }} />
+        <WorkspaceShell view={view()} scope={taskScope()} openCount={items().filter(item => item.kind === "task" && item.state !== "completed").length} query={query()} onQuery={setQuery}
+          onNavigate={(next, scope) => { if (scope) changeTaskScope(scope); navigate(next); window.scrollTo({top: 0, behavior: "instant"}); }}
+          onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
+          onSettings={() => { setSettingsTab("data"); openSettings(); }}
+          syncState={remoteBusy() ? "busy" : remoteError() ? "error" : lastSyncedAt() ? "synced" : "local"}
+          syncLabel={remoteBusy() ? "Syncing" : remoteError() ? "Sync needs attention" : lastSyncedAt() ? "Synced" : "On this device"}
+          syncDetail={remoteError() || (lastSyncedAt() ? `Last synced at ${lastSyncedAt()!.toLocaleTimeString()}` : "Your edits are saved in this browser. Open Settings to connect another device.")}
+          identity={remoteSession()?.authenticated ? remoteIdentityLabel() : ""}
+          canUndo={historyState().canUndo} canRedo={historyState().canRedo} undoLabel={historyState().undoLabel} redoLabel={historyState().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
+          <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={(mode) => { setCalendarSleepMode(mode); localStorage.setItem("calendar.calendarSleepMode", mode); }} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => { changeTaskScope("focus"); localStorage.setItem("calendar.section.now", "open"); localStorage.setItem("calendar.section.upcoming", "open"); navigate("tasks"); requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" })); }} />}>
+            <TasksView scope={taskScope()} onScopeChange={changeTaskScope} onQuickAdd={quickAddTask} animations={animations()} onMove={async (id, target, placement) => { try { await moveTask(id, target, placement); await refresh(); void requestRemoteSync(); } catch (error) { showToast(errorMessage(error, "Could not move task")); } }} onAddSubtask={task => setEditor({ item: null, kind: "task", parentId: task.id, nonce: Date.now() })} items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={(task) => openEditor(task)} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
           </Show>
-        </main>
+        </WorkspaceShell>
         <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await deleteItem(item.id); await refresh(); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}</Show>
         <Show when={sleepTask()} keyed>{(task) => <SleepDialog task={task} onClose={() => setSleepTask(null)} onInvalid={() => showToast("Choose a future sleep time")} onSave={async (until) => { const now = new Date().toISOString(); await mutateTask(task, { sleep: { until, startedAt: task.sleep?.startedAt || now } }, { type: "slept", until }, until ? `Sleeping until ${formatDateTime(until)}` : "Sleeping indefinitely"); setSleepTask(null); }} />}</Show>
         <Show when={showSettings()}><DialogShell labelledBy="settings-title" className="settings-dialog" onClose={closeSettings}>
