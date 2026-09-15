@@ -1,3 +1,5 @@
+import { Icon } from "./Icon";
+import type { TaskScope } from "./WorkspaceShell";
 import { TaskPresence } from "./TaskPresence";
 import { startTaskDrag } from "./task-drag";
 import { nestTaskRows, taskDescendants } from "../../site/task-tree.js";
@@ -99,6 +101,9 @@ function taskTitle(task: Task) {
 }
 
 type TasksViewProps = {
+  scope: TaskScope;
+  onScopeChange: (scope: TaskScope) => void;
+  onQuickAdd: (title: string) => Promise<boolean>;
   animations: boolean;
   onMove: (id: string, target: string | null, placement: string) => Promise<void>;
   items: Item[];
@@ -123,6 +128,16 @@ type TasksViewProps = {
 };
 
 export function TasksView(props: TasksViewProps) {
+  const [draftTitle, setDraftTitle] = createSignal("");
+  const [adding, setAdding] = createSignal(false);
+  const captureTask = async () => {
+    const title = draftTitle().trim();
+    if (!title || adding()) return;
+    setAdding(true);
+    try { if (await props.onQuickAdd(title)) { if (draftTitle().trim() === title) setDraftTitle(""); } }
+    finally { setAdding(false); }
+  };
+  const sectionVisible = (id: SectionId) => props.scope === "focus" ? id === "now" || id === "upcoming" : id === props.scope;
   const [collapsed, setCollapsed] = createSignal(new Set<string>());
   const nested = (rows: TaskRow[]) => nestTaskRows(rows, props.items, props.query ? new Set<string>() : collapsed(), true);
   const toggle = (id: string) => setCollapsed(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
@@ -130,6 +145,10 @@ export function TasksView(props: TasksViewProps) {
     Object.fromEntries(taskSections.map((section) => [section.id, readSectionOpen(section.id, section.defaultOpen)])) as Record<SectionId, boolean>,
   );
 
+  createEffect(() => {
+    const scope = props.scope;
+    if (scope !== "focus") setOpenSections(current => ({...current, [scope]: true}));
+  });
   const matching = createMemo(() =>
     props.items.filter((item): item is Task => item.kind === "task").filter((task) => textMatches(task, props.query)),
   );
@@ -248,23 +267,22 @@ export function TasksView(props: TasksViewProps) {
   return (
     <section class={`panel tasks-panel ${props.compact ? "compact" : ""} ${props.animations ? "motion-enabled" : ""}`}>
       <div class="panel-heading">
-        <div>
-          <h1>Tasks</h1>
-          <p class="muted">
-            {props.query
-              ? `${openCount()} matching open ${openCount() === 1 ? "task" : "tasks"}`
-              : `${openCount()} open ${openCount() === 1 ? "task" : "tasks"}`}
-          </p>
+        <div><p class="page-eyebrow">{new Intl.DateTimeFormat(undefined, {weekday: "long", month: "long", day: "numeric"}).format(props.now)}</p>
+          <h1>{props.query ? "Search results" : props.scope === "focus" ? "My day" : props.scope === "all" ? "All tasks" : "Completed"}<Show when={props.scope === "focus" && !props.query}><span class="heading-sun"><Icon name="sun" size={33} /></span></Show></h1>
+          <p class="page-description">{props.query ? `Matching “${props.query}”` : props.scope === "focus" ? `${actionable().length} tasks ready when you are.` : props.scope === "all" ? `${openCount()} open tasks. Everything in one place.` : `${rows().completed.length} tasks taken care of.`}</p>
         </div>
-        <button
-          type="button"
-          class={`secondary-button density-toggle ${props.compact ? "active" : ""}`}
-          aria-pressed={props.compact}
-          onClick={() => props.onCompactChange(!props.compact)}
-        >Compact</button>
+        <button type="button" class={`secondary-button density-toggle ${props.compact ? "active" : ""}`} aria-pressed={props.compact} onClick={() => props.onCompactChange(!props.compact)}><Icon name="compact" size={16} /><span>Compact</span></button>
       </div>
-
-      <p class="drag-help">Drag a task to reorder; drop in its middle to make a subtask. On touch screens, hold first.</p>
+      <div class="task-scope-tabs" role="group" aria-label="Task lists">
+        <button aria-pressed={props.scope === "focus"} onClick={() => props.onScopeChange("focus")}>My day</button>
+        <button aria-pressed={props.scope === "all"} onClick={() => props.onScopeChange("all")}>All tasks</button>
+        <button aria-pressed={props.scope === "completed"} onClick={() => props.onScopeChange("completed")}>Completed</button>
+      </div>
+      <Show when={props.scope !== "completed"}><form class="quick-capture" onSubmit={event => { event.preventDefault(); void captureTask(); }}>
+        <Icon name="plus" size={20} /><input aria-label="Quick add task" placeholder="What needs doing?" maxLength={240} value={draftTitle()} onInput={event => setDraftTitle(event.currentTarget.value)} />
+        <button type="submit" aria-label="Add task" disabled={adding() || !draftTitle().trim()}><span>{adding() ? "Adding…" : "Add task"}</span><Icon name="arrow" size={17} /></button>
+      </form></Show>
+      <p class="drag-help"><Icon name="list" size={13} />Drag to arrange. Drop onto a task to nest it. <span>On touch screens, hold first.</span></p>
       <div class="root-drop" data-drop-root="true">Drop here to make a top-level task</div>
       <div class="task-sections">
         <For each={taskSections}>{(section) => {
@@ -272,7 +290,7 @@ export function TasksView(props: TasksViewProps) {
           const sleepingRows = () => section.id === "upcoming" ? sleeping() : [];
           const label = () => section.id === "upcoming" && props.horizonDays === null ? "Waiting" : section.label;
           return (
-            <section class="task-section" data-section={section.id} data-expanded={openSections()[section.id]}>
+            <section class="task-section" hidden={!sectionVisible(section.id)} inert={!sectionVisible(section.id) || undefined} data-section={section.id} data-expanded={openSections()[section.id]}>
               <button class="task-section-toggle" aria-expanded={openSections()[section.id]} onClick={() => {
                 const open = !openSections()[section.id];
                 setOpenSections(current => ({ ...current, [section.id]: open }));
@@ -428,7 +446,7 @@ function TaskCard(props: {
           <span class="complete-indicator" aria-hidden="true">✓</span>
         </Show>
         <div class="task-copy">
-          <Show when={parent()}>{parentTask => <button class="task-parent-link" onClick={() => props.onEdit(parentTask())}>↳ {taskTitle(parentTask())}</button>}</Show>
+          <Show when={props.row.depth ? undefined : parent()}>{parentTask => <button class="task-parent-link" onClick={() => props.onEdit(parentTask())}>↳ {taskTitle(parentTask())}</button>}</Show>
           <div class="task-title-row">
             <span class="task-disclosure-slot"><Show when={props.row.hasChildren}><button class="task-disclosure" aria-label={props.collapsed ? "Expand subtasks" : "Collapse subtasks"} aria-expanded={!props.collapsed} onClick={props.onToggle}><span class="section-chevron" aria-hidden="true">›</span></button></Show></span>
             <h3><button class="task-title-link" aria-label={`Edit ${taskTitle(props.row.task)}`} title={`Edit ${taskTitle(props.row.task)}`} onClick={() => props.onEdit(props.row.task)}>{taskTitle(props.row.task)}</button></h3>
@@ -438,7 +456,7 @@ function TaskCard(props: {
           <Show when={summary()}><div class="availability-summary">{summary()}</div></Show>
           <Show when={props.row.task.notes}><MarkdownNotes text={props.row.task.notes || ""} attachments={props.row.task.attachments || []} onDownload={file => void openAttachment(file)} onError={message => window.alert(message)} /></Show>
           <Show when={props.row.task.tags?.length}><div class="tags"><For each={props.row.task.tags}>{(tag) => <span class="tag">{tag}</span>}</For></div></Show>
-          <Show when={props.row.task.attachments?.length}><div class="attachments"><For each={props.row.task.attachments}>{(attachment) => <button class="attachment" onClick={() => void openAttachment(attachment)}>Attachment: {attachment.name || "Attachment"}</button>}</For></div></Show>
+          <Show when={props.row.task.attachments?.length}><div class="attachments"><For each={props.row.task.attachments}>{(attachment) => <button class="attachment" onClick={() => void openAttachment(attachment)}><Icon name="paperclip" size={12} />{attachment.name || "Attachment"}</button>}</For></div></Show>
         </div>
       </div>
       <Show when={!closed()}>
@@ -448,8 +466,6 @@ function TaskCard(props: {
             when={sleep().sleeping}
             fallback={
               <>
-                <TaskActionIcon action="sleepTomorrow" shortcuts={props.shortcuts} onClick={() => void props.onSleepTomorrow(props.row.task)} />
-                <TaskActionIcon action="sleepIndefinite" shortcuts={props.shortcuts} onClick={() => void props.onSleepIndefinite(props.row.task)} />
                 <TaskActionIcon action="customSleep" shortcuts={props.shortcuts} onClick={() => props.onSleepCustom(props.row.task)} />
                 <Show when={canConvertWaitToSleep()}><button class="text-button" onClick={() => void props.onWaitToSleep(props.row.task)}>Sleep instead</button></Show>
               </>

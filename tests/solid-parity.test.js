@@ -18,14 +18,13 @@ test("Solid frontend uses fine-grained reactive primitives rather than React-sty
 test("Solid task cards retain icon actions, semantic hotkeys, and roving focus", () => {
   const tasks = source("solid/src/TasksView.tsx");
   const shortcuts = source("solid/src/shortcuts.tsx");
-  assert.match(tasks, /TaskActionIcon action="sleepTomorrow"/);
-  assert.match(tasks, /TaskActionIcon action="sleepIndefinite"/);
   assert.match(tasks, /TaskActionIcon action="customSleep"/);
   assert.match(tasks, /moveTaskFocus\(event\.key === "ArrowUp" \? -1 : 1/);
   assert.match(tasks, /actionForKey\(normalizeEventKey\(event\), props\.shortcuts\)/);
-  assert.match(shortcuts, /function SleepTomorrowIcon/);
-  assert.match(shortcuts, /function SleepIndefiniteIcon/);
-  assert.match(shortcuts, /function CustomSleepIcon/);
+  assert.match(shortcuts, /Icon name="moon"/);
+  const editor = source("solid/src/ItemEditor.tsx");
+  assert.match(editor, /Until tomorrow/);
+  assert.match(editor, /Indefinitely/);
 });
 
 test("Solid task availability formatting follows vanilla section behavior", () => {
@@ -49,7 +48,8 @@ test("Solid dialogs protect dirty edits and preserve attachment and sleep feedba
 
 test("Solid shell keeps calendar search and today navigation", () => {
   const app = source("solid/src/App.tsx");
-  assert.match(app, /placeholder=\{view\(\) === "calendar" \? "Search calendar" : "Search tasks"\}/);
+  const shell = source("solid/src/WorkspaceShell.tsx");
+  assert.match(shell, /placeholder=\{props.view === "calendar" \? "Search calendar" : "Search tasks"\}/);
   assert.match(app, /querySelector\('\[data-section="now"\]'\)\?\.scrollIntoView\(\{ block: "start" \}\)/);
   assert.doesNotMatch(app, /solid-badge/);
 });
