@@ -18,9 +18,8 @@ export function projectedTaskStart(task: Task, now: Date, respectSleep: boolean)
   }
 
   const available = toDate(task.availableFrom);
-  if (!available) return null;
-
-  let projected = available;
+  let projected = available || (respectSleep && sleep.sleeping && !sleep.indefinite ? sleep.until : null);
+  if (!projected) return null;
   if (respectSleep && sleep.sleeping) {
     if (sleep.indefinite) return null;
     if (sleep.until > projected) projected = sleep.until;

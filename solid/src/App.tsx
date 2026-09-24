@@ -1,3 +1,5 @@
+import { SleepControls } from "./SleepControls";
+import type { TaskSort } from "./task-planning";
 import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import {
   dateKey,
@@ -80,6 +82,12 @@ export function App() {
   const [horizonDays, setHorizonDays] = createSignal<number | null>(readHorizon());
   const [horizonMode, setHorizonMode] = createSignal<HorizonMode>(readHorizonMode());
   const [calendarSleepMode, setCalendarSleepMode] = createSignal<CalendarSleepMode>(readCalendarSleepMode());
+  const changeSleepMode = (mode: CalendarSleepMode) => { setCalendarSleepMode(mode); localStorage.setItem("calendar.calendarSleepMode", mode); };
+  const [hideSleeping, setHideSleeping] = createSignal(localStorage.getItem("calendar.hideSleeping") === "1");
+  const changeHideSleeping = (hide: boolean) => { setHideSleeping(hide); localStorage.setItem("calendar.hideSleeping", hide ? "1" : "0"); };
+  const storedSort = localStorage.getItem("calendar.taskSort");
+  const [taskSort, setTaskSort] = createSignal<TaskSort>(storedSort === "later" || storedSort === "manual" ? storedSort : "start");
+  const changeTaskSort = (sort: TaskSort) => { setTaskSort(sort); localStorage.setItem("calendar.taskSort", sort); };
   const nowAtStart = new Date();
   const [clock, setClock] = createSignal(nowAtStart);
   const [calendarMonth, setCalendarMonth] = createSignal(new Date(nowAtStart.getFullYear(), nowAtStart.getMonth(), 1));
@@ -89,7 +97,7 @@ export function App() {
   const [shortcuts, setShortcuts] = createSignal<Shortcuts>(loadShortcuts());
   const [shortcutsDirty, setShortcutsDirty] = createSignal(false);
   const [showSettings, setShowSettings] = createSignal(false);
-  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations">("data");
+  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations" | "tasks">("data");
   const [pollSeconds, setPollSeconds] = createSignal(loadPollSeconds());
   const [remoteSession, setRemoteSession] = createSignal<RemoteSession | null>(null);
   const [remoteBusy, setRemoteBusy] = createSignal(false);
@@ -196,7 +204,8 @@ export function App() {
   const mutateTask = async (task: Task, patch: Partial<Task>, historyEntry: { type: string; [key: string]: unknown }, message: string) => {
     const now = new Date().toISOString();
     const next: Task = { ...task, ...patch, updatedAt: now, history: [...(task.history || []), { at: now, ...historyEntry }] };
-    await putItem(next, task); await refresh(); void requestRemoteSync(); showToast(message);
+    try { await putItem(next, task); await refresh(); void requestRemoteSync(); showToast(message); return true; }
+    catch (error) { showToast(errorMessage(error, "Could not update task")); return false; }
   };
   const quickAddTask = async (title: string) => {
     const now = new Date().toISOString();
@@ -218,7 +227,7 @@ export function App() {
     const now = new Date().toISOString();
     await mutateTask(task, { sleep: { until: null, startedAt: now } }, { type: "slept", until: null }, "Sleeping indefinitely");
   };
-  const wakeTask = (task: Task) => mutateTask(task, { sleep: null }, { type: "woke" }, "Task is awake");
+  const wakeTask = async (task: Task) => { await mutateTask(task, { sleep: null }, { type: "woke" }, "Task is awake"); };
   const sleepToWait = async (task: Task) => {
     const sleep = sleepInfo(task, new Date()); if (!sleep.sleeping || sleep.indefinite) return;
     const existingStart = toDate(task.availableFrom); const waitUntil = existingStart && existingStart > sleep.until ? existingStart : sleep.until;
@@ -306,7 +315,7 @@ export function App() {
     <Show when={!loadingError()} fallback={<div class="solid-error">Could not open local storage. {loadingError()}</div>}>
       <div class="app-shell">
         <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = ""; }} />
-        <WorkspaceShell view={view()} scope={taskScope()} openCount={items().filter(item => item.kind === "task" && item.state !== "completed").length} query={query()} onQuery={setQuery}
+        <WorkspaceShell view={view()} scope={taskScope()} openCount={items().filter(item => item.kind === "task" && item.state !== "completed" && (!hideSleeping() || !sleepInfo(item, clock()).sleeping)).length} query={query()} onQuery={setQuery}
           onNavigate={(next, scope) => { if (scope) changeTaskScope(scope); navigate(next); window.scrollTo({top: 0, behavior: "instant"}); }}
           onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
           onSettings={() => { setSettingsTab("data"); openSettings(); }}
@@ -315,20 +324,29 @@ export function App() {
           syncDetail={remoteError() || (lastSyncedAt() ? `Last synced at ${lastSyncedAt()!.toLocaleTimeString()}` : "Your edits are saved in this browser. Open Settings to connect another device.")}
           identity={remoteSession()?.authenticated ? remoteIdentityLabel() : ""}
           canUndo={historyState().canUndo} canRedo={historyState().canRedo} undoLabel={historyState().undoLabel} redoLabel={historyState().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
-          <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={(mode) => { setCalendarSleepMode(mode); localStorage.setItem("calendar.calendarSleepMode", mode); }} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => { changeTaskScope("focus"); localStorage.setItem("calendar.section.now", "open"); localStorage.setItem("calendar.section.upcoming", "open"); navigate("tasks"); requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" })); }} />}>
-            <TasksView scope={taskScope()} onScopeChange={changeTaskScope} onQuickAdd={quickAddTask} animations={animations()} onMove={async (id, target, placement) => { try { await moveTask(id, target, placement); await refresh(); void requestRemoteSync(); } catch (error) { showToast(errorMessage(error, "Could not move task")); } }} onAddSubtask={task => setEditor({ item: null, kind: "task", parentId: task.id, nonce: Date.now() })} items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={(task) => openEditor(task)} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
+          <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={changeSleepMode} hideSleeping={hideSleeping()} onHideSleepingChange={changeHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => { changeTaskScope("focus"); localStorage.setItem("calendar.section.now", "open"); localStorage.setItem("calendar.section.upcoming", "open"); navigate("tasks"); requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" })); }} />}>
+            <TasksView sleepMode={calendarSleepMode()} onSleepModeChange={changeSleepMode} hideSleeping={hideSleeping()} onHideSleepingChange={changeHideSleeping} sort={taskSort()} onSortChange={changeTaskSort} scope={taskScope()} onScopeChange={changeTaskScope} onQuickAdd={quickAddTask} animations={animations()} onMove={async (id, target, placement) => { try { await moveTask(id, target, placement); await refresh(); void requestRemoteSync(); } catch (error) { showToast(errorMessage(error, "Could not move task")); } }} onAddSubtask={task => setEditor({ item: null, kind: "task", parentId: task.id, nonce: Date.now() })} items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={(task) => openEditor(task)} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
           </Show>
         </WorkspaceShell>
         <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await deleteItem(item.id); await refresh(); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}</Show>
-        <Show when={sleepTask()} keyed>{(task) => <SleepDialog task={task} onClose={() => setSleepTask(null)} onInvalid={() => showToast("Choose a future sleep time")} onSave={async (until) => { const now = new Date().toISOString(); await mutateTask(task, { sleep: { until, startedAt: task.sleep?.startedAt || now } }, { type: "slept", until }, until ? `Sleeping until ${formatDateTime(until)}` : "Sleeping indefinitely"); setSleepTask(null); }} />}</Show>
+        <Show when={sleepTask()} keyed>{(task) => <SleepDialog task={task} onClose={() => setSleepTask(null)} onInvalid={() => showToast("Choose a future sleep time")} onSave={async (until) => { const now = new Date().toISOString(); if (await mutateTask(task, { sleep: { until, startedAt: task.sleep?.startedAt || now } }, { type: "slept", until }, until ? `Sleeping until ${formatDateTime(until)}` : "Sleeping indefinitely")) setSleepTask(null); }} />}</Show>
         <Show when={showSettings()}><DialogShell labelledBy="settings-title" className="settings-dialog" onClose={closeSettings}>
           <div class="settings-content">
             <div class="dialog-header"><h2 id="settings-title">Settings</h2><button class="icon-button" aria-label="Close settings" onClick={closeSettings}>×</button></div>
             <div class="settings-tabs" role="tablist" aria-label="Settings sections">
               <button role="tab" aria-selected={settingsTab() === "data"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("data"); }}>Data</button>
+              <button role="tab" aria-selected={settingsTab() === "tasks"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("tasks"); }}>Tasks</button>
               <button role="tab" aria-selected={settingsTab() === "animations"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("animations"); }}>Animations</button>
               <button class="keyboard-settings-tab" role="tab" aria-selected={settingsTab() === "keyboard"} onClick={() => setSettingsTab("keyboard")}>Keyboard shortcuts</button>
             </div>
+            <Show when={settingsTab() === "tasks"}>
+              <section aria-label="Task settings">
+                <SleepControls mode={calendarSleepMode()} hideSleeping={hideSleeping()} onModeChange={changeSleepMode} onHideChange={changeHideSleeping} />
+                <p class="field-hint">Respect sleep keeps tasks unavailable until they wake. Turn it off to use their normal start dates and working hours. Hide sleeping tasks removes them from both views, even when sleep is ignored.</p>
+                <label class="field"><span>Task sort order</span><select value={taskSort()} onChange={event => changeTaskSort(event.currentTarget.value as TaskSort)}><option value="start">Can start, then due</option><option value="later">Later of can start / due</option><option value="manual">Manual order</option></select></label>
+                <p class="field-hint">Date sorting uses the later of the selected date and wake time when respecting sleep; due dates break ties. Tasks without a start date come first; indefinite sleepers come last. Sorts siblings while keeping subtasks with their parent. Dragging to reorder switches to manual order. These preferences apply in this browser.</p>
+              </section>
+            </Show>
             <Show when={settingsTab() === "animations"}>
             <section class="appearance-settings" aria-label="Appearance">
               <label class="animation-setting"><span><strong>Animations</strong><small>Animate expanding, collapsing, completing, undoing, and dragging tasks.</small></span><input aria-label="Animations" type="checkbox" role="switch" checked={animations()} onChange={event => { const value = event.currentTarget.checked ? "on" : "off"; setAnimationPreference(value); localStorage.setItem("calendar.animations", value); }} /></label>

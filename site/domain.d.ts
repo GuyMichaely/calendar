@@ -31,6 +31,7 @@ export function withinAvailabilitySchedule(task: Task, now?: Date): boolean;
 export function actionability(task: unknown, now?: Date): Actionability;
 export function nextAvailabilityStart(task: Task, now?: Date): Date | null;
 export function sleepInfo(task: unknown, now?: Date): SleepInfo;
+export function sleepValidationMessage(task: unknown, now?: Date): string;
 export function isSleeping(task: unknown, now?: Date): boolean;
 export function nextActionableStart(
   task: Task,

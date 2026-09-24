@@ -36,10 +36,10 @@ export function validateTaskParent(items, id, parentId) {
 
 // Preserve the section's ordering among siblings. Missing/filtered parents are
 // skipped; concurrent move cycles become visible roots instead of hiding tasks.
-export function nestTaskRows(rows, items, collapsed = new Set(), includeHidden = false) {
+export function nestTaskRows(rows, items, collapsed = new Set(), includeHidden = false, manualOrder = true) {
   const visible = new Set(rows.map(row => row.task.id));
   const children = new Map(), roots = [];
-  const ordered = [...rows].sort((a, b) => (a.task.sortOrder ?? Infinity) - (b.task.sortOrder ?? Infinity));
+  const ordered = manualOrder ? [...rows].sort((a, b) => (a.task.sortOrder ?? Infinity) - (b.task.sortOrder ?? Infinity)) : rows;
   for (const row of ordered) {
     const parent = taskAncestors(items, row.task.id).find(task => visible.has(task.id));
     if (!parent) roots.push(row);

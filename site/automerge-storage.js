@@ -1,3 +1,4 @@
+import { sleepValidationMessage } from "./domain.js";
 import { taskDescendants, taskAncestors, validateTaskParent, taskMoveUpdates } from "./task-tree.js";
 import * as Automerge from "@automerge/automerge";
 import {
@@ -398,6 +399,8 @@ export function putLocalItem(item, baseline = null) {
     if (baseline && baseline.kind !== item.kind) nextDoc = enforceMaterializedKindShape(nextDoc, item.id);
     const relatedChanges = [];
     const savedTask = materializeItem(nextDoc, item.id);
+    const sleepError = sleepValidationMessage(savedTask);
+    if (sleepError) throw new Error(sleepError);
     if (savedTask?.kind === "task") {
       const tasks = materializeItems(nextDoc);
       const completing = savedTask.state === "completed" && before?.state !== "completed";

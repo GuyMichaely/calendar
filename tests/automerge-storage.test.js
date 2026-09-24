@@ -278,3 +278,24 @@ test('drag moves persist parent and sibling order with grouped undo and redo', a
   assert.equal((await storage.getItem('drag-c')).parentId, null);
   assert.ok((await storage.getItem('drag-c')).sortOrder < (await storage.getItem('drag-b')).sortOrder);
 });
+
+
+test("invalid sleep or an earlier due date cannot change saved task state", async () => {
+  const future = days => new Date(Date.now() + days * 86400000).toISOString();
+  const initial = task({id:"sleep-validation", deadline:future(2), sleep:{until:future(1),startedAt:new Date().toISOString()}});
+  await storage.putItem(initial);
+  const before=await storage.getItem(initial.id);
+  await assert.rejects(storage.putItem({...before,sleep:{...before.sleep,until:future(3)}},before),/due date/);
+  await assert.rejects(storage.putItem({...before,deadline:future(0.5)},before),/due date/);
+  await assert.rejects(storage.putItem({...before,sleep:{...before.sleep,until:null}},before),/indefinitely/);
+  assert.deepEqual(await storage.getItem(initial.id),before);
+  await storage.putItem({...before,deadline:future(1.25)},before);
+  const current=await storage.getItem(initial.id);
+  // A stale editor still has the later deadline. Its new sleep is valid there,
+  // but must be rejected against the current document without changing it.
+  await assert.rejects(storage.putItem({...before,sleep:{...before.sleep,until:future(1.5)}},before),/due date/);
+  assert.deepEqual(await storage.getItem(initial.id),current);
+  await assert.rejects(storage.importData(JSON.stringify({items:[task({id:"should-not-import"}), {...before,sleep:{...before.sleep,until:future(3)}}]})),/due date/);
+  assert.equal(await storage.getItem("should-not-import"),null);
+  await storage.deleteItem(initial.id);
+});

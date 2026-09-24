@@ -1,3 +1,4 @@
+import { sleepValidationMessage } from "./domain.js";
 import { validateTaskParent } from "./task-tree.js";
 import {
   applyLocalHistoryChange,
@@ -216,6 +217,8 @@ export async function listItemsSnapshot() {
 }
 
 export async function putItem(item, baseline = null) {
+  const sleepError = sleepValidationMessage(item);
+  if (sleepError) throw new Error(sleepError);
   const uploads = uploadableAttachments(item);
   await uploadAttachmentsBeforePersist(uploads);
   const cleanItem = withoutAttachmentBytes(item);
@@ -334,7 +337,11 @@ export function parseBackup(text) {
   if (items.some((item) => (item?.attachments || []).some((attachment) => attachment?.dataUrl || attachment?.blob))) {
     throw new Error("This backup contains embedded attachment bytes. Import supports attachment references only.");
   }
-  for (const item of items) if (item.kind === "task") validateTaskParent(items, item.id, item.parentId);
+  for (const item of items) {
+    if (item.kind === "task") validateTaskParent(items, item.id, item.parentId);
+    const sleepError = sleepValidationMessage(item);
+    if (sleepError) throw new Error(sleepError);
+  }
   return items;
 }
 

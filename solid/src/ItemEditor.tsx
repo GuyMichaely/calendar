@@ -2,9 +2,11 @@ import { Icon } from "./Icon";
 import { taskDescendants } from "../../site/task-tree.js";
 import { For, Show, createSignal, onMount, onCleanup } from "solid-js";
 import {
+  formatDateTime,
   isoToLocalInput,
   localInputToIso,
   sleepInfo,
+  sleepValidationMessage,
   toDate,
   tomorrowMidnight,
 } from "../../site/domain.js";
@@ -92,6 +94,7 @@ export function ItemEditor(props: {
   const defaults = eventDefaults(props.request);
   const [kind, setKind] = createSignal<"task" | "event">(props.request.kind);
   const [scheduleEnabled, setScheduleEnabled] = createSignal(!!task?.availabilitySchedule?.enabled);
+  const [deadlineInput, setDeadlineInput] = createSignal(isoToLocalInput(task?.deadline));
   const [sleepMode, setSleepMode] = createSignal<"awake" | "until" | "indefinite">(
     initialSleep?.sleeping ? (initialSleep.indefinite ? "indefinite" : "until") : "awake",
   );
@@ -162,7 +165,8 @@ export function ItemEditor(props: {
   const saveOnce = async (): Promise<boolean> => {
     if (!dirty()) return true;
     if (!formRef.checkValidity()) {
-      setSaveError("Complete the required fields to save.");
+      const sleepInput = formRef.elements.namedItem("sleepUntil") as HTMLInputElement | null;
+      setSaveError(sleepInput?.validity.rangeOverflow ? "Sleep must end on or before the task’s due date." : "Complete the required fields to save.");
       return false;
     }
     const submittedForm = serializeForm(formRef, pendingFiles(), removedAttachments());
@@ -250,6 +254,8 @@ export function ItemEditor(props: {
       };
     }
 
+    const sleepError = sleepValidationMessage(item);
+    if (sleepError) { setSaveError(sleepError); return false; }
     try {
       const saved = await props.onSave(item, !currentItem, currentItem);
       if (!saved) throw new Error("This item was deleted on another device. Close and reopen the calendar to review it.");
@@ -370,10 +376,10 @@ export function ItemEditor(props: {
             <div class="form-grid">
               <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><button type="button" class={taskState() === "open" ? "primary-button" : "secondary-button"} onClick={toggleCompleted}>{taskState() === "open" ? (descendants().length ? `✓ Complete task + ${descendants().length} subtasks` : "✓ Complete task") : "↶ Reopen task"}</button></div>
               <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" value={isoToLocalInput(task?.availableFrom)} /></label>
-              <label class="field"><span>Due</span><input name="deadline" type="datetime-local" value={isoToLocalInput(task?.deadline)} /></label>
+              <label class="field"><span>Due</span><input name="deadline" type="datetime-local" value={deadlineInput()} onInput={event => setDeadlineInput(event.currentTarget.value)} /></label>
               <label class="field"><span>Latest start</span><input name="latestStart" type="datetime-local" value={isoToLocalInput(task?.latestStart)} /></label>
-              <label class="field"><span>Sleep</span><select name="sleepMode" value={sleepMode()} onChange={(event) => { setSleepMode(event.currentTarget.value as ReturnType<typeof sleepMode>); syncDirty(); }}><option value="awake">Awake</option><option value="until">Until a date</option><option value="indefinite">Indefinitely</option></select></label>
-              <label class="field" hidden={sleepMode() !== "until"}><span>Sleep until</span><input name="sleepUntil" type="datetime-local" value={sleepUntil} disabled={sleepMode() !== "until"} /></label>
+              <label class="field"><span>Sleep</span><select name="sleepMode" value={sleepMode()} onChange={(event) => { setSleepMode(event.currentTarget.value as ReturnType<typeof sleepMode>); syncDirty(); }}><option value="awake">Awake</option><option value="until">Until a date</option><option value="indefinite" disabled={!!deadlineInput()}>Indefinitely</option></select></label>
+              <label class="field" hidden={sleepMode() !== "until"}><span>Sleep until</span><input name="sleepUntil" type="datetime-local" max={deadlineInput() || undefined} value={sleepUntil} disabled={sleepMode() !== "until"} /></label>
             </div>
             <details class="schedule-box" open={!!task?.availabilitySchedule?.enabled}><summary><Icon name="clock" size={16} />Working hours<span>Optional</span></summary>
               <label class="toggle-row">
@@ -473,8 +479,9 @@ export function SleepDialog(props: {
           <div><h2 id="sleep-title">Sleep task</h2><p class="muted">{title}</p></div>
           <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
         </div>
-        <div class="sleep-presets"><button type="button" class="secondary-button" onClick={() => void props.onSave(tomorrowMidnight(new Date()).toISOString())}><Icon name="sun" size={16} />Until tomorrow</button><button type="button" class="secondary-button" onClick={() => void props.onSave(null)}><Icon name="moon" size={16} />Indefinitely</button></div>
-        <label class="field full"><span>Or choose a date</span><input type="datetime-local" required value={value()} onInput={(event) => setValue(event.currentTarget.value)} data-dialog-autofocus={true} /></label>
+        <div class="sleep-presets"><button type="button" class="secondary-button" disabled={!!props.task.deadline && tomorrowMidnight(new Date()) > toDate(props.task.deadline)!} onClick={() => void props.onSave(tomorrowMidnight(new Date()).toISOString())}><Icon name="sun" size={16} />Until tomorrow</button><button type="button" class="secondary-button" disabled={!!props.task.deadline} onClick={() => void props.onSave(null)}><Icon name="moon" size={16} />Indefinitely</button></div>
+        <Show when={props.task.deadline}><p class="field-hint">Sleep must end by {formatDateTime(props.task.deadline)}. Indefinite sleep is unavailable while this task has a due date.</p></Show>
+        <label class="field full"><span>Or choose a date</span><input type="datetime-local" max={isoToLocalInput(props.task.deadline) || undefined} required value={value()} onInput={(event) => setValue(event.currentTarget.value)} data-dialog-autofocus={true} /></label>
         <div class="dialog-actions">
           <div class="spacer" />
           <button type="button" class="secondary-button" onClick={close}>Cancel</button>

@@ -1,3 +1,5 @@
+import { SleepControls } from "./SleepControls";
+import { taskVisible } from "./task-planning";
 import { Icon } from "./Icon";
 import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import {
@@ -35,6 +37,8 @@ export function CalendarView(props: {
   query: string;
   month: Date;
   sleepMode: CalendarSleepMode;
+  hideSleeping: boolean;
+  onHideSleepingChange: (hide: boolean) => void;
   now: Date;
   onMonthChange: (date: Date) => void;
   onSleepModeChange: (mode: CalendarSleepMode) => void;
@@ -57,10 +61,12 @@ export function CalendarView(props: {
     });
   });
 
+  const visibleItems = createMemo(() => props.items.filter(item => item.kind !== "task" || taskVisible(item, props.now, props.hideSleeping)));
+
   const projectedStarts = createMemo(() => {
     const starts = new Map<string, { task: Task; start: Date; bypassesSleep: boolean }>();
     const respectSleep = props.sleepMode === "respect";
-    for (const item of props.items) {
+    for (const item of visibleItems()) {
       if (item.kind !== "task" || item.state === "completed") continue;
       const projected = projectedTaskStart(item, props.now, respectSleep);
       if (!projected) continue;
@@ -76,7 +82,7 @@ export function CalendarView(props: {
   const entriesForDay = (day: Date): CalendarEntry[] => {
     const key = dateKey(day);
     const entries: CalendarEntry[] = [];
-    for (const item of props.items) {
+    for (const item of visibleItems()) {
       const title = displayTitle(item);
       if (item.kind === "event") {
         if (dateKey(item.start) !== key) continue;
@@ -119,10 +125,15 @@ export function CalendarView(props: {
         }
       }
     }
+    for (const entry of entries) if (isSleeping(entry.item, props.now)) {
+      entry.className += " sleeping-entry";
+      entry.label = `☾ ${entry.label}`;
+      entry.title += props.sleepMode === "respect" ? " (sleeping)" : " (sleep ignored)";
+    }
     return entries.sort((a, b) => a.sort - b.sort || a.title.localeCompare(b.title));
   };
 
-  const pendingForDay = (day: Date) => dateKey(day) === today() ? props.items.filter((item): item is Task => item.kind === "task" && isPendingOnDate(item, day)) : [];
+  const pendingForDay = (day: Date) => dateKey(day) === today() ? visibleItems().filter((item): item is Task => item.kind === "task" && isPendingOnDate(item, day) && (props.sleepMode === "ignore" || !isSleeping(item, props.now))) : [];
   const matchingPending = (day: Date) => props.query ? pendingForDay(day).filter(item => textMatches(item, props.query)) : pendingForDay(day);
   const pendingText = (day: Date) => {
     const count = matchingPending(day).length;
@@ -140,6 +151,7 @@ export function CalendarView(props: {
         <button class="icon-button" aria-label="Next month" onClick={() => props.onMonthChange(new Date(props.month.getFullYear(), props.month.getMonth() + 1, 1))}>›</button>
       </div>
     </div>
+    <SleepControls mode={props.sleepMode} hideSleeping={props.hideSleeping} onModeChange={props.onSleepModeChange} onHideChange={props.onHideSleepingChange} />
     <div class="calendar-layout">
       <div class="calendar-board">
         <div class="calendar-grid">
@@ -159,7 +171,6 @@ export function CalendarView(props: {
           }}</For>
         </div>
         <div class="calendar-footnotes"><div class="calendar-legend"><span><i class="legend-dot event" />Event</span><span><i class="legend-dot start" />Can start</span><span><i class="legend-dot latest" />Latest start</span><span><i class="legend-dot due" />Due</span></div>
-          <button type="button" class="text-button calendar-sleep-toggle" aria-pressed={props.sleepMode === "respect"} title={props.sleepMode === "respect" ? "Sleeping tasks are treated as unavailable until they wake." : "Sleep is ignored when projecting task opportunities. Sleeping projections are shown differently."} onClick={() => props.onSleepModeChange(props.sleepMode === "respect" ? "ignore" : "respect")}><Icon name="moon" size={14} />{props.sleepMode === "respect" ? "Respect sleep" : "Ignore sleep"}</button>
         </div>
       </div>
       <aside class="day-agenda" aria-label="Selected day">

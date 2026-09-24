@@ -147,7 +147,6 @@ main:focus { outline: none; }
 .attachment { display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 3px 0; background: none; color: var(--accent-strong); font-size: 10px; }
 .availability-summary { margin: 5px 0 0 20px; color: #97834b; font-size: 11px; }
 .sleeping-task .availability-summary { color: #9787a7; }
-.sleeping-heading { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin: 10px 0 3px 27px; }
 .section-empty { padding: 25px 27px; color: var(--muted); font-size: 12px; }
 .horizon-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0 6px; gap: 10px; }
 .horizon-label { font-size: 10px; color: var(--muted); }
@@ -195,7 +194,6 @@ body.task-dragging .task-card { user-select: none; cursor: grabbing; }
 .calendar-legend > span { display: flex; align-items: center; gap: 5px; }
 .legend-dot { display: inline-block; width: 6px; height: 6px; border-radius: 2px; background: #91a5b3; }
 .legend-dot.start { background: #8caa7c; }.legend-dot.latest { background: #c8ad64; }.legend-dot.due { background: #d39378; }
-.calendar-sleep-toggle { font-size: 9px; padding: 0; }
 .calendar-day-dots { display: none; }
 .day-agenda { background: #efeee7; border-radius: 10px; padding: 22px 18px; }
 .agenda-date { position: relative; padding-bottom: 20px; border-bottom: 1px solid #deded3; }
@@ -334,8 +332,20 @@ body.task-dragging .task-card { user-select: none; cursor: grabbing; }
   .task-actions { max-width: 58px; opacity: 1; }.tasks-panel .tags { display: none; }.task-actions > .task-action-icon, .task-actions > .add-subtask-button { width: 27px; height: 27px; }.task-actions > .text-button:not(.add-subtask-button) { font-size: 9px; }.task-action-icon { width: 27px; height: 27px; }
   .horizon-controls { gap: 5px; }.horizon-control button { padding: 3px 6px; }.boundary-toggle { font-size: 8px; padding: 5px; }.horizon-label { font-size: 9px; }.root-drop { left: 14px; right: 14px; top: 10px; z-index: 35; }
   .calendar-panel .panel-heading { align-items: flex-start; }.calendar-panel h1 { font-size: 25px; }.calendar-panel .page-description { display: none; }.month-controls { align-self: flex-end; gap: 3px; }.month-controls .icon-button { width: 25px; height: 29px; font-size: 20px; border: 0; }.month-controls .secondary-button { padding: 6px 8px; font-size: 10px; }
-  .calendar-layout { grid-template-columns: 1fr; gap: 22px; }.calendar-day { min-height: 54px; padding: 4px; }.day-number { width: 23px; height: 23px; margin-inline: auto; margin-bottom: 4px; font-size: 10px; }.calendar-cell-entries { display: none; }.calendar-day-dots { display: flex; justify-content: center; gap: 3px; }.calendar-day-dots .legend-dot { width: 4px; height: 4px; }.weekday { font-size: 8px; padding: 8px 0; }.calendar-footnotes { gap: 8px; }.calendar-legend { gap: 9px; font-size: 8px; }.calendar-sleep-toggle { font-size: 8px; }
+  .calendar-layout { grid-template-columns: 1fr; gap: 22px; }.calendar-day { min-height: 54px; padding: 4px; }.day-number { width: 23px; height: 23px; margin-inline: auto; margin-bottom: 4px; font-size: 10px; }.calendar-cell-entries { display: none; }.calendar-day-dots { display: flex; justify-content: center; gap: 3px; }.calendar-day-dots .legend-dot { width: 4px; height: 4px; }.weekday { font-size: 8px; padding: 8px 0; }.calendar-footnotes { gap: 8px; }.calendar-legend { gap: 9px; font-size: 8px; }
   .day-agenda { padding: 20px; }.agenda-date h2 { font-size: 21px; }.agenda-empty { padding-block: 20px; }.agenda-entry strong { font-size: 13px; }.agenda-add { font-size: 11px; }
   .solid-dialog-backdrop { padding: 10px; }.editor-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); }.item-editor-dialog { width: 100vw; max-height: 100dvh; }.item-editor-dialog form { padding: 23px 20px 25px; }.editor-title-input { font-size: 23px; }.item-editor-dialog .dialog-actions { bottom: -25px; margin-inline: -20px; margin-bottom: -25px; padding: 17px 20px calc(17px + env(safe-area-inset-bottom)); }.field input, .field select, .notes-editor textarea, .solid-menu-remote input { font-size: 16px; }.field input[type="datetime-local"] { font-size: 12px; min-height: 40px; }.form-grid, .time-pair { gap: 10px; }.field > span { font-size: 10px; }.notes-editor { margin-top: 16px; }.notes-editor textarea { font-size: 14px; }.attachment-actions { gap: 0; }.dialog-actions { gap: 9px; }.dialog-actions > [role="status"] { font-size: 9px; }
   .settings-content { padding: 22px 18px; }.settings-tabs { gap: 20px; }.keyboard-settings-tab { display: none; }.toast-stack { right: 16px; bottom: 85px; width: calc(100vw - 32px); }.queued-toast { justify-self: stretch; }
 }
+
+/* Shared task visibility controls stay within reach on both layouts. */
+.sleep-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-bottom: 18px; }
+.sleep-controls label { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; font-size: 12px; cursor: pointer; }
+.sleep-controls input { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+.task-view-options { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 20px; margin-bottom: 18px; }
+.task-view-options .sleep-controls { margin: 0; }
+.task-sort { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.task-sort select { width: auto; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 7px; background: var(--surface); color: var(--text); font: inherit; }
+.sleep-indicator { display: inline-flex; color: #816394; margin: 4px 0 0 8px; flex: 0 0 auto; }
+[data-sleep-ignored] .sleep-indicator { color: var(--muted); }
+@media (max-width: 700px) { .task-view-options { align-items: flex-start; }.sleep-controls { gap: 8px 16px; }.sleep-controls label { min-height: 36px; } }

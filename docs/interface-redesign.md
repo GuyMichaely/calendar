@@ -16,6 +16,14 @@ The `ui/redesign` branch explores a quieter planning workspace. It changes prese
 
 Task identity and focus remain stable through edits, sync refreshes, completion, and disclosure. Arrow navigation includes only visible tasks and loops at the ends. Whole-card dragging, touch holds, nesting, moving drop gaps, and the conditional top-level target remain available. The animation preference still controls task transitions. Quick capture and detail edits use the existing serialized storage, undo, and sync paths.
 
+## Sleep and ordering
+
+Respect sleep and Hide sleeping tasks are shared between Tasks and Calendar, with controls above each view and in Settings → Tasks. Ignoring sleep restores the task's ordinary availability, including its recurring working hours. Hiding sleeping tasks removes them from lists, calendar markers, and counts independently of the respect setting. These are browser preferences; they do not change task data.
+
+Sleeping tasks join Upcoming with a moon indicator, ordered alongside other tasks. The default is Can start, then due; respecting sleep uses the later of the start and wake time. The alternative date order uses the later of Can start and due before applying wake time. A due date changes ordering, not when a task becomes workable. The horizon uses the next actionable time; indefinite sleepers stay at the end even with a horizon. Sorting is within siblings so children stay with their parent. Dragging before/after another task switches to Manual order; nesting alone keeps the current sort.
+
+A task with a due date cannot be put to sleep past it or indefinitely. The editor, shortcuts, sleep dialog, imports, and local storage edits enforce this, including a stale editor whose saved due date has since changed. Existing task history and remote sync remain intact.
+
 ## Try it
 
 Run `./scripts/bun run dev:solid --host 127.0.0.1 --port 5177`, then open `http://127.0.0.1:5177/calendar/`. The local origin has its own browser storage. Use quick capture or import a backup in Settings to populate it. Production at `guymichaely.com/calendar` is unchanged until this branch is merged to `main`.
@@ -25,3 +33,5 @@ The visual review used representative sample tasks and events in an isolated bro
 ## Validation
 
 The branch passed the existing 103 repository tests and 21 Solid tests, TypeScript checking, and a production build. Isolated browser checks covered quick capture, view scopes, autosave, calendar agendas, settings, mobile layouts and search, task completion and undo, stable title alignment and DOM identity, looping keyboard focus, mouse nesting, and touch drag/cancel. No browser console errors were reported.
+
+Sleep follow-up: all 104 repository tests and 32 Solid tests pass, together with TypeScript and production build checks. Isolated desktop/mobile browser checks verify shared preferences and reload persistence, integrated sleep ordering, hiding from both views, nested-parent visibility, touch toggles, and sleep/deadline validation.

@@ -15,10 +15,11 @@ export function friendlyWhen(date: Date | null, now = new Date()) {
   return `${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date)} · ${time}`;
 }
 
-export function availabilitySummary(task: Task, now: Date, upcomingAt: Date | null | undefined, showAvailability: boolean) {
+export function availabilitySummary(task: Task, now: Date, upcomingAt: Date | null | undefined, showAvailability: boolean, respectSleep = true) {
   if (!showAvailability) return "";
   const sleep = sleepInfo(task, now);
-  const next = upcomingAt || nextActionableStart(task, now, { respectSleep: sleep.sleeping });
+  const next = upcomingAt || nextActionableStart(task, now, { respectSleep });
+  if (!respectSleep) return next ? `Available ${friendlyWhen(next, now)}` : "";
   if (sleep.sleeping && sleep.indefinite) return "Sleeping indefinitely";
   if (sleep.sleeping) {
     const sameMoment = next && Math.abs(next.getTime() - sleep.until.getTime()) < 60000;

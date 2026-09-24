@@ -126,6 +126,16 @@ export function sleepInfo(task, now = new Date()) {
   return { sleeping: true, indefinite: false, until };
 }
 
+export function sleepValidationMessage(task, now = new Date()) {
+  if (!isTask(task) || task.state === "completed" || !task.sleep) return "";
+  if (task.sleep.until && !toDate(task.sleep.until)) return "Choose a valid sleep date.";
+  const sleep = sleepInfo(task, now);
+  const due = toDate(task.deadline);
+  if (!sleep.sleeping || !due) return "";
+  if (sleep.indefinite) return "A task with a due date cannot sleep indefinitely. Choose a wake time on or before its due date.";
+  return sleep.until > due ? "Sleep must end on or before the task’s due date." : "";
+}
+
 export function isSleeping(task, now = new Date()) {
   return sleepInfo(task, now).sleeping;
 }

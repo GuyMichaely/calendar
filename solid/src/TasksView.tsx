@@ -1,3 +1,5 @@
+import { SleepControls } from "./SleepControls";
+import { planTasks, taskVisible, type TaskSort } from "./task-planning";
 import { Icon } from "./Icon";
 import type { TaskScope } from "./WorkspaceShell";
 import { TaskPresence } from "./TaskPresence";
@@ -8,11 +10,7 @@ import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
 import {
   actionability,
   formatDateTime,
-  isSleeping,
-  nextActionableStart,
   sleepInfo,
-  sortTasks,
-  taskMatchesFilter,
   textMatches,
   toDate,
   upcomingHorizonEnd,
@@ -20,7 +18,7 @@ import {
 import { MarkdownNotes } from "./MarkdownNotes";
 import { actionForKey, normalizeEventKey, TaskActionIcon, type Shortcuts } from "./shortcuts";
 import { availabilitySummary } from "./task-display";
-import type { Attachment, HorizonMode, Item, Task } from "./types";
+import type { CalendarSleepMode, Attachment, HorizonMode, Item, Task } from "./types";
 
 type TaskRow = { hidden?: boolean; task: Task; upcomingAt?: Date | null; depth?: number; hasChildren?: boolean };
 
@@ -101,6 +99,12 @@ function taskTitle(task: Task) {
 }
 
 type TasksViewProps = {
+  sleepMode: CalendarSleepMode;
+  hideSleeping: boolean;
+  sort: TaskSort;
+  onSleepModeChange: (mode: CalendarSleepMode) => void;
+  onHideSleepingChange: (hide: boolean) => void;
+  onSortChange: (sort: TaskSort) => void;
   scope: TaskScope;
   onScopeChange: (scope: TaskScope) => void;
   onQuickAdd: (title: string) => Promise<boolean>;
@@ -139,7 +143,8 @@ export function TasksView(props: TasksViewProps) {
   };
   const sectionVisible = (id: SectionId) => props.scope === "focus" ? id === "now" || id === "upcoming" : id === props.scope;
   const [collapsed, setCollapsed] = createSignal(new Set<string>());
-  const nested = (rows: TaskRow[]) => nestTaskRows(rows, props.items, props.query ? new Set<string>() : collapsed(), true);
+  const visibleItems = createMemo(() => props.items.filter(item => item.kind !== "task" || taskVisible(item, props.now, props.hideSleeping)));
+  const nested = (rows: TaskRow[]) => nestTaskRows(rows, visibleItems(), props.query ? new Set<string>() : collapsed(), true, false);
   const toggle = (id: string) => setCollapsed(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
   const [openSections, setOpenSections] = createSignal<Record<SectionId, boolean>>(
     Object.fromEntries(taskSections.map((section) => [section.id, readSectionOpen(section.id, section.defaultOpen)])) as Record<SectionId, boolean>,
@@ -150,29 +155,13 @@ export function TasksView(props: TasksViewProps) {
     if (scope !== "focus") setOpenSections(current => ({...current, [scope]: true}));
   });
   const matching = createMemo(() =>
-    props.items.filter((item): item is Task => item.kind === "task").filter((task) => textMatches(task, props.query)),
+    props.items.filter((item): item is Task => item.kind === "task").filter((task) => taskVisible(task, props.now, props.hideSleeping) && textMatches(task, props.query)),
   );
   const openCount = createMemo(() => matching().filter((task) => task.state !== "completed").length);
   const horizonEnd = createMemo(() => props.horizonDays === null ? null : upcomingHorizonEnd(props.now, props.horizonDays, props.horizonMode));
-  const actionable = createMemo(() => sortTasks(
-    matching().filter((task) => taskMatchesFilter(task, "now", props.now) && !isSleeping(task, props.now)),
-    props.now,
-  ) as Task[]);
-  const upcoming = createMemo<TaskRow[]>(() => matching()
-    .filter((task) => task.state !== "completed" && !isSleeping(task, props.now))
-    .map((task) => ({ task, upcomingAt: nextActionableStart(task, props.now) as Date | null }))
-    .filter((row) => row.upcomingAt && row.upcomingAt > props.now && (!horizonEnd() || row.upcomingAt <= horizonEnd()!))
-    .sort((a, b) => (a.upcomingAt?.getTime() || 0) - (b.upcomingAt?.getTime() || 0) || a.task.title.localeCompare(b.task.title)));
-  const sleeping = createMemo<TaskRow[]>(() => (sortTasks(
-    matching().filter((task) => task.state !== "completed" && isSleeping(task, props.now)),
-    props.now,
-  ) as Task[]).map((task) => ({ task, upcomingAt: nextActionableStart(task, props.now, { respectSleep: true }) as Date | null })));
-  const rows = createMemo<Record<SectionId, TaskRow[]>>(() => ({
-    now: actionable().map((task) => ({ task })),
-    upcoming: upcoming(),
-    all: (sortTasks(matching().filter((task) => taskMatchesFilter(task, "all", props.now)), props.now) as Task[]).map((task) => ({ task })),
-    completed: (sortTasks(matching().filter((task) => taskMatchesFilter(task, "completed", props.now)), props.now) as Task[]).map((task) => ({ task })),
-  }));
+  const rows = createMemo<Record<SectionId, TaskRow[]>>(() => planTasks(matching(), props.now, props.sleepMode === "respect", props.sort, horizonEnd()));
+  const actionable = () => rows().now;
+
 
   createEffect(() => {
     rows();
@@ -219,6 +208,7 @@ export function TasksView(props: TasksViewProps) {
 
   const move = async (id: string, target: string | null, placement: string) => {
     await props.onMove(id, target, placement);
+    if (placement === "before" || placement === "after") props.onSortChange("manual");
     if (placement === "inside" && target) setCollapsed(current => { const next = new Set(current); next.delete(target); return next; });
   };
   const moveWithKey = (event: KeyboardEvent, row: TaskRow) => {
@@ -236,12 +226,13 @@ export function TasksView(props: TasksViewProps) {
       row={row()}
       onMoveKey={event => moveWithKey(event, row())}
       onDrag={event => startTaskDrag(event, row().task.id, move, taskDescendants(props.items, row().task.id).map(task => task.id))}
-      items={props.items}
+      items={visibleItems()}
       collapsed={collapsed().has(row().task.id) && !props.query}
       onToggle={() => toggle(row().task.id)}
       onAddSubtask={props.onAddSubtask}
       now={props.now}
       showAvailability={showAvailability}
+      respectSleep={props.sleepMode === "respect"}
       shortcuts={props.shortcuts}
       onEdit={props.onEdit}
       onComplete={props.onComplete}
@@ -273,6 +264,12 @@ export function TasksView(props: TasksViewProps) {
         </div>
         <button type="button" class={`secondary-button density-toggle ${props.compact ? "active" : ""}`} aria-pressed={props.compact} onClick={() => props.onCompactChange(!props.compact)}><Icon name="compact" size={16} /><span>Compact</span></button>
       </div>
+      <div class="task-view-options">
+        <SleepControls mode={props.sleepMode} hideSleeping={props.hideSleeping} onModeChange={props.onSleepModeChange} onHideChange={props.onHideSleepingChange} />
+        <label class="task-sort">Sort <select aria-label="Task sort order" value={props.sort} onChange={event => props.onSortChange(event.currentTarget.value as TaskSort)}>
+          <option value="start">Can start, then due</option><option value="later">Later of can start / due</option><option value="manual">Manual order</option>
+        </select></label>
+      </div>
       <div class="task-scope-tabs" role="group" aria-label="Task lists">
         <button aria-pressed={props.scope === "focus"} onClick={() => props.onScopeChange("focus")}>My day</button>
         <button aria-pressed={props.scope === "all"} onClick={() => props.onScopeChange("all")}>All tasks</button>
@@ -282,12 +279,11 @@ export function TasksView(props: TasksViewProps) {
         <Icon name="plus" size={20} /><input aria-label="Quick add task" placeholder="What needs doing?" maxLength={240} value={draftTitle()} onInput={event => setDraftTitle(event.currentTarget.value)} />
         <button type="submit" aria-label="Add task" disabled={adding() || !draftTitle().trim()}><span>{adding() ? "Adding…" : "Add task"}</span><Icon name="arrow" size={17} /></button>
       </form></Show>
-      <p class="drag-help"><Icon name="list" size={13} />Drag to arrange. Drop onto a task to nest it. <span>On touch screens, hold first.</span></p>
+      <p class="drag-help"><Icon name="list" size={13} />Drag to arrange (switches to manual order). Drop onto a task to nest it. <span>On touch screens, hold first.</span></p>
       <div class="root-drop" data-drop-root="true">Drop here to make a top-level task</div>
       <div class="task-sections">
         <For each={taskSections}>{(section) => {
           const sectionRows = () => rows()[section.id];
-          const sleepingRows = () => section.id === "upcoming" ? sleeping() : [];
           const label = () => section.id === "upcoming" && props.horizonDays === null ? "Waiting" : section.label;
           return (
             <section class="task-section" hidden={!sectionVisible(section.id)} inert={!sectionVisible(section.id) || undefined} data-section={section.id} data-expanded={openSections()[section.id]}>
@@ -297,7 +293,7 @@ export function TasksView(props: TasksViewProps) {
                 localStorage.setItem(`calendar.section.${section.id}`, open ? "open" : "closed");
               }}>
                 <span class="section-heading"><span class="section-chevron" aria-hidden="true">›</span><strong>{label()}</strong></span>
-                <span class="section-count">{sectionRows().length + sleepingRows().length}</span>
+                <span class="section-count">{sectionRows().length}</span>
               </button>
               <div class="task-collapse" data-expanded={openSections()[section.id]} inert={!openSections()[section.id] || undefined}><div class="collapse-inner">
               <div class="task-section-body">
@@ -329,15 +325,6 @@ export function TasksView(props: TasksViewProps) {
                 <div class="task-list section-task-list">
                     {taskList(sectionRows, section.id === "upcoming", emptyText(section.id))}
                 </div>
-
-                <Show when={section.id === "upcoming"}>
-                  <div class="sleeping-block">
-                    <Show when={sleepingRows().length}><div class="sleeping-heading"><span>Sleeping</span><span>{sleepingRows().length}</span></div></Show>
-                    <div class="task-list section-task-list sleeping-task-list">
-                      {taskList(sleepingRows, true)}
-                    </div>
-                  </div>
-                </Show>
               </div>
               </div></div>
             </section>
@@ -357,6 +344,7 @@ function TaskCard(props: {
   onToggle: () => void;
   now: Date;
   showAvailability: boolean;
+  respectSleep: boolean;
   shortcuts: Shortcuts;
   onAddSubtask: (task: Task) => void;
   onEdit: (task: Task) => void;
@@ -375,7 +363,7 @@ function TaskCard(props: {
   const closed = createMemo(() => props.row.task.state === "completed");
   const futureAvailable = createMemo(() => toDate(props.row.task.availableFrom));
   const canConvertWaitToSleep = createMemo(() => !sleep().sleeping && !!futureAvailable() && futureAvailable()! > props.now);
-  const summary = createMemo(() => availabilitySummary(props.row.task, props.now, props.row.upcomingAt, props.showAvailability));
+  const summary = createMemo(() => availabilitySummary(props.row.task, props.now, props.row.upcomingAt, props.showAvailability, props.respectSleep));
   const statusText = createMemo(() => {
     const currentSleep = sleep();
     return currentSleep.sleeping
@@ -420,6 +408,7 @@ function TaskCard(props: {
   return (
     <article
       class={`task-card ${sleep().sleeping ? "sleeping-task" : ""}`}
+      data-sleep-ignored={sleep().sleeping && !props.respectSleep || undefined}
       style={{ "margin-inline-start": `${Math.min(props.row.depth || 0, 5) * 12}px` }}
       data-parent={props.row.task.parentId || ""}
       data-depth={props.row.depth || 0}
@@ -450,7 +439,8 @@ function TaskCard(props: {
           <div class="task-title-row">
             <span class="task-disclosure-slot"><Show when={props.row.hasChildren}><button class="task-disclosure" aria-label={props.collapsed ? "Expand subtasks" : "Collapse subtasks"} aria-expanded={!props.collapsed} onClick={props.onToggle}><span class="section-chevron" aria-hidden="true">›</span></button></Show></span>
             <h3><button class="task-title-link" aria-label={`Edit ${taskTitle(props.row.task)}`} title={`Edit ${taskTitle(props.row.task)}`} onClick={() => props.onEdit(props.row.task)}>{taskTitle(props.row.task)}</button></h3>
-            <Show when={!closed()}><span class={`status-pill ${result().actionable && !sleep().sleeping ? "ready" : sleep().sleeping ? "sleeping" : "quiet"}`}>{statusText()}</span></Show>
+            <Show when={sleep().sleeping}><span class="sleep-indicator" role="img" aria-label={`${statusText()}${props.respectSleep ? "" : " (sleep ignored)"}`} title={`${statusText()}${props.respectSleep ? "" : " (sleep ignored)"}`}><Icon name="moon" size={14} /></span></Show>
+            <Show when={!closed()}><span class={`status-pill ${result().actionable && (!props.respectSleep || !sleep().sleeping) ? "ready" : sleep().sleeping ? "sleeping" : "quiet"}`}>{statusText()}</span></Show>
           </div>
           <Show when={descendants().length}><div class="subtask-progress">{descendants().filter(task => task.state === "completed").length}/{descendants().length} subtasks completed</div></Show>
           <Show when={summary()}><div class="availability-summary">{summary()}</div></Show>
