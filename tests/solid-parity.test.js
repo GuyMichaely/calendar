@@ -33,7 +33,6 @@ test("Solid task availability formatting follows task sections", () => {
   assert.match(tasks, /taskList\(sectionRows, section\.id === "upcoming", emptyText\(section\.id\)\)/);
   assert.match(display, /if \(!showAvailability && task\.availableFrom\) values\.push\(`Starts /);
   assert.match(display, /if \(!showAvailability && sleep\.sleeping\)/);
-  assert.match(display, /return next \? `Available \$\{friendlyWhen\(next, now\)\}` : ""/);
 });
 
 test("Solid dialogs protect dirty edits and preserve attachment and sleep feedback", () => {

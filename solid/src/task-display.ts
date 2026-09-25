@@ -1,4 +1,4 @@
-import { formatDateTime, nextActionableStart, sleepInfo } from "../../site/domain.js";
+import { actionability, formatDateTime, nextActionableStart, sleepInfo } from "../../site/domain.js";
 import type { Task } from "./types";
 
 export function friendlyWhen(date: Date | null, now = new Date()) {
@@ -19,14 +19,14 @@ export function availabilitySummary(task: Task, now: Date, upcomingAt: Date | nu
   if (!showAvailability) return "";
   const sleep = sleepInfo(task, now);
   const next = upcomingAt || nextActionableStart(task, now, { respectSleep });
-  if (!respectSleep) return next ? `Available ${friendlyWhen(next, now)}` : "";
+  if (!respectSleep) return next ? `Available ${friendlyWhen(next, now)}` : actionability(task, now).reason;
   if (sleep.sleeping && sleep.indefinite) return "Sleeping indefinitely";
   if (sleep.sleeping) {
     const sameMoment = next && Math.abs(next.getTime() - sleep.until.getTime()) < 60000;
     if (sameMoment || !next) return `Sleeping until ${friendlyWhen(sleep.until, now)}`;
     return `Sleeping until ${friendlyWhen(sleep.until, now)} · available ${friendlyWhen(next, now)}`;
   }
-  return next ? `Available ${friendlyWhen(next, now)}` : "";
+  return next ? `Available ${friendlyWhen(next, now)}` : actionability(task, now).reason;
 }
 
 export function taskTiming(task: Task, now: Date, showAvailability: boolean) {

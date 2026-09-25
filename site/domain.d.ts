@@ -50,6 +50,7 @@ export function isPendingOnDate(task: Task, date: DateInput): boolean;
 export function taskMatchesFilter(task: Task, filter: TaskFilter | string, now?: Date): boolean;
 export function upcomingHorizonEnd(now?: Date, horizonDays?: number, mode?: HorizonMode): Date;
 export function textMatches(item: Item, query: string): boolean;
+export function compareItemCreation(a: Item, b: Item): number;
 export function sortTasks<T extends Task>(tasks: readonly T[], now?: Date): T[];
 export function formatDateTime(value: DateInput): string;
 export function formatRelativeDateTime(value: DateInput, now?: Date): string;

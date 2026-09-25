@@ -29,14 +29,14 @@ test("horizon applies to effective wake dates, indefinite sleep stays at end", (
 });
 test("due dates control ordering without making available tasks wait", () => {
  const tasks=[task("early-start",{availableFrom:date(25),deadline:date(29)}),task("late-start",{availableFrom:date(26),deadline:date(27)})];
- expect(ids(planTasks(tasks,now,true,"start",null).all)).toEqual(["early-start","late-start"]);
- expect(ids(planTasks(tasks,now,true,"later",null).all)).toEqual(["late-start","early-start"]);
+ expect(ids(planTasks(tasks,now,true,"start",null).upcoming)).toEqual(["early-start","late-start"]);
+ expect(ids(planTasks(tasks,now,true,"later",null).upcoming)).toEqual(["late-start","early-start"]);
  expect(planTasks([task("ready",{deadline:date(29)})],now,true,"later",null).now).toHaveLength(1);
 });
 test("sleep max applies in later-date mode; expired sleep has no effect", () => {
  const tasks=[task("wake-later",{availableFrom:date(25),deadline:date(26),sleep:sleep(date(28))}),task("due-later",{availableFrom:date(25),deadline:date(27)})];
- expect(ids(planTasks(tasks,now,true,"later",null).all)).toEqual(["due-later","wake-later"]);
- expect(ids(planTasks(tasks,now,false,"later",null).all)).toEqual(["wake-later","due-later"]);
+ expect(ids(planTasks(tasks,now,true,"later",null).upcoming)).toEqual(["due-later","wake-later"]);
+ expect(ids(planTasks(tasks,now,false,"later",null).upcoming)).toEqual(["wake-later","due-later"]);
  expect(planTasks([task("expired",{sleep:sleep(date(23))})],now,true,"start",null).now).toHaveLength(1);
 });
 test("hidden sleepers disappear independently of respect mode, completed tasks remain", () => {
@@ -44,7 +44,7 @@ test("hidden sleepers disappear independently of respect mode, completed tasks r
  for (const respect of [true,false]) {
   const visible=tasks.filter(item=>taskVisible(item,now,true));
   const plan=planTasks(visible,now,respect,"start",null);
-  expect(ids(plan.all)).toEqual(["awake"]);
+  expect(ids(plan.now)).toEqual(["awake"]);
   expect(ids(plan.completed)).toEqual(["completed"]);
  }
 });
@@ -52,7 +52,7 @@ test("manual order cannot override date sorting through the nested tree", () => 
  const tasks=[task("early",{availableFrom:date(25),sortOrder:4}),task("late",{availableFrom:date(27),sortOrder:0}),task("child",{parentId:"early",availableFrom:date(28)})];
  const rows=planTasks(tasks,now,true,"start",null).upcoming;
  expect(ids(nestTaskRows(rows,tasks,new Set(),true,false))).toEqual(["early","child","late"]);
- expect(ids(planTasks(tasks,now,true,"manual",null).all)).toEqual(["late","early","child"]);
+ expect(ids(planTasks(tasks,now,true,"manual",null).upcoming)).toEqual(["late","early","child"]);
 });
 test("sleep still respects recurring working hours", () => {
  const item=task("office",{sleep:sleep("2026-09-25T20:00:00Z"),availabilitySchedule:{enabled:true,days:[1,2,3,4,5],start:"08:00",end:"17:00"}});
@@ -69,4 +69,25 @@ test("sleep validation allows equality, rejects later and indefinite deadlines",
  expect(sleepValidationMessage(task("forever",{deadline:date(26),sleep:sleep(null)}),now)).toMatch(/indefinitely/);
  expect(sleepValidationMessage(task("undated",{sleep:sleep(null)}),now)).toBe("");
  expect(sleepValidationMessage(task("expired",{deadline:date(22),sleep:sleep(date(23))}),now)).toBe("");
+});
+
+
+test("creation date precedes title when scheduling dates tie", () => {
+ const older=task("older",{title:"Zebra",createdAt:date(20),availableFrom:date(25),deadline:date(27)});
+ const newer=task("newer",{title:"Apple",createdAt:date(21),availableFrom:date(25),deadline:date(27)});
+ for(const sort of ["start","later","manual"] as const) expect(ids(planTasks([newer,older],now,true,sort,null).upcoming)).toEqual(["older","newer"]);
+ const alphabetic=task("same-age",{...newer,title:"Aardvark",id:"same-age"});
+ expect(ids(planTasks([newer,alphabetic],now,true,"start",null).upcoming)).toEqual(["same-age","newer"]);
+ const dueFirst={...newer,deadline:date(26)};
+ expect(ids(planTasks([older,dueFirst],now,true,"start",null).upcoming)).toEqual(["newer","older"]);
+});
+
+test("unified Tasks retains every nonactionable task when the horizon is off", () => {
+ const tasks=[task("ready"),task("future",{availableFrom:date(29)}),task("missed-window",{latestStart:date(23)}),task("no-workdays",{availabilitySchedule:{enabled:true,days:[],start:"08:00",end:"17:00"}}),task("sleeper",{sleep:sleep(null)})];
+ const sections=planTasks(tasks,now,true,"start",null);
+ expect(ids(sections.now)).toEqual(["ready"]);
+ expect(ids(sections.upcoming).sort()).toEqual(["future","missed-window","no-workdays","sleeper"]);
+ const limited=planTasks(tasks,now,true,"start",new Date(date(26)));
+ expect(ids(limited.upcoming).sort()).toEqual(["missed-window","no-workdays","sleeper"]);
+ expect(availabilitySummary(tasks[2],now,null,true,true)).toBe("Latest start has passed");
 });

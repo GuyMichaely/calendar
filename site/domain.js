@@ -264,6 +264,11 @@ export function textMatches(item, query) {
   return haystack.includes(q);
 }
 
+export function compareItemCreation(a, b) {
+  return (toDate(a.createdAt)?.getTime() ?? Infinity) - (toDate(b.createdAt)?.getTime() ?? Infinity)
+    || String(a.title || "").localeCompare(String(b.title || ""));
+}
+
 export function sortTasks(tasks, now = new Date()) {
   return [...tasks].sort((a, b) => {
     const aa = actionability(a, now).actionable ? 0 : 1;
@@ -274,7 +279,7 @@ export function sortTasks(tasks, now = new Date()) {
     const bd = toDate(b.deadline)?.getTime() ?? Number.POSITIVE_INFINITY;
     if (ad !== bd) return ad - bd;
 
-    return String(a.title || "").localeCompare(String(b.title || ""));
+    return compareItemCreation(a, b);
   });
 }
 

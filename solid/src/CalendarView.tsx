@@ -4,6 +4,7 @@ import { Icon } from "./Icon";
 import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import {
   calendarGridStart,
+  compareItemCreation,
   dateKey,
   isPendingOnDate,
   isSleeping,
@@ -54,7 +55,8 @@ export function CalendarView(props: {
   const today = createMemo(() => dateKey(props.now));
   const days = createMemo(() => {
     const start = calendarGridStart(props.month);
-    return Array.from({ length: 42 }, (_, index) => {
+    const count = Math.ceil((new Date(props.month.getFullYear(), props.month.getMonth(), 1).getDay() + new Date(props.month.getFullYear(), props.month.getMonth() + 1, 0).getDate()) / 7) * 7;
+    return Array.from({ length: count }, (_, index) => {
       const day = new Date(start);
       day.setDate(start.getDate() + index);
       return day;
@@ -130,7 +132,7 @@ export function CalendarView(props: {
       entry.label = `☾ ${entry.label}`;
       entry.title += props.sleepMode === "respect" ? " (sleeping)" : " (sleep ignored)";
     }
-    return entries.sort((a, b) => a.sort - b.sort || a.title.localeCompare(b.title));
+    return entries.sort((a, b) => a.sort - b.sort || compareItemCreation(a.item, b.item) || a.title.localeCompare(b.title));
   };
 
   const pendingForDay = (day: Date) => dateKey(day) === today() ? visibleItems().filter((item): item is Task => item.kind === "task" && isPendingOnDate(item, day) && (props.sleepMode === "ignore" || !isSleeping(item, props.now))) : [];
@@ -142,16 +144,16 @@ export function CalendarView(props: {
     return `${props.query ? `${count} matching ${noun}` : `${count} ${noun}`} for today${sleeping ? ` · ${sleeping} sleeping` : ""}`;
   };
   const selectedEntries = createMemo(() => entriesForDay(selectedDay()).filter(entry => !props.query || textMatches(entry.item, props.query)));
-  return <section class="panel calendar-panel">
-    <div class="panel-heading">
-      <div><p class="page-eyebrow">Calendar</p><h1>{new Intl.DateTimeFormat(undefined, {month: "long", year: "numeric"}).format(props.month)}</h1><p class="page-description">A little perspective on what's ahead.</p></div>
+  return <section class="panel calendar-panel" style={{"--calendar-weeks": days().length / 7}}>
+    <div class="calendar-toolbar">
+      <div class="calendar-titlebar"><h1>{new Intl.DateTimeFormat(undefined, {month: "long", year: "numeric"}).format(props.month)}</h1>
       <div class="month-controls">
         <button class="icon-button" aria-label="Previous month" onClick={() => props.onMonthChange(new Date(props.month.getFullYear(), props.month.getMonth() - 1, 1))}>‹</button>
         <button class="secondary-button" onClick={() => { props.onMonthChange(new Date(props.now.getFullYear(), props.now.getMonth(), 1)); setSelectedDay(props.now); }}>Today</button>
         <button class="icon-button" aria-label="Next month" onClick={() => props.onMonthChange(new Date(props.month.getFullYear(), props.month.getMonth() + 1, 1))}>›</button>
-      </div>
+      </div></div>
+      <SleepControls mode={props.sleepMode} hideSleeping={props.hideSleeping} onModeChange={props.onSleepModeChange} onHideChange={props.onHideSleepingChange} />
     </div>
-    <SleepControls mode={props.sleepMode} hideSleeping={props.hideSleeping} onModeChange={props.onSleepModeChange} onHideChange={props.onHideSleepingChange} />
     <div class="calendar-layout">
       <div class="calendar-board">
         <div class="calendar-grid">

@@ -25,7 +25,6 @@ type TaskRow = { hidden?: boolean; task: Task; upcomingAt?: Date | null; depth?:
 const taskSections = [
   { id: "now", label: "Can do now", defaultOpen: true },
   { id: "upcoming", label: "Upcoming", defaultOpen: true },
-  { id: "all", label: "All open", defaultOpen: false },
   { id: "completed", label: "Completed", defaultOpen: false },
 ] as const;
 
@@ -141,7 +140,7 @@ export function TasksView(props: TasksViewProps) {
     try { if (await props.onQuickAdd(title)) { if (draftTitle().trim() === title) setDraftTitle(""); } }
     finally { setAdding(false); }
   };
-  const sectionVisible = (id: SectionId) => props.scope === "focus" ? id === "now" || id === "upcoming" : id === props.scope;
+  const sectionVisible = (id: SectionId) => props.scope === "open" ? id === "now" || id === "upcoming" : id === props.scope;
   const [collapsed, setCollapsed] = createSignal(new Set<string>());
   const visibleItems = createMemo(() => props.items.filter(item => item.kind !== "task" || taskVisible(item, props.now, props.hideSleeping)));
   const nested = (rows: TaskRow[]) => nestTaskRows(rows, visibleItems(), props.query ? new Set<string>() : collapsed(), true, false);
@@ -152,7 +151,7 @@ export function TasksView(props: TasksViewProps) {
 
   createEffect(() => {
     const scope = props.scope;
-    if (scope !== "focus") setOpenSections(current => ({...current, [scope]: true}));
+    if (scope === "completed") setOpenSections(current => ({...current, [scope]: true}));
   });
   const matching = createMemo(() =>
     props.items.filter((item): item is Task => item.kind === "task").filter((task) => taskVisible(task, props.now, props.hideSleeping) && textMatches(task, props.query)),
@@ -200,7 +199,7 @@ export function TasksView(props: TasksViewProps) {
     if (sectionId === "completed") return "No completed tasks.";
     if (sectionId === "upcoming") {
       return props.horizonDays === null
-        ? "Nothing is waiting for a known future opportunity."
+        ? "No other open tasks."
         : `Nothing becomes actionable by ${formatDateTime(horizonEnd())}.`;
     }
     return "No open tasks.";
@@ -259,8 +258,8 @@ export function TasksView(props: TasksViewProps) {
     <section class={`panel tasks-panel ${props.compact ? "compact" : ""} ${props.animations ? "motion-enabled" : ""}`}>
       <div class="panel-heading">
         <div><p class="page-eyebrow">{new Intl.DateTimeFormat(undefined, {weekday: "long", month: "long", day: "numeric"}).format(props.now)}</p>
-          <h1>{props.query ? "Search results" : props.scope === "focus" ? "My day" : props.scope === "all" ? "All tasks" : "Completed"}<Show when={props.scope === "focus" && !props.query}><span class="heading-sun"><Icon name="sun" size={33} /></span></Show></h1>
-          <p class="page-description">{props.query ? `Matching “${props.query}”` : props.scope === "focus" ? `${actionable().length} tasks ready when you are.` : props.scope === "all" ? `${openCount()} open tasks. Everything in one place.` : `${rows().completed.length} tasks taken care of.`}</p>
+          <h1>{props.query ? "Search results" : props.scope === "open" ? "Tasks" : "Completed"}<Show when={props.scope === "open" && !props.query}><span class="heading-sun"><Icon name="sun" size={33} /></span></Show></h1>
+          <p class="page-description">{props.query ? `Matching “${props.query}”` : props.scope === "open" ? `${actionable().length} ready · ${openCount()} open tasks` : `${rows().completed.length} tasks taken care of.`}</p>
         </div>
         <button type="button" class={`secondary-button density-toggle ${props.compact ? "active" : ""}`} aria-pressed={props.compact} onClick={() => props.onCompactChange(!props.compact)}><Icon name="compact" size={16} /><span>Compact</span></button>
       </div>
@@ -271,8 +270,7 @@ export function TasksView(props: TasksViewProps) {
         </select></label>
       </div>
       <div class="task-scope-tabs" role="group" aria-label="Task lists">
-        <button aria-pressed={props.scope === "focus"} onClick={() => props.onScopeChange("focus")}>My day</button>
-        <button aria-pressed={props.scope === "all"} onClick={() => props.onScopeChange("all")}>All tasks</button>
+        <button aria-pressed={props.scope === "open"} onClick={() => props.onScopeChange("open")}>Tasks</button>
         <button aria-pressed={props.scope === "completed"} onClick={() => props.onScopeChange("completed")}>Completed</button>
       </div>
       <Show when={props.scope !== "completed"}><form class="quick-capture" onSubmit={event => { event.preventDefault(); void captureTask(); }}>
@@ -284,7 +282,6 @@ export function TasksView(props: TasksViewProps) {
       <div class="task-sections">
         <For each={taskSections}>{(section) => {
           const sectionRows = () => rows()[section.id];
-          const label = () => section.id === "upcoming" && props.horizonDays === null ? "Waiting" : section.label;
           return (
             <section class="task-section" hidden={!sectionVisible(section.id)} inert={!sectionVisible(section.id) || undefined} data-section={section.id} data-expanded={openSections()[section.id]}>
               <button class="task-section-toggle" aria-expanded={openSections()[section.id]} onClick={() => {
@@ -292,14 +289,14 @@ export function TasksView(props: TasksViewProps) {
                 setOpenSections(current => ({ ...current, [section.id]: open }));
                 localStorage.setItem(`calendar.section.${section.id}`, open ? "open" : "closed");
               }}>
-                <span class="section-heading"><span class="section-chevron" aria-hidden="true">›</span><strong>{label()}</strong></span>
+                <span class="section-heading"><span class="section-chevron" aria-hidden="true">›</span><strong>{section.label}</strong></span>
                 <span class="section-count">{sectionRows().length}</span>
               </button>
               <div class="task-collapse" data-expanded={openSections()[section.id]} inert={!openSections()[section.id] || undefined}><div class="collapse-inner">
               <div class="task-section-body">
                 <Show when={section.id === "upcoming"}>
                   <div class="horizon-row">
-                    <span class="horizon-label">{props.horizonDays === null ? "Showing all future opportunities" : "Limit to"}</span>
+                    <span class="horizon-label">{props.horizonDays === null ? "Showing all other tasks" : "Limit to"}</span>
                     <div class="horizon-controls">
                       <div class="segmented horizon-control" aria-label="Upcoming task horizon">
                         <For each={[1, 7, 30]}>{(days) => (
