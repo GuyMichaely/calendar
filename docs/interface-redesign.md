@@ -10,7 +10,7 @@ The `ui/redesign` branch explores a quieter planning workspace. It changes prese
 - Task rows use less visual framing. Hierarchy, completion, notes, and two direct actions take priority. The sleep dialog offers tomorrow, indefinitely, or a specific date; existing keyboard shortcuts still work.
 - A selected-day agenda sits beside the desktop month and below it on mobile. Phones use date indicators rather than tiny, truncated event titles; the agenda exposes every entry, including those behind “more.”
 - Item details open beside the workspace in a single-scroll panel. The title is editable, dates precede notes, working hours are expandable, and subtasks and attachments have clear sections.
-- A single stylesheet defines the warm light surfaces, charcoal navigation, restrained orange accents, and responsive layouts. It replaces seven overlapping stylesheets. There are no new packages, fonts, remote assets, or services.
+- A single stylesheet defines the dark green surfaces, charcoal navigation, warm orange accents, and responsive layouts. It replaces seven overlapping stylesheets. There are no new packages, fonts, remote assets, or services.
 
 ## Interaction contracts
 

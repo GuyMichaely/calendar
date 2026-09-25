@@ -76,3 +76,16 @@ test("backend config refuses missing providers, identities, and malformed JSON",
     /valid JSON/u,
   );
 });
+
+
+test("additional app URLs allow exact preview origins while retaining production", () => {
+  const config = readBackendConfig(baseEnv({
+    CALENDAR_APP_URL: "https://guymichaely.com/calendar/",
+    CALENDAR_ADDITIONAL_APP_URLS_JSON: JSON.stringify(["http://127.0.0.1:5177/calendar/", "http://localhost:5177/calendar/", "http://127.0.0.1:5177/calendar/"]),
+  }));
+  assert.deepEqual(config.allowedOrigins, ["https://guymichaely.com", "http://127.0.0.1:5177", "http://localhost:5177"]);
+  assert.deepEqual(config.allowedAppUrls, ["https://guymichaely.com/calendar/", "http://127.0.0.1:5177/calendar/", "http://localhost:5177/calendar/"]);
+  for (const value of ["*", "//localhost:5177/calendar/", "javascript:alert(1)", "https://name:password@example.com/", "http://localhost:5177/?next=elsewhere", "http://localhost:5177/#task", 42]) {
+    assert.throws(() => readBackendConfig(baseEnv({CALENDAR_ADDITIONAL_APP_URLS_JSON:JSON.stringify([value])})));
+  }
+});

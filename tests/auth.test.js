@@ -312,3 +312,31 @@ test("real openid-client discovery builds an OIDC code-flow URL with PKCE, state
   assert.equal(transaction.issuer, provider.issuer);
   assert.ok(transaction.codeVerifier);
 });
+
+
+test("a permitted preview return is bound to the login transaction", async () => {
+  const returnTo = "http://127.0.0.1:5177/calendar/#tasks";
+  const handler = createAuthHandler(handlerOptions({allowedAppUrls:["http://127.0.0.1:5177/calendar/"]}));
+  const started = await handler(new Request(`https://sync.example/auth/login/google?returnTo=${encodeURIComponent(returnTo)}`));
+  assert.equal(started.status,302);
+  const flowCookie=cookieFrom(started,"calendar_auth_flow");
+  // A callback query cannot replace the saved return destination.
+  const finished=await handler(new Request("https://sync.example/auth/callback/google?code=code&state=state-google&returnTo=https://evil.example/",{headers:{cookie:flowCookie}}));
+  assert.equal(finished.status,302);
+  assert.equal(finished.headers.get("location"),returnTo);
+  assert.ok(cookieFrom(finished,"calendar_session"));
+});
+
+test("login rejects arbitrary return URLs before starting an OIDC flow", async () => {
+  let began=0;
+  const oidcClient=fakeOidc();
+  const original=oidcClient.begin;
+  oidcClient.begin=(...args)=>{began++;return original(...args);};
+  const handler=createAuthHandler(handlerOptions({allowedAppUrls:["http://127.0.0.1:5177/calendar/"],oidcClient}));
+  for(const target of ["https://evil.example/", "http://127.0.0.1:5178/calendar/", "http://127.0.0.1:5177/other", "http://127.0.0.1:5177/calendar/?redirect=evil", "http://127.0.0.1:5177@evil.example/calendar/", "//127.0.0.1:5177/calendar/", "javascript:alert(1)", ""]) {
+    const response=await handler(new Request(`https://sync.example/auth/login/google?returnTo=${encodeURIComponent(target)}`));
+    assert.equal(response.status,400,target);
+    assert.equal(setCookies(response).length,0);
+  }
+  assert.equal(began,0);
+});

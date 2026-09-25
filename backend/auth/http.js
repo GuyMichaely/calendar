@@ -152,6 +152,7 @@ export function createAuthHandler({
   allowedIdentities,
   store,
   appUrl,
+  allowedAppUrls = [],
   publicBaseUrl,
   secureCookies = true,
   flowTtlMs = DEFAULT_FLOW_TTL_MS,
@@ -166,6 +167,18 @@ export function createAuthHandler({
   }
   if (!store?.get || !store?.set || !store?.delete) throw new Error("Auth requires a get/set/delete store.");
   const applicationUrl = new URL(appUrl).href;
+  const allowedReturns = new Set([applicationUrl, ...allowedAppUrls].map(value => {
+    const url = new URL(value); url.hash = ""; return url.href;
+  }));
+  function loginReturnUrl(value) {
+    if (value === null) return applicationUrl;
+    try {
+      const url = new URL(value);
+      const withHash = url.href;
+      url.hash = "";
+      return allowedReturns.has(url.href) ? withHash : null;
+    } catch { return null; }
+  }
   const authBaseUrl = normalizePublicBaseUrl(publicBaseUrl);
   const names = authCookieNames({ secureCookies });
   const sessionSameSite = secureCookies ? "None" : "Lax";
@@ -182,6 +195,8 @@ export function createAuthHandler({
       const provider = providerMap.get(providerId);
       if (!provider) return new Response("Unknown identity provider", { status: 404 });
 
+      const returnTo = loginReturnUrl(url.searchParams.get("returnTo"));
+      if (!returnTo) return new Response("Return URL not allowed", { status: 400 });
       try {
         const flowId = randomToken();
         const redirectUri = callbackUrl(authBaseUrl, providerId);
@@ -189,7 +204,7 @@ export function createAuthHandler({
         const expiresAt = now() + flowTtlMs;
         await store.set(
           flowStoreKey(flowId),
-          { ...transaction, providerId, expiresAt },
+          { ...transaction, providerId, expiresAt, returnTo },
           { expiresAt },
         );
         return redirect(authorizationUrl.href || String(authorizationUrl), [
@@ -234,7 +249,7 @@ export function createAuthHandler({
           { identity, createdAt: now(), expiresAt },
           { expiresAt },
         );
-        return redirect(applicationUrl, [
+        return redirect(loginReturnUrl(transaction.returnTo ?? null) || applicationUrl, [
           clearCookie(names.flow, secureCookies),
           cookie(names.session, sessionId, { secure: secureCookies, maxAge: sessionTtlMs / 1000, sameSite: sessionSameSite }),
         ]);

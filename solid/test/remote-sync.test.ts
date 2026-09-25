@@ -216,3 +216,13 @@ test("remote sync queue reports failures and accepts a later retry", async () =>
   await queue.request();
   assert.equal(calls, 2);
 });
+
+
+test("login carries the preview return URL without changing the backend callback path", () => {
+  const client=createRemoteCalendarClient({backendUrl:"https://sync.example/",storage:{readSnapshot:async()=>new Uint8Array(),mergeSnapshot:async()=>null}});
+  const returnTo="http://127.0.0.1:5177/calendar/#tasks";
+  const url=new URL(client.loginUrl("google",returnTo));
+  assert.equal(url.origin,"https://sync.example");
+  assert.equal(url.pathname,"/auth/login/google");
+  assert.equal(url.searchParams.get("returnTo"),returnTo);
+});

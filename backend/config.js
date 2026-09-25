@@ -4,6 +4,15 @@ function requiredUrl(value, name) {
   return new URL(text).href;
 }
 
+function additionalAppUrl(value) {
+  if (typeof value !== "string") throw new Error("CALENDAR_ADDITIONAL_APP_URLS_JSON must contain URL strings.");
+  const url = new URL(value);
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    throw new Error("Additional app URLs must be absolute HTTP(S) URLs without credentials, query, or fragment.");
+  }
+  return url.href;
+}
+
 function parseJsonArray(value, name) {
   const text = String(value || "").trim();
   if (!text) return [];
@@ -70,6 +79,7 @@ function googleIdentityFromEnv(env) {
 export function readBackendConfig(env = process.env) {
   const appUrl = requiredUrl(env.CALENDAR_APP_URL, "CALENDAR_APP_URL");
   const publicBaseUrl = requiredUrl(env.CALENDAR_PUBLIC_BASE_URL, "CALENDAR_PUBLIC_BASE_URL");
+  const allowedAppUrls = [...new Set([appUrl, ...parseJsonArray(env.CALENDAR_ADDITIONAL_APP_URLS_JSON, "CALENDAR_ADDITIONAL_APP_URLS_JSON").map(additionalAppUrl)])];
 
   const configuredProviders = parseJsonArray(env.CALENDAR_OIDC_PROVIDERS_JSON, "CALENDAR_OIDC_PROVIDERS_JSON");
   const googleProvider = googleProviderFromEnv(env);
@@ -99,7 +109,8 @@ export function readBackendConfig(env = process.env) {
     appUrl,
     publicBaseUrl,
     basePath,
-    allowedOrigins: [new URL(appUrl).origin],
+    allowedAppUrls,
+    allowedOrigins: [...new Set(allowedAppUrls.map(url => new URL(url).origin))],
     providers,
     allowedIdentities,
   };

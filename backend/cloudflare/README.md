@@ -61,3 +61,7 @@ Use a fresh random `TRIAL_TOKEN` in the ignored secret file (mode 0600). The syn
 The smoke test uses a separate local Worker configuration and synthetic sessions; production never imports the test fixture. It verifies auth rejection, merging independently initialized devices, origin checks, and immutable attachment upload/download. The account, DNS, secrets, and production data are untouched.
 
 Production backend deployments remain explicit via ./scripts/worker deploy; frontend main-branch deployments continue through GitHub Pages. Keep one backend deployment at a time.
+
+## Local frontend with the production sync server
+
+Run the local frontend on port 5177. The Worker explicitly allows `http://127.0.0.1:5177` and `http://localhost:5177` in addition to the production app. Sign-in uses the existing Google callback and returns to the configured frontend that initiated it. The allowlist is configured with `CALENDAR_ADDITIONAL_APP_URLS_JSON`; there are no wildcard origins or arbitrary return destinations. These requests still require the ordinary authenticated session. Browser third-party-cookie settings apply when the frontend is on localhost.

@@ -8,6 +8,7 @@
   "routes": [{ "pattern": "calendar-sync.guymichaely.com/*", "zone_name": "guymichaely.com" }],
   "vars": {
     "CALENDAR_APP_URL": "https://guymichaely.com/calendar/",
+    "CALENDAR_ADDITIONAL_APP_URLS_JSON": "[\"http://127.0.0.1:5177/calendar/\",\"http://localhost:5177/calendar/\"]",
     "CALENDAR_PUBLIC_BASE_URL": "https://calendar-sync.guymichaely.com/"
   },
   "durable_objects": {

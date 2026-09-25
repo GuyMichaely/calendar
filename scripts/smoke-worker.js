@@ -9,6 +9,7 @@ const config = JSON.parse(await Bun.file("backend/cloudflare/wrangler.jsonc").te
 config.main = resolve("tests/fixtures/cloudflare-worker.js");
 config.vars = {
   CALENDAR_APP_URL: "https://app.example/",
+  CALENDAR_ADDITIONAL_APP_URLS_JSON: JSON.stringify(["http://127.0.0.1:5177/calendar/", "http://localhost:5177/calendar/"]),
   CALENDAR_PUBLIC_BASE_URL: "https://sync.example/",
   GOOGLE_CLIENT_ID: "local-test", GOOGLE_CLIENT_SECRET: "local-test", ALLOWED_GOOGLE_SUBJECT: "test",
 };
@@ -29,19 +30,28 @@ try {
   assert.ok(ready, "Worker did not start; see " + directory + "/runtime.log");
   const endpoint = "http://127.0.0.1:8791";
   assert.equal((await fetch(endpoint + "/sync", { method: "POST" })).status, 401);
-  const headers = { cookie: "__Host-calendar_session=local-test", "content-type": "application/vnd.automerge.sync" };
+  for (const origin of ["https://app.example", "http://127.0.0.1:5177", "http://localhost:5177"]) {
+    const preflight=await fetch(endpoint + "/sync",{method:"OPTIONS",headers:{origin,"access-control-request-method":"POST","access-control-request-headers":"content-type,x-automerge-session,x-automerge-sequence"}});
+    assert.equal(preflight.status,204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"),origin);
+    assert.equal(preflight.headers.get("access-control-allow-credentials"),"true");
+    const signedOut=await fetch(endpoint + "/auth/me",{headers:{origin}});
+    assert.equal(signedOut.status,401);
+    assert.equal(signedOut.headers.get("access-control-allow-origin"),origin);
+  }
+  const headers = { origin: "http://127.0.0.1:5177", cookie: "__Host-calendar_session=local-test", "content-type": "application/vnd.automerge.sync" };
   async function sync(doc) {
     let current = doc;
     await syncCalendarStorage({ readSnapshot: async () => saveCalendarDocument(current), mergeSnapshot: async bytes => { current = loadCalendarDocument(bytes); } }, {
       endpoint: endpoint + "/sync",
-      fetch: (url, init) => fetch(url, { ...init, headers: { ...init.headers, cookie: headers.cookie } }),
+      fetch: (url, init) => fetch(url, { ...init, headers: { ...init.headers, cookie: headers.cookie, origin: headers.origin } }),
     });
     return current;
   }
   await sync(createCalendarDocument([{ id: "a", kind: "task", title: "First device" }]));
   const merged = await sync(createCalendarDocument([{ id: "b", kind: "task", title: "Second device" }]));
   assert.deepEqual(materializeItems(merged).map(item => item.id).sort(), ["a", "b", "seed"]);
-  const fileHeaders = { cookie: headers.cookie, "content-type": "text/plain" };
+  const fileHeaders = { cookie: headers.cookie, origin: headers.origin, "content-type": "text/plain" };
   assert.equal((await fetch(endpoint + "/attachments/test", { method: "PUT", headers: fileHeaders, body: "original" })).status, 204);
   await fetch(endpoint + "/attachments/test", { method: "PUT", headers: fileHeaders, body: "replacement" });
   assert.equal(await (await fetch(endpoint + "/attachments/test", { headers: fileHeaders })).text(), "original");

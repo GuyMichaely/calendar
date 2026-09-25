@@ -25,6 +25,7 @@ export function createCalendarBackendHandler({
     allowedIdentities: config.allowedIdentities,
     store: authStore,
     appUrl: config.appUrl,
+    allowedAppUrls: config.allowedAppUrls,
     publicBaseUrl: config.publicBaseUrl,
     secureCookies,
     now,

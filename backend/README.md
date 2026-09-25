@@ -83,7 +83,7 @@ The image reads `.bun-version`, installs production packages from `bun.lock` wit
 
 Check `https://calendar-sync.guymichaely.com/healthz`; it should show `ok`. Open <https://guymichaely.com/calendar/>, expand the hamburger menu, save `https://calendar-sync.guymichaely.com/` in **Remote sync server**, and sign in with Google. Repeat the server setting on each browser/device. Local data continues working while the backend is offline.
 
-The frontend and backend use HTTPS under the same registrable domain, so they are same-site but different origins. Credentialed CORS remains restricted to `https://guymichaely.com`; cookies remain host-only, Secure, and HttpOnly. Local frontend testing requires changing `CALENDAR_APP_URL` to `http://localhost:5173/calendar/` and recreating the server.
+The frontend and backend use HTTPS under the same registrable domain, so they are same-site but different origins. Credentialed CORS allows the configured app URLs; cookies remain host-only, Secure, and HttpOnly. `CALENDAR_ADDITIONAL_APP_URLS_JSON` is an optional JSON array of exact frontend URLs. Production also allows the local preview at `http://127.0.0.1:5177/calendar/` and `http://localhost:5177/calendar/`. Google keeps the same backend callback. The frontend supplies its return URL at login; only configured app URLs (with an optional view fragment) are accepted, and that choice is bound to the login transaction. A browser that blocks third-party cookies must allow them for the sync server when using a local preview.
 
 ## Operations and storage
 

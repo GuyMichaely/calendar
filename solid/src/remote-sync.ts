@@ -115,8 +115,10 @@ export function createRemoteCalendarClient({ backendUrl, storage, fetch: fetchIm
   const syncClient = createCalendarSyncClient(storage, { endpoint: endpoint("sync"), fetch: fetchImpl, credentials: "include" });
 
   return {
-    loginUrl(provider = "google") {
-      return endpoint(`auth/login/${encodeURIComponent(provider)}`);
+    loginUrl(provider = "google", returnTo?: string) {
+      const url = new URL(endpoint(`auth/login/${encodeURIComponent(provider)}`));
+      if (returnTo) url.searchParams.set("returnTo", returnTo);
+      return url.href;
     },
 
     async session(): Promise<RemoteSession> {
