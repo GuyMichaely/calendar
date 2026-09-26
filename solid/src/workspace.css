@@ -486,10 +486,15 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .board-drop-slot { flex: 0 0 18px; border-radius: 8px; }
 .board-column > .board-drop-slot:last-child { flex: 1 0 18px; }
 .board-drop-column { flex: 0 0 14px; border-radius: 8px; }
-/* While dragging, every place the group could go is a recessed well; the one that would take the drop turns orange. */
+.board-drop-slot, .board-drop-column { transition: flex-basis .18s ease; }
+/* While dragging, every place the group could go is a recessed well; the one that
+   would take the drop opens to the dragged group's size, making room for it. */
 .board.drag-active .board-drop-slot, .board.drag-active .board-drop-column { background: var(--surface-3); box-shadow: inset 0 1px 3px #0008; }
 .board.drag-active .board-drop-slot.active, .board.drag-active .board-drop-column.active { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
-.board.drag-active .board-drop-slot.active { flex-basis: 56px; }
+.board.drag-active .board-drop-slot.active { flex-basis: var(--drop-h, 56px); }
+.board.drag-active .board-drop-column.active { flex-basis: var(--drop-w, 56px); }
+.board-group.nest-target { outline: 2px solid var(--accent); outline-offset: -2px; }
+.board-group-ghost { pointer-events: none; box-shadow: var(--shadow); opacity: .95; }
 .board-group { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 6px 6px 8px; }
 .board-group.nested { margin: 10px 0 0 4px; border-radius: 8px; background: var(--surface-3); }
 .board-group-header { display: flex; align-items: center; gap: 2px; min-height: 32px; margin-bottom: 4px; }

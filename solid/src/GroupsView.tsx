@@ -68,26 +68,46 @@ export function GroupsView(props: GroupsViewProps) {
     };
   });
   const [startPrompt, setStartPrompt] = createSignal<{ owner: Task; dependents: Task[] } | null>(null);
-  // Dragging a top-level group shows where it can go: between groups in a column, or as a new column.
+  // Dragging a group shows where it can go: between groups in a column, as a new
+  // column, or inside another group (nestId) — the ghost follows the pointer.
   const [dragId, setDragId] = createSignal<string | null>(null);
   const [dropKey, setDropKey] = createSignal("");
+  const [nestId, setNestId] = createSignal("");
   const targets = new Map<string, () => BoardTarget>();
   let boardRef!: HTMLDivElement;
   const dropTarget = (key: string, target: () => BoardTarget, class_: string) => {
     targets.set(key, target);
     return <div class={class_} data-drop={key} classList={{ active: !!dragId() && dropKey() === key }} />;
   };
-  // Pointer-based so it works with touch as well as a mouse.
+  // Pointer-based so it works with touch as well as a mouse. The dragged group follows
+  // the pointer as a fixed ghost while wells expand to preview where it would land.
   const startGroupDrag = (id: string) => (event: PointerEvent) => {
     if (event.button !== 0) return;
     event.preventDefault();
     const handle = event.currentTarget as HTMLElement;
     handle.setPointerCapture(event.pointerId);
     setDragId(id);
+    // A fixed clone tracks the pointer; the original stays ghosted in place.
+    const section = handle.closest<HTMLElement>(".board-group");
+    const ghost = section ? (section.cloneNode(true) as HTMLElement) : null;
+    const startX = event.clientX, startY = event.clientY;
+    if (section && ghost) {
+      const rect = section.getBoundingClientRect();
+      ghost.classList.remove("dragging");
+      ghost.classList.add("board-group-ghost");
+      Object.assign(ghost.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, maxHeight: "60vh", overflow: "hidden", margin: "0", zIndex: "60" });
+      document.body.appendChild(ghost);
+      boardRef.style.setProperty("--drop-h", `${rect.height}px`);
+      boardRef.style.setProperty("--drop-w", `${rect.width}px`);
+    }
+    // A group can't be dropped into itself or its own subgroups.
+    const node = groupsById().get(id);
+    const excluded = new Set(node ? [id, ...flattenGroupNodes(node.groups).keys()] : [id]);
     // A rAF loop drives the drag: pointermove events stop when a held finger is
     // stationary, so edge scrolling and drop-target tracking run every frame.
-    let lastX = event.clientX, lastY = event.clientY, frame = 0;
+    let lastX = startX, lastY = startY, frame = 0;
     const update = () => {
+      if (ghost) ghost.style.transform = `translate(${lastX - startX}px, ${lastY - startY}px)`;
       const edge = boardRef.getBoundingClientRect();
       const EDGE = 56;
       const leftDepth = edge.left + EDGE - lastX, rightDepth = lastX - (edge.right - EDGE);
@@ -95,21 +115,50 @@ export function GroupsView(props: GroupsViewProps) {
       else if (leftDepth > 0) boardRef.scrollLeft -= Math.min(28, 4 + leftDepth * 0.4);
       const hit = document.elementFromPoint(lastX, lastY);
       const well = hit?.closest<HTMLElement>("[data-drop]")?.dataset.drop;
-      // Over another group, its left or right half means a new column on that side.
-      const entry = well ? null : hit?.closest<HTMLElement>("[data-board-entry]");
-      if (entry && entry.dataset.boardEntry !== id) {
-        const box = entry.getBoundingClientRect(), column = Number(entry.dataset.column);
-        setDropKey(`new-${lastX < box.left + box.width / 2 ? column : column + 1}`);
-      } else setDropKey(well || "");
+      let key = well || "", nest = "";
+      if (!well) {
+        const host = hit?.closest<HTMLElement>(".board-group:not(.smart-group)");
+        const hostId = host?.dataset.groupId || "";
+        if (host && !excluded.has(hostId)) {
+          const top = !host.parentElement?.closest(".board-group");
+          const entry = top ? host.closest<HTMLElement>("[data-board-entry]") : null;
+          if (entry) {
+            const box = host.getBoundingClientRect();
+            const relX = (lastX - box.left) / box.width;
+            const column = Number(entry.dataset.column);
+            // Over a top-level group's outer thirds it becomes a new column on that
+            // side; the middle nests inside it. Built-in sections can't nest, so
+            // only the halves-to-columns rule applies to them.
+            const edgeShare = node ? 0.3 : 0.5;
+            if (relX < edgeShare) key = `new-${column}`;
+            else if (relX > 1 - edgeShare) key = `new-${column + 1}`;
+            else nest = hostId;
+          } else if (node) nest = hostId; // Nested hosts: dropping nests inside.
+        } else if (!host) {
+          // Over an entry's empty margin, the same halves-to-column rule applies.
+          const entry = hit?.closest<HTMLElement>("[data-board-entry]");
+          if (entry && entry.dataset.boardEntry !== id) {
+            const box = entry.getBoundingClientRect(), column = Number(entry.dataset.column);
+            key = `new-${lastX < box.left + box.width / 2 ? column : column + 1}`;
+          }
+        }
+      }
+      setDropKey(key); setNestId(nest);
       frame = requestAnimationFrame(update);
     };
     const move = (next: PointerEvent) => { lastX = next.clientX; lastY = next.clientY; };
     const end = (drop: boolean) => () => {
       cancelAnimationFrame(frame);
+      ghost?.remove();
+      boardRef.style.removeProperty("--drop-h");
+      boardRef.style.removeProperty("--drop-w");
       handle.removeEventListener("pointermove", move);
-      const key = dropKey(), target = targets.get(key);
-      setDragId(null); setDropKey("");
-      if (drop && key && target) void props.onPlaceGroup(id, target());
+      const key = dropKey(), nest = nestId(), target = targets.get(key);
+      setDragId(null); setDropKey(""); setNestId("");
+      if (!drop) return;
+      const dragged = groupsById().get(id)?.group;
+      if (nest) { if (dragged) void props.onMoveGroup(dragged, nest); }
+      else if (key && target) void props.onPlaceGroup(id, target());
     };
     frame = requestAnimationFrame(update);
     handle.addEventListener("pointermove", move);
@@ -332,8 +381,8 @@ export function GroupsView(props: GroupsViewProps) {
       if (!title) { input.value = group().title; return; }
       if (title !== group().title) void props.onRenameGroup(group(), title);
     };
-    return <section class="board-group" classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id }}>
-      <Show when={!sectionProps.depth}><DragGrip id={group().id} /></Show>
+    return <section class="board-group" data-group-id={group().id} classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id, "nest-target": !!dragId() && nestId() === sectionProps.id }}>
+      <DragGrip id={group().id} />
       <header class="board-group-header">
         <button class="icon-button board-collapse" aria-label={collapsed() ? "Expand group" : "Collapse group"} aria-expanded={!collapsed()} onClick={() => setCollapsed(value => !value)}>{collapsed() ? "›" : "⌄"}</button>
         <span class="title-fit" data-value={shownTitle()}><input ref={titleInput} size={1} class="board-group-title" data-group-title={group().id} aria-label="Group name" onInput={event => setShownTitle(event.currentTarget.value)}
@@ -366,7 +415,7 @@ export function GroupsView(props: GroupsViewProps) {
     return <For each={ids()}>{id => <Show when={groupsById().has(id)}><GroupSection id={id} depth={listProps.depth} siblings={ids()} /></Show>}</For>;
   };
 
-  // The strip across the top of a top-level group is its drag handle.
+  // The strip across the top of a group is its drag handle, at any depth.
   const DragGrip = (gripProps: { id: string }) => <div class="board-grip" title="Drag to move" aria-hidden="true" onPointerDown={startGroupDrag(gripProps.id)}><span /></div>;
 
   // Built-in sections: availability lists across all groups, and tasks without a group.
