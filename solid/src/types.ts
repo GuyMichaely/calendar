@@ -2,6 +2,7 @@ export type {
   Attachment,
   AvailabilitySchedule,
   CalendarEvent,
+  Group,
   HistoryEntry,
   Item,
   SleepState,

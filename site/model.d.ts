@@ -49,6 +49,8 @@ export type Task = BaseItem & {
   availabilitySchedule?: AvailabilitySchedule | null;
   completedAt?: string | null;
   history?: HistoryEntry[];
+  // Only top-level tasks use this; subtasks appear wherever their parent task is.
+  groupId?: string | null;
 };
 
 export type CalendarEvent = BaseItem & {
@@ -57,4 +59,11 @@ export type CalendarEvent = BaseItem & {
   end?: string | null;
 };
 
-export type Item = Task | CalendarEvent;
+// Groups form a strict tree. A group without a parent is top level.
+export type Group = BaseItem & {
+  kind: "group";
+  parentId?: string | null;
+  sortOrder?: number;
+};
+
+export type Item = Task | CalendarEvent | Group;

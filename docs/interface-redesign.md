@@ -45,3 +45,9 @@ Tasks use a compact heading with inline counts, narrower outer margins, closer c
 ## Prototype 1: task details beside the list
 
 Published at `guymichaely.com/calendar/prototype1/`. At 1180 pixels and wider, the tasks view keeps the list on the left and the selected task's editor on the right, following the Branch prototype. The selection is part of the address (`#tasks/<id>`), so reload, back, and forward keep it; subtasks and the parent path navigate the same way. The editor saves before another task opens and when it is replaced, reloads when the task changes elsewhere while idle, and adds subtasks inline. Narrower screens and the calendar keep the drawer. Editors now record their initial values as soon as they open, so an edit made before the first animation frame is saved rather than absorbed into the baseline.
+
+## Groups replace the task list
+
+The Groups view replaces the Tasks view. Groups are items of kind `group` with an optional parent group and a manual `sortOrder`, so they form a strict tree; a group without a parent is top level. Top-level tasks carry an optional `groupId`; subtasks appear under their parent task. Top-level groups are board columns, ordered with the arrow buttons; nested groups stack inside their column and can be moved under another group from the options menu. Ungrouped tasks appear in the "No group" column. Deleting a group moves its tasks and subgroups to its parent in one undo step. Completed tasks are hidden unless "Show completed" is on. Storage rejects group cycles, non-group parents, and task group IDs that point at non-groups; backups include groups.
+
+This is an MVP. The keyboard-shortcut and animation settings still exist but no longer act on the board, and the stylesheet still contains rules for the removed task list.

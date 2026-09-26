@@ -1,5 +1,5 @@
 import { sleepValidationMessage } from "./domain.js";
-import { validateTaskParent } from "./task-tree.js";
+import { validateGroupParent, validateTaskGroup, validateTaskParent } from "./task-tree.js";
 import {
   applyLocalHistoryChange,
   deleteLocalItem,
@@ -314,6 +314,13 @@ async function endBatch() {
   emitHistoryState();
 }
 
+/** Record several writes as one undo step. */
+export async function historyBatch(label, run) {
+  await beginBatch(label);
+  try { return await run(); }
+  finally { await endBatch(); }
+}
+
 export async function exportData() {
   const items = (await listLocalItems()).map(withoutAttachmentBytes);
   return JSON.stringify({ items }, null, 2);
@@ -328,7 +335,7 @@ export function parseBackup(text) {
   if (!Array.isArray(items)) throw new Error("Import file does not contain an items array.");
   const ids = new Set();
   for (const item of items) {
-    if (!item || typeof item.id !== "string" || !item.id || !["task", "event"].includes(item.kind) || typeof item.title !== "string") throw new Error("Every imported item requires an id, task/event kind, and title.");
+    if (!item || typeof item.id !== "string" || !item.id || !["task", "event", "group"].includes(item.kind) || typeof item.title !== "string") throw new Error("Every imported item requires an id, task/event/group kind, and title.");
     if (item.kind === "task" && !["open", "completed"].includes(item.state)) throw new Error("Imported tasks must have an open or completed state.");
     if (ids.has(item.id)) throw new Error("The backup contains duplicate item IDs.");
     ids.add(item.id);
@@ -338,7 +345,8 @@ export function parseBackup(text) {
     throw new Error("This backup contains embedded attachment bytes. Import supports attachment references only.");
   }
   for (const item of items) {
-    if (item.kind === "task") validateTaskParent(items, item.id, item.parentId);
+    if (item.kind === "task") { validateTaskParent(items, item.id, item.parentId); validateTaskGroup(items, item.groupId); }
+    if (item.kind === "group") validateGroupParent(items, item.id, item.parentId);
     const sleepError = sleepValidationMessage(item);
     if (sleepError) throw new Error(sleepError);
   }
@@ -349,7 +357,10 @@ export async function importData(text) {
   const items = parseBackup(text);
   const combined = new Map((await listLocalItems()).map(item => [item.id, item]));
   for (const item of items) combined.set(item.id, item);
-  for (const item of items) if (item.kind === "task") validateTaskParent([...combined.values()], item.id, item.parentId);
+  for (const item of items) {
+    if (item.kind === "task") validateTaskParent([...combined.values()], item.id, item.parentId);
+    if (item.kind === "group") validateGroupParent([...combined.values()], item.id, item.parentId);
+  }
   await beginBatch("Import backup");
   let imported = 0;
   try {

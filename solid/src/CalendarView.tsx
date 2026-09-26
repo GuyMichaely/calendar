@@ -12,10 +12,10 @@ import {
   toDate,
 } from "../../site/domain.js";
 import { projectedStartBypassesSleep, projectedTaskStart } from "./calendar-projection";
-import type { CalendarSleepMode, Item, Task } from "./types";
+import type { CalendarEvent, CalendarSleepMode, Item, Task } from "./types";
 
 type CalendarEntry = {
-  item: Item;
+  item: Task | CalendarEvent;
   className: string;
   label: string;
   title: string;
@@ -43,7 +43,7 @@ export function CalendarView(props: {
   now: Date;
   onMonthChange: (date: Date) => void;
   onSleepModeChange: (mode: CalendarSleepMode) => void;
-  onEdit: (item: Item) => void;
+  onEdit: (item: Task | CalendarEvent) => void;
   onCreateForDay: (date: Date) => void;
   onOpenTodayTasks: () => void;
 }) {
@@ -63,7 +63,7 @@ export function CalendarView(props: {
     });
   });
 
-  const visibleItems = createMemo(() => props.items.filter(item => item.kind !== "task" || taskVisible(item, props.now, props.hideSleeping)));
+  const visibleItems = createMemo(() => props.items.filter((item): item is Task | CalendarEvent => item.kind === "event" || (item.kind === "task" && taskVisible(item, props.now, props.hideSleeping))));
 
   const projectedStarts = createMemo(() => {
     const starts = new Map<string, { task: Task; start: Date; bypassesSleep: boolean }>();

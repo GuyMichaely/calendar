@@ -299,3 +299,23 @@ test("invalid sleep or an earlier due date cannot change saved task state", asyn
   assert.equal(await storage.getItem("should-not-import"),null);
   await storage.deleteItem(initial.id);
 });
+
+test("groups form a strict tree, hold tasks, and round-trip through backups", async () => {
+  const at = "2026-09-26T12:00:00.000Z";
+  const group = (id, parentId = null) => ({ id, kind: "group", title: id, parentId, sortOrder: 0, createdAt: at, updatedAt: at });
+  await storage.putItem(group("group-outer"));
+  await storage.putItem(group("group-inner", "group-outer"));
+  await assert.rejects(storage.putItem(group("group-outer", "group-inner"), await storage.getItem("group-outer")), /cannot contain itself/);
+  await assert.rejects(storage.putItem(group("group-bad", "task-storage-1")), /only be nested in groups/);
+  await storage.putItem(task({ id: "task-in-group", groupId: "group-inner" }));
+  await assert.rejects(storage.putItem(task({ id: "task-bad-group", groupId: "task-in-group" })), /only be placed in groups/);
+  assert.equal((await storage.getItem("task-in-group")).groupId, "group-inner");
+  const backup = storage.parseBackup(await storage.exportData());
+  assert.equal(backup.find(item => item.id === "group-inner").parentId, "group-outer");
+  const moved = await storage.historyBatch("Reparent", async () => {
+    await storage.putItem({ ...group("group-inner"), updatedAt: "2026-09-26T13:00:00.000Z" }, await storage.getItem("group-inner"));
+    return storage.undoLabel();
+  });
+  assert.notEqual(moved, "Reparent");
+  assert.equal(storage.undoLabel(), "Reparent");
+});

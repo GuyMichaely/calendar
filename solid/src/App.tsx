@@ -1,5 +1,4 @@
 import { SleepControls } from "./SleepControls";
-import type { TaskSort } from "./task-planning";
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import {
   dateKey,
@@ -22,14 +21,15 @@ import {
   putItem,
   readSyncSnapshot,
   redo,
+  historyBatch,
   redoLabel,
   undo,
   undoLabel,
 } from "../../site/storage.js";
-import { WorkspaceShell, type TaskScope } from "./WorkspaceShell";
+import { WorkspaceShell } from "./WorkspaceShell";
 import { DialogShell } from "./DialogShell";
 import { CalendarView } from "./CalendarView";
-import { ItemEditor, SleepDialog, type EditorRequest } from "./ItemEditor";
+import { ItemEditor, type EditorRequest } from "./ItemEditor";
 import {
   configuredBackendUrl,
   createRemoteCalendarClient,
@@ -38,21 +38,15 @@ import {
   type RemoteSession,
 } from "./remote-sync";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
-import { focusBoundaryTask, TasksView } from "./TasksView";
+import { GroupsView } from "./GroupsView";
+import { groupForest, sortedGroups } from "./group-board";
 import { ToastStack, type ToastMessage } from "./ToastStack";
 import { loadPollSeconds, animationsEnabled } from "./settings";
-import type { CalendarSleepMode, HorizonMode, Item, Task, View } from "./types";
+import type { CalendarEvent, CalendarSleepMode, Group, HorizonMode, Item, Task, View } from "./types";
 
 function readView(): View { return location.hash === "#calendar" ? "calendar" : "tasks"; }
 function readSelectedTask() { const match = /^#tasks\/(.+)$/.exec(location.hash); return match ? decodeURIComponent(match[1]) : null; }
 function tasksHash(id: string | null) { return id ? `#tasks/${encodeURIComponent(id)}` : "#tasks"; }
-function readHorizon(): number | null {
-  const stored = localStorage.getItem("calendar.upcomingHorizon");
-  if (stored === "off") return null;
-  const parsed = Number(stored);
-  return [1, 7, 30].includes(parsed) ? parsed : 7;
-}
-function readHorizonMode(): HorizonMode { return localStorage.getItem("calendar.upcomingHorizonMode") === "boundary" ? "boundary" : "rolling"; }
 function readCalendarSleepMode(): CalendarSleepMode { return localStorage.getItem("calendar.calendarSleepMode") === "ignore" ? "ignore" : "respect"; }
 function editableTarget(target: EventTarget | null) { return target instanceof Element && !!target.closest("input, textarea, select, [contenteditable='true']"); }
 function errorMessage(error: unknown, fallback: string) { return error instanceof Error && error.message ? error.message : fallback; }
@@ -67,9 +61,7 @@ export function App() {
   const [items, setItems] = createSignal<Item[]>([]);
   const [loadingError, setLoadingError] = createSignal("");
   const [view, setView] = createSignal<View>(readView());
-  const initialScope = localStorage.getItem("calendar.taskScope");
-  const [taskScope, setTaskScope] = createSignal<TaskScope>(initialScope === "completed" ? "completed" : "open");
-  const changeTaskScope = (scope: TaskScope) => { setTaskScope(scope); localStorage.setItem("calendar.taskScope", scope); };
+  const [showCompleted, setShowCompleted] = createSignal(localStorage.getItem("calendar.groups.showCompleted") === "1");
   const [query, setQuery] = createSignal("");
   const [animationPreference, setAnimationPreference] = createSignal(localStorage.getItem("calendar.animations"));
   const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -80,16 +72,10 @@ export function App() {
     motionQuery.addEventListener("change", update);
     onCleanup(() => motionQuery.removeEventListener("change", update));
   });
-  const [compact, setCompact] = createSignal(localStorage.getItem("calendar.compactTasks") === "1");
-  const [horizonDays, setHorizonDays] = createSignal<number | null>(readHorizon());
-  const [horizonMode, setHorizonMode] = createSignal<HorizonMode>(readHorizonMode());
   const [calendarSleepMode, setCalendarSleepMode] = createSignal<CalendarSleepMode>(readCalendarSleepMode());
   const changeSleepMode = (mode: CalendarSleepMode) => { setCalendarSleepMode(mode); localStorage.setItem("calendar.calendarSleepMode", mode); };
   const [hideSleeping, setHideSleeping] = createSignal(localStorage.getItem("calendar.hideSleeping") === "1");
   const changeHideSleeping = (hide: boolean) => { setHideSleeping(hide); localStorage.setItem("calendar.hideSleeping", hide ? "1" : "0"); };
-  const storedSort = localStorage.getItem("calendar.taskSort");
-  const [taskSort, setTaskSort] = createSignal<TaskSort>(storedSort === "later" || storedSort === "manual" ? storedSort : "start");
-  const changeTaskSort = (sort: TaskSort) => { setTaskSort(sort); localStorage.setItem("calendar.taskSort", sort); };
   const nowAtStart = new Date();
   const [clock, setClock] = createSignal(nowAtStart);
   const [calendarMonth, setCalendarMonth] = createSignal(new Date(nowAtStart.getFullYear(), nowAtStart.getMonth(), 1));
@@ -105,7 +91,6 @@ export function App() {
   const [selectedTaskId, setSelectedTaskId] = createSignal<string | null>(readSelectedTask());
   const [detailVersion, setDetailVersion] = createSignal(0);
   let flushDetail: (() => Promise<boolean>) | null = null;
-  const [sleepTask, setSleepTask] = createSignal<Task | null>(null);
   const [toasts, setToasts] = createSignal<ToastMessage[]>([]);
   const [shortcuts, setShortcuts] = createSignal<Shortcuts>(loadShortcuts());
   const [shortcutsDirty, setShortcutsDirty] = createSignal(false);
@@ -203,7 +188,7 @@ export function App() {
   const closeEditor = async () => {
     while (editorParents.length) {
       const item = await getItem(editorParents.pop()!);
-      if (item) { setEditor({item, kind: item.kind, nonce: Date.now()}); return; }
+      if (item && item.kind !== "group") { setEditor({item, kind: item.kind, nonce: Date.now()}); return; }
     }
     setEditor(null);
   };
@@ -218,7 +203,7 @@ export function App() {
     detailVersion();
     if (!selectedExists()) return null;
     const item = untrack(items).find(item => item.id === selectedTaskId());
-    return item ? { item, kind: item.kind, nonce: Date.now() } : null;
+    return item?.kind === "task" ? { item, kind: item.kind, nonce: Date.now() } : null;
   });
   // Save the open task before showing another; a failed save keeps it open with its error.
   const selectTask = async (id: string | null, replace = false) => {
@@ -234,20 +219,7 @@ export function App() {
     if (!selectedTaskId() && id) document.querySelector<HTMLElement>(`[data-task-card][data-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
   };
   const editTask = (task: Task) => { if (splitView()) void selectTask(task.id); else openEditor(task); };
-  const openEditor = (item: Item | null = null, kind?: "task" | "event", date?: Date) => { editorParents.length = 0; setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() }); };
-  const mutateTask = async (task: Task, patch: Partial<Task>, historyEntry: { type: string; [key: string]: unknown }, message: string) => {
-    const now = new Date().toISOString();
-    const next: Task = { ...task, ...patch, updatedAt: now, history: [...(task.history || []), { at: now, ...historyEntry }] };
-    try { await putItem(next, task); await refresh(); void requestRemoteSync(); showToast(message); return true; }
-    catch (error) { showToast(errorMessage(error, "Could not update task")); return false; }
-  };
-  const quickAddTask = async (title: string) => {
-    const now = new Date().toISOString();
-    try {
-      await putItem({id: crypto.randomUUID(), kind: "task", title: title.trim(), state: "open", tags: [], attachments: [], history: [{at: now, type: "created"}], createdAt: now, updatedAt: now});
-      await refresh(); setQuery(""); void requestRemoteSync(); return true;
-    } catch (error) { showToast(errorMessage(error, "Could not add task.")); return false; }
-  };
+  const openEditor = (item: Task | CalendarEvent | null = null, kind?: "task" | "event", date?: Date) => { editorParents.length = 0; setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() }); };
   const quickAddSubtask = async (parent: Task, title: string) => {
     const now = new Date().toISOString();
     try {
@@ -260,24 +232,48 @@ export function App() {
     const next: Task = { ...task, state: "completed", completedAt: now, sleep: null, updatedAt: now, history: [...(task.history || []), { at: now, type: "completed" }] };
     await putItem(next, task); await refresh(); void requestRemoteSync(); showToast("Task completed");
   };
-  const sleepTomorrow = async (task: Task) => {
-    const now = new Date(); const until = tomorrowMidnight(now).toISOString();
-    await mutateTask(task, { sleep: { until, startedAt: now.toISOString() } }, { type: "slept", until }, "Sleeping until tomorrow");
-  };
-  const sleepIndefinite = async (task: Task) => {
+  const addTask = async (groupId: string | null, title: string) => {
     const now = new Date().toISOString();
-    await mutateTask(task, { sleep: { until: null, startedAt: now } }, { type: "slept", until: null }, "Sleeping indefinitely");
+    try {
+      await putItem({id: crypto.randomUUID(), kind: "task", title: title.trim(), state: "open", groupId, tags: [], attachments: [], history: [{at: now, type: "created"}], createdAt: now, updatedAt: now});
+      await refresh(); void requestRemoteSync(); return true;
+    } catch (error) { showToast(errorMessage(error, "Could not add task.")); return false; }
   };
-  const wakeTask = async (task: Task) => { await mutateTask(task, { sleep: null }, { type: "woke" }, "Task is awake"); };
-  const sleepToWait = async (task: Task) => {
-    const sleep = sleepInfo(task, new Date()); if (!sleep.sleeping || sleep.indefinite) return;
-    const existingStart = toDate(task.availableFrom); const waitUntil = existingStart && existingStart > sleep.until ? existingStart : sleep.until;
-    await mutateTask(task, { sleep: null, availableFrom: waitUntil.toISOString() }, { type: "sleep-converted-to-wait", until: waitUntil.toISOString() }, "Converted sleep to waiting");
+  // Groups: siblings share a parent (top-level groups share none) and are ordered by sortOrder.
+  const siblingGroups = (parentId: string | null) => { const forest = groupForest(sortedGroups(items())); return parentId ? forest.children.get(parentId) || [] : forest.roots; };
+  const nextGroupOrder = (parentId: string | null) => Math.max(-1, ...siblingGroups(parentId).map(group => group.sortOrder ?? -1)) + 1;
+  const saveGroups = async (label: string, run: () => Promise<unknown>) => {
+    try { await historyBatch(label, run); } catch (error) { showToast(errorMessage(error, "Could not update groups.")); }
+    await refresh(); void requestRemoteSync();
   };
-  const waitToSleep = async (task: Task) => {
-    const available = toDate(task.availableFrom); if (!available || available <= new Date()) return;
-    const now = new Date().toISOString();
-    await mutateTask(task, { availableFrom: null, sleep: { until: available.toISOString(), startedAt: now } }, { type: "wait-converted-to-sleep", until: available.toISOString() }, "Converted waiting to sleep");
+  const patchGroup = (group: Group, patch: Partial<Group>) => putItem({ ...group, ...patch, updatedAt: new Date().toISOString() }, group);
+  const createGroup = async (parentId: string | null) => {
+    const now = new Date().toISOString(), id = crypto.randomUUID();
+    try { await putItem({ id, kind: "group", title: "New group", parentId, sortOrder: nextGroupOrder(parentId), createdAt: now, updatedAt: now }); }
+    catch (error) { showToast(errorMessage(error, "Could not create group.")); return null; }
+    await refresh(); void requestRemoteSync(); return id;
+  };
+  const renameGroup = (group: Group, title: string) => saveGroups("Rename group", () => patchGroup(group, { title }));
+  const moveGroup = (group: Group, parentId: string | null) => saveGroups("Move group", () => patchGroup(group, { parentId, sortOrder: nextGroupOrder(parentId) }));
+  const reorderGroup = async (group: Group, offset: -1 | 1) => {
+    const siblings = [...(siblingGroups(group.parentId && items().some(item => item.id === group.parentId) ? group.parentId : null))];
+    const from = siblings.findIndex(sibling => sibling.id === group.id), to = from + offset;
+    if (from < 0 || to < 0 || to >= siblings.length) return;
+    [siblings[from], siblings[to]] = [siblings[to], siblings[from]];
+    await saveGroups("Reorder groups", async () => { for (const [index, sibling] of siblings.entries()) if (sibling.sortOrder !== index) await patchGroup(sibling, { sortOrder: index }); });
+  };
+  // Deleting a group keeps its contents: subgroups and tasks move up to its parent.
+  const deleteGroup = async (group: Group) => {
+    const parent = items().find((item): item is Group => item.kind === "group" && item.id === group.parentId) || null;
+    if (!window.confirm(`Delete “${group.title}”? Its tasks and subgroups move to ${parent ? `“${parent.title}”` : "the top level"}.`)) return;
+    await saveGroups(`Delete group “${group.title}”`, async () => {
+      let order = nextGroupOrder(parent?.id || null);
+      for (const item of items()) {
+        if (item.kind === "group" && item.parentId === group.id) await patchGroup(item, { parentId: parent?.id || null, sortOrder: order++ });
+        if (item.kind === "task" && item.groupId === group.id) await putItem({ ...item, groupId: parent?.id || null, updatedAt: new Date().toISOString() }, item);
+      }
+      await deleteItem(group.id);
+    });
   };
   const applyUndo = async () => { const label = undoLabel(); if (!(await undo())) return; await refresh(); void requestRemoteSync(); showToast(`Undo${label ? ` ${label}` : ""}`); };
   const applyRedo = async () => { const label = redoLabel(); if (!(await redo())) return; await refresh(); void requestRemoteSync(); showToast(`Redo${label ? ` ${label}` : ""}`); };
@@ -340,13 +336,6 @@ export function App() {
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (!document.querySelector(".solid-dialog-backdrop") && !editableTarget(event.target)) {
-        if ((event.key === "ArrowDown" || event.key === "ArrowUp") && !event.ctrlKey && !event.metaKey && !event.altKey) {
-          const active = document.activeElement;
-          if (active === document.body || active === document.documentElement) {
-            if (focusBoundaryTask(event.key === "ArrowDown" ? 1 : -1)) event.preventDefault();
-            return;
-          }
-        }
         const modifier = event.ctrlKey || event.metaKey;
         if (modifier && !event.altKey) {
           const key = event.key.toLowerCase();
@@ -365,8 +354,8 @@ export function App() {
     <Show when={!loadingError()} fallback={<div class="solid-error">Could not open local storage. {loadingError()}</div>}>
       <div class="app-shell">
         <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = ""; }} />
-        <WorkspaceShell view={view()} scope={taskScope()} openCount={items().filter(item => item.kind === "task" && item.state !== "completed" && (!hideSleeping() || !sleepInfo(item, clock()).sleeping)).length} query={query()} onQuery={setQuery}
-          onNavigate={(next, scope) => { if (scope) changeTaskScope(scope); navigate(next); window.scrollTo({top: 0, behavior: "instant"}); }}
+        <WorkspaceShell view={view()} openCount={items().filter(item => item.kind === "task" && item.state !== "completed" && (!hideSleeping() || !sleepInfo(item, clock()).sleeping)).length} query={query()} onQuery={setQuery}
+          onNavigate={(next) => { navigate(next); window.scrollTo({top: 0, behavior: "instant"}); }}
           onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
           onSettings={() => { setSettingsTab("data"); openSettings(); }}
           syncState={remoteBusy() ? "busy" : remoteError() ? "error" : lastSyncedAt() ? "synced" : "local"}
@@ -374,10 +363,11 @@ export function App() {
           syncDetail={remoteError() || (lastSyncedAt() ? `Last synced at ${lastSyncedAt()!.toLocaleTimeString()}` : "Your edits are saved in this browser. Open Settings to connect another device.")}
           identity={remoteSession()?.authenticated ? remoteIdentityLabel() : ""}
           canUndo={historyState().canUndo} canRedo={historyState().canRedo} undoLabel={historyState().undoLabel} redoLabel={historyState().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
-          <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={changeSleepMode} hideSleeping={hideSleeping()} onHideSleepingChange={changeHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => { changeTaskScope("open"); localStorage.setItem("calendar.section.now", "open"); localStorage.setItem("calendar.section.upcoming", "open"); navigate("tasks"); requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" })); }} />}>
-            <div class="tasks-workspace" classList={{ split: splitView() }}>
-            <TasksView selectedId={splitView() ? selectedTaskId() : null} sleepMode={calendarSleepMode()} onSleepModeChange={changeSleepMode} hideSleeping={hideSleeping()} onHideSleepingChange={changeHideSleeping} sort={taskSort()} onSortChange={changeTaskSort} scope={taskScope()} onScopeChange={changeTaskScope} onQuickAdd={quickAddTask} animations={animations()} onMove={async (id, target, placement) => { try { await moveTask(id, target, placement); await refresh(); void requestRemoteSync(); } catch (error) { showToast(errorMessage(error, "Could not move task")); } }} onAddSubtask={task => setEditor({ item: null, kind: "task", parentId: task.id, nonce: Date.now() })} items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={editTask} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
-            <Show when={splitView()}>
+          <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={changeSleepMode} hideSleeping={hideSleeping()} onHideSleepingChange={changeHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
+            <div class="tasks-workspace" classList={{ split: splitView() && !!detailRequest() }}>
+            <GroupsView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null} showCompleted={showCompleted()} onShowCompletedChange={value => { setShowCompleted(value); localStorage.setItem("calendar.groups.showCompleted", value ? "1" : "0"); }}
+              onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={renameGroup} onMoveGroup={moveGroup} onReorderGroup={reorderGroup} onDeleteGroup={deleteGroup} />
+            <Show when={splitView() && detailRequest()}>
               <aside class="task-detail-pane" aria-label="Task details">
                 <Show when={detailRequest()} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
                   <ItemEditor embedded request={request} items={items()} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} onStale={() => setDetailVersion(version => version + 1)}
@@ -391,7 +381,6 @@ export function App() {
           </Show>
         </WorkspaceShell>
         <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await deleteItem(item.id); await refresh(); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}</Show>
-        <Show when={sleepTask()} keyed>{(task) => <SleepDialog task={task} onClose={() => setSleepTask(null)} onInvalid={() => showToast("Choose a future sleep time")} onSave={async (until) => { const now = new Date().toISOString(); if (await mutateTask(task, { sleep: { until, startedAt: task.sleep?.startedAt || now } }, { type: "slept", until }, until ? `Sleeping until ${formatDateTime(until)}` : "Sleeping indefinitely")) setSleepTask(null); }} />}</Show>
         <Show when={showSettings()}><DialogShell labelledBy="settings-title" className="settings-dialog" onClose={closeSettings}>
           <div class="settings-content">
             <div class="dialog-header"><h2 id="settings-title">Settings</h2><button class="icon-button" aria-label="Close settings" onClick={closeSettings}>×</button></div>
@@ -405,8 +394,6 @@ export function App() {
               <section aria-label="Task settings">
                 <SleepControls mode={calendarSleepMode()} hideSleeping={hideSleeping()} onModeChange={changeSleepMode} onHideChange={changeHideSleeping} />
                 <p class="field-hint">Respect sleep keeps tasks unavailable until they wake. Turn it off to use their normal start dates and working hours. Hide sleeping tasks removes them from both views, even when sleep is ignored.</p>
-                <label class="field"><span>Task sort order</span><select value={taskSort()} onChange={event => changeTaskSort(event.currentTarget.value as TaskSort)}><option value="start">Can start, then due</option><option value="later">Later of can start / due</option><option value="manual">Manual order</option></select></label>
-                <p class="field-hint">Date sorting uses the later of the selected date and wake time when respecting sleep; due dates break ties, followed by creation date (oldest first), then title. Tasks without a start date come first; indefinite sleepers come last. Sorts siblings while keeping subtasks with their parent. Dragging to reorder switches to manual order. These preferences apply in this browser.</p>
               </section>
             </Show>
             <Show when={settingsTab() === "animations"}>

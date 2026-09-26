@@ -1,5 +1,5 @@
 import { sleepValidationMessage } from "./domain.js";
-import { taskDescendants, taskAncestors, validateTaskParent, taskMoveUpdates } from "./task-tree.js";
+import { taskDescendants, taskAncestors, validateTaskParent, validateGroupParent, validateTaskGroup, taskMoveUpdates } from "./task-tree.js";
 import * as Automerge from "@automerge/automerge";
 import {
   addAttachmentMetadata,
@@ -35,8 +35,9 @@ const COMMON_ITEM_FIELDS = new Set([
 ]);
 const TASK_ITEM_FIELDS = new Set([
   ...COMMON_ITEM_FIELDS, "state", "parentId", "sortOrder", "availableFrom", "deadline", "latestStart", "sleep",
-  "availabilitySchedule", "completedAt", "history",
+  "availabilitySchedule", "completedAt", "history", "groupId",
 ]);
+const GROUP_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "parentId", "sortOrder"]);
 const EVENT_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end"]);
 const SPECIAL_DELTA_FIELDS = new Set([
   "id", "title", "notes", "tags", "attachments", "history", "deletedAt",
@@ -116,6 +117,7 @@ function isPlainObject(value) {
 function allowedFieldsForKind(kind) {
   if (kind === "task") return TASK_ITEM_FIELDS;
   if (kind === "event") return EVENT_ITEM_FIELDS;
+  if (kind === "group") return GROUP_ITEM_FIELDS;
   throw new Error(`Unknown item kind ${kind}.`);
 }
 
@@ -393,7 +395,8 @@ export function putLocalItem(item, baseline = null) {
     const currentHeads = Automerge.getHeads(doc);
     const before = hydrateItem(materializeItem(doc, item.id), currentHeads);
     const current = materializeItem(doc, item.id, { includeDeleted: true });
-    if (item.kind === "task") validateTaskParent(materializeItems(doc), item.id, item.parentId);
+    if (item.kind === "task") { const items = materializeItems(doc); validateTaskParent(items, item.id, item.parentId); validateTaskGroup(items, item.groupId); }
+    if (item.kind === "group") validateGroupParent(materializeItems(doc), item.id, item.parentId);
     const historicalEdit = baseline && baselineHeads ? applyItemIntentAtHeads(doc, baselineHeads, baseline, item) : null;
     let nextDoc = historicalEdit?.newDoc || applyItemIntent(doc, baseline || current, item, { restoreDeleted: baseline == null });
     if (baseline && baseline.kind !== item.kind) nextDoc = enforceMaterializedKindShape(nextDoc, item.id);

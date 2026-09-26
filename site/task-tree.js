@@ -15,6 +15,33 @@ export function taskDescendants(items, id) {
   return result;
 }
 
+/** Groups nested under a group, at any depth. @param {import('./model').Item[]} items */
+export function groupDescendants(items, id) {
+  const result = [], seen = new Set([id]), pending = [id];
+  while (pending.length) {
+    const parent = pending.pop();
+    for (const item of items) if (item.kind === "group" && item.parentId === parent && !seen.has(item.id)) {
+      seen.add(item.id); result.push(item); pending.push(item.id);
+    }
+  }
+  return result;
+}
+
+/** Groups form a strict tree: a group's parent must be another group, never itself or a descendant. */
+export function validateGroupParent(items, id, parentId) {
+  if (parentId == null || parentId === "") return;
+  if (typeof parentId !== "string") throw new Error("A parent group must have a group ID.");
+  if (parentId === id || groupDescendants(items, id).some(group => group.id === parentId)) throw new Error("A group cannot contain itself.");
+  const parent = items.find(item => item.id === parentId);
+  if (parent && parent.kind !== "group") throw new Error("Groups can only be nested in groups.");
+}
+
+export function validateTaskGroup(items, groupId) {
+  if (groupId == null || groupId === "") return;
+  const group = items.find(item => item.id === groupId);
+  if (group && group.kind !== "group") throw new Error("Tasks can only be placed in groups.");
+}
+
 /** @param {import('./model').Item[]} items */
 export function taskAncestors(items, id) {
   const tasks = new Map(items.filter(item => item.kind === "task").map(item => [item.id, item]));

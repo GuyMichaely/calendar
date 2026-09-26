@@ -15,6 +15,7 @@ export function importData(text: string): Promise<number>;
 export function readSyncSnapshot(): Promise<Uint8Array>;
 export function mergeSyncSnapshot(bytes: Uint8Array): Promise<Item[]>;
 export function getItem(id: string): Promise<Item | null>;
+export function historyBatch<T>(label: string, run: () => Promise<T>): Promise<T>;
 
 export function parseBackup(text: string): Item[];
 export function moveTask(id: string, targetId: string | null, placement: string): Promise<void>;

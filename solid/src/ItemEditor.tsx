@@ -1,6 +1,6 @@
 import { Icon } from "./Icon";
 import { taskAncestors, taskDescendants } from "../../site/task-tree.js";
-import { For, Show, createEffect, createSignal, onMount, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onMount, onCleanup } from "solid-js";
 import {
   actionability,
   formatDateTime,
@@ -12,16 +12,18 @@ import {
   tomorrowMidnight,
 } from "../../site/domain.js";
 import { MarkdownNotes } from "./MarkdownNotes";
+import { groupOptions } from "./group-board";
 import { attachmentMarkdown } from "./markdown";
 import { DialogShell } from "./DialogShell";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
-import type { Attachment, Item, Task } from "./types";
+import type { Attachment, CalendarEvent, Item, Task } from "./types";
 
 export type EditorRequest = {
-  item: Item | null;
+  item: Task | CalendarEvent | null;
   kind: "task" | "event";
   date?: Date;
   parentId?: string;
+  groupId?: string | null;
   nonce: number;
 };
 
@@ -244,6 +246,7 @@ export function ItemEditor(props: {
         notes: String(data.get("notes") || ""),
         state: nextState,
         parentId: task?.parentId || props.request.parentId || null,
+        groupId: task?.parentId || props.request.parentId ? task?.groupId ?? null : String(data.get("groupId") || "") || null,
         completedAt: nextState === "completed" ? task?.completedAt || now : null,
         tags: parseTags(data.get("tags")),
         attachments: [...(currentItem?.attachments || []).filter(file => !submittedRemoved.has(file.id)), ...attachments],
@@ -293,7 +296,7 @@ export function ItemEditor(props: {
     try {
       const saved = await props.onSave(item, !currentItem, currentItem);
       if (!saved) throw new Error("This item was deleted on another device. Close and reopen the calendar to review it.");
-      currentItem = saved;
+      currentItem = saved as Task | CalendarEvent;
       setHasSavedItem(true);
       setSavedAttachments(currentItem.attachments || []);
       const unchanged = serializeForm(formRef, pendingFiles(), removedAttachments()) === submittedForm;
@@ -386,6 +389,9 @@ export function ItemEditor(props: {
     syncDirty();
   };
 
+  // Options are keyed by id: rebuilding <option> elements would reset the select's choice.
+  const groupChoices = createMemo(() => groupOptions(props.items));
+  const groupLabel = (id: string) => { const option = groupChoices().find(choice => choice.group.id === id); return option ? `${"— ".repeat(option.depth)}${option.group.title}` : ""; };
   const ancestors = () => (taskAncestors(props.items, itemId) as Task[]).reverse();
   const status = () => {
     const stored = props.items.find(item => item.id === itemId);
@@ -432,6 +438,7 @@ export function ItemEditor(props: {
               <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" value={isoToLocalInput(task?.availableFrom)} /></label>
               <label class="field"><span>Due</span><input name="deadline" type="datetime-local" value={deadlineInput()} onInput={event => setDeadlineInput(event.currentTarget.value)} /></label>
               <label class="field"><span>Latest start</span><input name="latestStart" type="datetime-local" value={isoToLocalInput(task?.latestStart)} /></label>
+              <Show when={!task?.parentId && !props.request.parentId}><label class="field"><span>Group</span><select name="groupId" value={task?.groupId || props.request.groupId || ""}><option value="">No group</option><For each={groupChoices().map(option => option.group.id)}>{id => <option value={id}>{groupLabel(id)}</option>}</For></select></label></Show>
               <label class="field"><span>Sleep</span><select name="sleepMode" value={sleepMode()} onChange={(event) => { setSleepMode(event.currentTarget.value as ReturnType<typeof sleepMode>); syncDirty(); }}><option value="awake">Awake</option><option value="until">Until a date</option><option value="indefinite" disabled={!!deadlineInput()}>Indefinitely</option></select></label>
               <label class="field" hidden={sleepMode() !== "until"}><span>Sleep until</span><input name="sleepUntil" type="datetime-local" max={deadlineInput() || undefined} value={sleepUntil} disabled={sleepMode() !== "until"} /></label>
             </div>

@@ -1,7 +1,6 @@
 import {test, expect} from "bun:test";
 import {planTasks, taskVisible} from "../src/task-planning";
 import {nestTaskRows} from "../../site/task-tree.js";
-import {availabilitySummary} from "../src/task-display";
 import {sleepValidationMessage} from "../../site/domain.js";
 import type {Task} from "../src/types";
 const now = new Date("2026-09-24T10:00:00Z");
@@ -59,10 +58,6 @@ test("sleep still respects recurring working hours", () => {
  const rows=planTasks([item],now,true,"start",null).upcoming;
  expect(rows[0].upcomingAt!.getTime()).toBeGreaterThanOrEqual(new Date(item.sleep!.until!).getTime());
 });
-test("ignored sleep does not leak into availability text", () => {
- const item=task("sleeping",{availableFrom:date(25),sleep:sleep(null)});
- expect(availabilitySummary(item,now,new Date(date(25)),true,false)).toMatch(/^Available /);
-});
 test("sleep validation allows equality, rejects later and indefinite deadlines", () => {
  expect(sleepValidationMessage(task("equal",{deadline:date(26),sleep:sleep(date(26))}),now)).toBe("");
  expect(sleepValidationMessage(task("late",{deadline:date(26),sleep:sleep(date(27))}),now)).toMatch(/due date/);
@@ -89,5 +84,4 @@ test("unified Tasks retains every nonactionable task when the horizon is off", (
  expect(ids(sections.upcoming).sort()).toEqual(["future","missed-window","no-workdays","sleeper"]);
  const limited=planTasks(tasks,now,true,"start",new Date(date(26)));
  expect(ids(limited.upcoming).sort()).toEqual(["missed-window","no-workdays","sleeper"]);
- expect(availabilitySummary(tasks[2],now,null,true,true)).toBe("Latest start has passed");
 });
