@@ -463,13 +463,16 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .board-task.done .board-task-title { color: var(--muted); text-decoration: line-through; }
 .board-task-copy { display: grid; gap: 2px; min-width: 0; }
 .board-task-copy { flex: 1; }
-.board-task-title, .board-task-notes { white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; line-height: 1.4; }
+.board-task-title, .board-task-notes { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
 .board-task-title { color: var(--text); font-size: 13px; }
 .board-task-notes { color: var(--muted); font-size: 12px; }
 .board.compact .board-task { padding-block: 4px; }
-.board.compact span.board-task-title, .board.compact span.board-task-notes { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
-.board.compact span.board-task-title { -webkit-line-clamp: 3; }
-.board.compact span.board-task-notes { -webkit-line-clamp: 2; }
+.board.compact div.board-task-title, .board.compact div.board-task-notes { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.board.compact div.board-task-title { -webkit-line-clamp: 3; }
+.board.compact div.board-task-notes { -webkit-line-clamp: 2; }
+.board-task-title, .board-task-notes { cursor: pointer; }
+.board-text { cursor: text; }
+.board-edit { display: grid; gap: 8px; padding: 3px 0; }
 .board-inline { display: block; width: calc(100% + 10px); resize: none; overflow: hidden; margin: -3px -5px; padding: 2px 4px; border: 1px solid var(--accent); border-radius: 4px; background: var(--surface-3); font-family: inherit; }
 .board-inline:focus { outline: none; }
 .board-task-copy small { color: var(--muted); font-size: 10px; }
