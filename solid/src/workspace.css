@@ -521,7 +521,11 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .board-edit { display: grid; gap: 8px; padding: 3px 0; }
 .board-inline { display: block; width: calc(100% + 10px); resize: none; overflow: hidden; margin: -3px -5px; padding: 2px 4px; border: 0; border-radius: 4px; background: var(--surface-2); font-family: inherit; }
 .board-inline:focus { outline: none; }
-.board-task-copy small { color: var(--muted); font-size: 10px; }
+.board-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.board-chip { padding: 1px 7px; border-radius: 99px; font-size: 10px; white-space: nowrap; background: var(--surface-2); color: var(--muted); }
+.board-chip.sleep { color: var(--sleep); background: color-mix(in srgb, var(--sleep) 15%, var(--surface-2)); }
+.board-chip.waiting { color: var(--waiting); background: var(--waiting-bg); }
+.board-chip.due { color: var(--due); background: var(--due-bg); }
 .board-add { display: flex; align-items: center; gap: 8px; padding: 4px 6px; color: var(--muted); }
 .board-add input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 4px 0; color: var(--text); font-size: 12px; }
 .board-add input:focus { outline: none; }

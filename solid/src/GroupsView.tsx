@@ -146,18 +146,21 @@ export function GroupsView(props: GroupsViewProps) {
     // Clicking the title or description edits both in place; the session ends when focus leaves them.
     const [editing, setEditing] = createSignal<"title" | "notes" | null>(null);
     let titleField: HTMLTextAreaElement | undefined, notesField: HTMLTextAreaElement | undefined, clickEndedEdit = false;
-    const meta = () => {
-      const parts: string[] = [];
+    // Status chips under a task: sleep, dormant relative dates, can-start, and due.
+    const chips = () => {
+      const result: { label: string; kind: "sleep" | "relative" | "waiting" | "due" }[] = [];
       const sleep = sleepInfo(task(), props.now);
-      if (sleep.sleeping) parts.push(sleep.indefinite ? "Sleeping" : `Sleeping until ${formatDateTime(sleep.until)}`);
+      if (sleep.sleeping) result.push({ label: sleep.indefinite ? "Sleeping" : `Sleeping until ${formatDateTime(sleep.until)}`, kind: "sleep" });
       // A dependent task's relative dates only become real dates when it is started.
       const labels = { availableFrom: "Can start", latestStart: "Start by", deadline: "Due" } as const;
       if (dormant()) for (const field of RELATIVE_DATE_FIELDS) {
         const days = task().relativeDates?.[field];
-        if (days != null) parts.push(`${labels[field]} ${days}d after starting`);
+        if (days != null) result.push({ label: `${labels[field]} ${days}d after starting`, kind: "relative" });
+      } else if (task().availableFrom && new Date(task().availableFrom as string) > props.now) {
+        result.push({ label: `Can start ${formatDateTime(task().availableFrom)}`, kind: "waiting" });
       }
-      if (task().deadline) parts.push(`Due ${formatDateTime(task().deadline)}`);
-      return parts.join(" · ");
+      if (task().deadline) result.push({ label: `Due ${formatDateTime(task().deadline)}`, kind: "due" });
+      return result;
     };
     const finish = (commit: boolean) => {
       if (!editing()) return;
@@ -205,7 +208,9 @@ export function GroupsView(props: GroupsViewProps) {
               <InlineText class="board-task-notes" label="Task description" placeholder="Add description" multiline value={task().notes || ""} autofocus={editing() === "notes"} caret={caret} ref={element => { notesField = element; }} onFinish={finish} />
             </div>
           </Show>
-          <Show when={meta()}><small>{meta()}</small></Show>
+          <Show when={chips().length}>
+            <span class="board-chips"><For each={chips()}>{chip => <span class={`board-chip ${chip.kind}`}>{chip.label}</span>}</For></span>
+          </Show>
           <Show when={dormant()}>
             <span class="dependent-actions">
               <button class="text-button" onClick={() => void props.onStartDependent(task(), false)}>Start</button>
