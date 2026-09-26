@@ -1,9 +1,8 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { formatDateTime, isSleeping, sleepInfo } from "../../site/domain.js";
-import { groupDescendants } from "../../site/task-tree.js";
 import { Icon } from "./Icon";
 import { renderNotes } from "./markdown";
-import { BUILTIN_GROUPS, boardColumns, boardEntries, buildBoard, nestList, flattenGroupNodes, groupOptions, type BoardTarget, type GroupNode, type TaskNode } from "./group-board";
+import { BUILTIN_GROUPS, boardColumns, boardEntries, buildBoard, nestList, flattenGroupNodes, type BoardTarget, type GroupNode, type TaskNode } from "./group-board";
 import { planTasks } from "./task-planning";
 import { RELATIVE_DATE_FIELDS, isDormant } from "./dependencies";
 import type { Group, Item, Task } from "./types";
@@ -317,10 +316,17 @@ export function GroupsView(props: GroupsViewProps) {
     const [shownTitle, setShownTitle] = createSignal(group().title);
     createEffect(() => { const value = title(); if (document.activeElement !== titleInput) { titleInput.value = value; setShownTitle(value); } });
     const [collapsed, setCollapsed] = createSignal(false);
-    const [tools, setTools] = createSignal(false);
+    // The ⋯ button opens a small dropdown menu; groups are organized by dragging instead.
+    const [menu, setMenu] = createSignal(false);
+    let menuRoot!: HTMLSpanElement;
+    createEffect(() => {
+      if (!menu()) return;
+      const outside = (event: PointerEvent) => { if (!menuRoot.contains(event.target as Node)) setMenu(false); };
+      const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); setMenu(false); } };
+      document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", escape, true);
+      onCleanup(() => { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape, true); });
+    });
     const index = () => sectionProps.siblings.indexOf(sectionProps.id);
-    const parentChoices = createMemo(() => groupOptions(props.items, new Set([group().id, ...groupDescendants(props.items, group().id).map((child: Group) => child.id)])));
-    const parentLabel = (id: string) => { const option = parentChoices().find(choice => choice.group.id === id); return option ? `${"— ".repeat(option.depth)}${option.group.title}` : ""; };
     const rename = (input: HTMLInputElement) => {
       const title = input.value.trim();
       if (!title) { input.value = group().title; return; }
@@ -338,18 +344,15 @@ export function GroupsView(props: GroupsViewProps) {
           <button class="icon-button" aria-label="Move up" title="Move up" disabled={index() <= 0} onClick={() => void props.onReorderGroup(group(), -1)}>↑</button>
           <button class="icon-button" aria-label="Move down" title="Move down" disabled={index() >= sectionProps.siblings.length - 1} onClick={() => void props.onReorderGroup(group(), 1)}>↓</button>
         </Show>
-        <button class="icon-button" aria-label="Group options" aria-expanded={tools()} onClick={() => setTools(value => !value)}>⋯</button>
+        <span class="task-menu" ref={menuRoot}>
+          <button class="icon-button" aria-label="Group options" aria-haspopup="menu" aria-expanded={menu()} onClick={() => setMenu(value => !value)}>⋯</button>
+          <Show when={menu()}>
+            <div class="task-menu-list" role="menu">
+              <button role="menuitem" class="danger-text" onClick={() => { setMenu(false); void props.onDeleteGroup(group()); }}>Delete group</button>
+            </div>
+          </Show>
+        </span>
       </header>
-      <Show when={tools()}>
-        <div class="board-group-tools">
-          <button class="text-button" onClick={async () => { setCollapsed(false); focusGroupTitle(await props.onCreateGroup(group().id)); }}>+ Subgroup</button>
-          <label>Inside <select value={group().parentId || ""} onChange={event => void props.onMoveGroup(group(), event.currentTarget.value || null)}>
-            <option value="">Top level</option>
-            <For each={parentChoices().map(option => option.group.id)}>{id => <option value={id}>{parentLabel(id)}</option>}</For>
-          </select></label>
-          <button class="text-button danger-text" onClick={() => void props.onDeleteGroup(group())}>Delete</button>
-        </div>
-      </Show>
       <Show when={!collapsed()}>
         <TaskList nodes={node().tasks} depth={0} />
         <AddTask groupId={group().id} />

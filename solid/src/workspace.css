@@ -497,8 +497,7 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .board-group-header .icon-button { width: 26px; height: 26px; font-size: 13px; color: var(--muted); }
 .board-group-title { grid-area: 1 / 1; width: 100%; min-width: 3ch; border: 0; border-bottom: 1px solid transparent; background: transparent; padding: 3px 0 3px 4px; color: var(--text); font-size: 13px; font-weight: 600; }
 .board-group-title:focus { outline: none; border-bottom-color: var(--accent); }
-.board-group-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 4px 8px; font-size: 11px; color: var(--muted); }
-.board-group-tools select { max-width: 150px; background: var(--surface-3); color: var(--text); border: 1px solid var(--line); border-radius: 5px; padding: 3px; font-size: 11px; }
+
 .board-task { display: flex; align-items: flex-start; gap: 8px; padding: 6px; border-radius: 6px; cursor: pointer; }
 .board-task:hover { background: var(--surface-2); }
 .board-task.selected { background: var(--surface-2); box-shadow: inset 3px 0 var(--accent); }
