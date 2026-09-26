@@ -400,3 +400,6 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
   .drag-help { margin-block: 6px 9px; }
   .task-sections { gap: 12px; }
 }
+
+.prototype-badge { align-self: flex-start; margin: -22px 0 22px 52px; padding: 2px 7px; border-radius: 99px; background: #e89678; color: #1b1411; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+.mobile-word .prototype-badge { margin: 0 0 0 8px; vertical-align: 3px; }

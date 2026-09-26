@@ -377,7 +377,7 @@ export function App() {
                 <Show when={remote}>
                   <div class="solid-menu-divider" />
                   <Show when={remoteSession() !== null} fallback={<button class="text-button" disabled={!remoteError()} onClick={() => void checkRemoteSession()}>{remoteError() ? "Retry remote connection" : "Checking remote…"}</button>}>
-                    <Show when={remoteSession()?.authenticated} fallback={<button class="text-button" onClick={() => {  window.location.assign(remote!.loginUrl("google", new URL(import.meta.env.BASE_URL, location.origin).href + location.hash)); }}>Sign in with Google</button>}>
+                    <Show when={remoteSession()?.authenticated} fallback={<button class="text-button" onClick={() => {  window.location.assign(remote!.loginUrl("google", new URL(import.meta.env.VITE_CALENDAR_PRIMARY_BASE || import.meta.env.BASE_URL, location.origin).href + location.hash)); }}>Sign in with Google</button>}>
                       <div class="solid-menu-status">Signed in as {remoteIdentityLabel()}</div>
                       <button class="text-button" disabled={remoteBusy()} onClick={() => {  void requestRemoteSync(true); }}>{remoteBusy() ? "Syncing…" : "Sync now"}</button>
                       <button class="text-button" onClick={() => void signOutRemote()}>Sign out</button>

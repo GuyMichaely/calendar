@@ -2,6 +2,8 @@ import { Show, createSignal, type JSX } from "solid-js";
 import { Icon } from "./Icon";
 import type { View } from "./types";
 export type TaskScope = "open" | "completed";
+// Prototype builds are published beside production and name themselves by their path.
+const prototypeName = import.meta.env.VITE_CALENDAR_PRIMARY_BASE ? import.meta.env.BASE_URL.split("/").filter(Boolean).at(-1) : "";
 export function WorkspaceShell(props: {
   view: View; scope: TaskScope; openCount: number; query: string;
   onQuery: (value: string) => void; onNavigate: (view: View, scope?: TaskScope) => void;
@@ -18,6 +20,7 @@ export function WorkspaceShell(props: {
     <a class="skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById("workspace-content")?.focus(); }}>Skip to content</a>
     <aside class="workspace-rail">
       <button class="workspace-brand" onClick={() => props.onNavigate("tasks", "open")} aria-label="Calendar home"><span class="brand-mark"><Icon name="calendar" size={23} /></span>Calendar<span class="brand-period">.</span></button>
+      <Show when={prototypeName}><span class="prototype-badge" title="Preview build. Shares data with the main app.">{prototypeName}</span></Show>
       <nav class="rail-nav" aria-label="Workspace">
         <button classList={{active: selected("open")}} aria-current={selected("open") ? "page" : undefined} onClick={() => props.onNavigate("tasks", "open")}><Icon name="list" /><span>Tasks</span><span class="nav-count">{props.openCount}</span></button>
         <button classList={{active: props.view === "calendar"}} aria-current={props.view === "calendar" ? "page" : undefined} onClick={() => props.onNavigate("calendar")}><Icon name="calendar" /><span>Calendar</span></button>
@@ -30,7 +33,7 @@ export function WorkspaceShell(props: {
     </aside>
     <div class="workspace-body">
       <header class="workspace-topbar">
-        <strong class="mobile-word">Calendar<span class="mobile-brand-period">.</span></strong>
+        <strong class="mobile-word">Calendar<span class="mobile-brand-period">.</span><Show when={prototypeName}><span class="prototype-badge">{prototypeName}</span></Show></strong>
         <label class="workspace-search" data-open={searchOpen() || !!props.query}><Icon name="search" size={17} /><span class="visually-hidden">{props.view === "calendar" ? "Search calendar" : "Search tasks"}</span><input ref={searchInput} type="search" placeholder={props.view === "calendar" ? "Search calendar" : "Search tasks"} value={props.query} onInput={event => props.onQuery(event.currentTarget.value)} autocomplete="off" /><Show when={props.query}><button type="button" aria-label="Clear search" onClick={() => props.onQuery("")}>×</button></Show></label>
         <div class="workspace-utilities"><button class="icon-button mobile-search-toggle" aria-label={searchOpen() ? "Close search" : "Search"} aria-expanded={searchOpen() || !!props.query} onClick={toggleSearch}><Icon name="search" size={17} /></button>
           <button class="sync-indicator" data-state={props.syncState} title={props.syncDetail} aria-label={`${props.syncLabel}. Open sync settings`} onClick={props.onSettings}><Icon name={props.syncState === "error" ? "alert" : props.syncState === "local" ? "device" : "cloud"} size={17} /><span role="status">{props.syncLabel}</span></button>

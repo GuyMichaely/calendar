@@ -2,7 +2,7 @@ name: Verify and deploy Calendar
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'prototype*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -11,8 +11,9 @@ permissions:
   contents: read
 
 # One production stream, including verification; never interrupt a deployment.
+# Prototype pushes verify in their own group, then republish through production.
 concurrency:
-  group: calendar-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  group: calendar-${{ (github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/prototype')) && github.ref || 'production' }}
   cancel-in-progress: false
 
 jobs:
@@ -39,6 +40,21 @@ jobs:
         run: docker build --build-arg BUN_VERSION="$(cat .bun-version)" -f backend/Dockerfile -t calendar-backend .
       - name: Smoke test backend container
         run: ./scripts/smoke-container
+      - name: Build prototypes
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          # Each prototype* branch is published at /calendar/<branch>/ beside production.
+          git fetch --no-tags origin '+refs/heads/prototype*:refs/remotes/origin/prototype*'
+          for ref in $(git for-each-ref --format='%(refname:strip=3)' 'refs/remotes/origin/prototype*'); do
+            if ! [[ "$ref" =~ ^prototype[a-z0-9-]*$ ]]; then echo "::warning::Skipping $ref: use lowercase letters, digits, and hyphens"; continue; fi
+            tree="$RUNNER_TEMP/$ref"
+            git worktree add --detach "$tree" "origin/$ref"
+            if "$tree/scripts/bun" install --frozen-lockfile && VITE_CALENDAR_PRIMARY_BASE=/calendar/ "$tree/scripts/bun" run build:solid --base "/calendar/$ref/"; then
+              cp -R "$tree/dist" "dist/$ref"
+            else
+              echo "::warning::Prototype $ref failed to build and was not published"
+            fi
+          done
       - name: Configure Pages
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
@@ -47,6 +63,19 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+
+  # Pages accepts deployments only from main, so a verified prototype push republishes main.
+  publish-prototype:
+    if: startsWith(github.ref, 'refs/heads/prototype') && github.event_name == 'push'
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Republish main with prototypes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-pages.yml --repo "$GITHUB_REPOSITORY" --ref main
 
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
