@@ -35,6 +35,9 @@ export type GroupsViewProps = {
   onPlaceGroup: (id: string, target: BoardTarget) => Promise<void>;
   onPlaceGroups: (ids: string[], target: BoardTarget) => Promise<unknown>;
   onDropTask: (task: Task, drop: TaskDrop) => Promise<unknown>;
+  // Unsaved editor text is overlaid on the card live so everything syncs as you type.
+  liveEdits: () => Map<string, Partial<Task>>;
+  onLiveEdit: (taskId: string, patch: Partial<Task> | null) => void;
   onStartDependent: (task: Task, completeParent: boolean) => Promise<void>;
   onDeleteTask: (task: Task) => Promise<void>;
   onSleepTask: (task: Task) => Promise<void>;
@@ -92,8 +95,29 @@ export function GroupsView(props: GroupsViewProps) {
   const [columnPick, setColumnPick] = createSignal<string[] | null>(null);
   const toggleColumnPick = (ids: string[]) => setColumnPick(previous => previous && ids.every(id => previous.includes(id)) ? null : ids);
   const pickedColumn = (ids: string[]) => { const pick = columnPick(); return !!ids.length && !!pick && ids.every(id => pick.includes(id)); };
+  // Clicking or dragging selects a group or task; Delete asks to remove it, Escape clears.
+  const [selection, setSelection] = createSignal<{ type: "group" | "task"; id: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = createSignal<{ kind: "group"; group: Group } | { kind: "task"; task: Task } | null>(null);
   onMount(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setColumnPick(null); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (confirmDelete()) { event.preventDefault(); event.stopPropagation(); setConfirmDelete(null); return; }
+        setColumnPick(null); setSelection(null);
+        return;
+      }
+      if (event.key !== "Delete") return;
+      if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable]")) return;
+      const sel = selection();
+      if (!sel) return;
+      event.preventDefault();
+      if (sel.type === "task") {
+        const task = itemsById().get(sel.id);
+        if (task?.kind === "task") setConfirmDelete({ kind: "task", task });
+      } else {
+        const group = groupsById().get(sel.id)?.group;
+        if (group) setConfirmDelete({ kind: "group", group });
+      }
+    };
     document.addEventListener("keydown", onKey);
     onCleanup(() => document.removeEventListener("keydown", onKey));
   });
@@ -105,6 +129,7 @@ export function GroupsView(props: GroupsViewProps) {
     const handle = event.currentTarget as HTMLElement;
     handle.setPointerCapture(event.pointerId);
     setDragId(id);
+    if (groupsById().has(id)) setSelection({ type: "group", id });
     // Dragging a group whose column is selected moves all of them, in board order.
     const pick = columnPick();
     const onBoard = new Set(columns().flat());
@@ -233,6 +258,7 @@ export function GroupsView(props: GroupsViewProps) {
     const card = handle.closest<HTMLElement>("[data-task-card]");
     handle.setPointerCapture(event.pointerId);
     setTaskDragId(id);
+    setSelection({ type: "task", id });
     // A rAF loop drives the drag; pointermove stops when a held finger is stationary.
     let lastX = event.clientX, lastY = event.clientY, frame = 0;
     const ghost = card ? (card.cloneNode(true) as HTMLElement) : null;
@@ -344,7 +370,7 @@ export function GroupsView(props: GroupsViewProps) {
   });
 
   // Textareas that replace a task's title and description while they are edited, sized to their whole text.
-  const InlineText = (inlineProps: { value: string; multiline: boolean; label: string; class: string; placeholder?: string; autofocus: boolean; caret?: number; ref: (element: HTMLTextAreaElement) => void; onFinish: (commit: boolean) => void }) => {
+  const InlineText = (inlineProps: { onLive?: (value: string) => void; value: string; multiline: boolean; label: string; class: string; placeholder?: string; autofocus: boolean; caret?: number; ref: (element: HTMLTextAreaElement) => void; onFinish: (commit: boolean) => void }) => {
     let ref!: HTMLTextAreaElement;
     const fit = () => { ref.style.height = "auto"; ref.style.height = `${ref.scrollHeight}px`; };
     const onInput = () => {
@@ -355,6 +381,7 @@ export function GroupsView(props: GroupsViewProps) {
         ref.setSelectionRange(caret, caret);
       }
       fit();
+      inlineProps.onLive?.(ref.value);
     };
     onMount(() => { fit(); if (inlineProps.autofocus) { const caret = Math.min(inlineProps.caret ?? ref.value.length, ref.value.length); ref.focus(); ref.setSelectionRange(caret, caret); } });
     return <textarea ref={element => { ref = element; inlineProps.ref(element); }} class={`board-inline ${inlineProps.class}`} aria-label={inlineProps.label} placeholder={inlineProps.placeholder} rows={1} value={inlineProps.value} onInput={onInput}
@@ -366,6 +393,8 @@ export function GroupsView(props: GroupsViewProps) {
 
   const TaskRow = (rowProps: { node: TaskNode; depth: number }): JSX.Element => {
     const task = () => rowProps.node.task;
+    // What's drawn on the card: stored values plus any unsaved editor keystrokes.
+    const shown = (): Task => ({ ...task(), ...(props.liveEdits().get(task().id) || {}) });
     const dormant = () => isDormant(task(), itemsById());
     const parent = () => itemsById().get(task().dependentOf || "") as Task | undefined;
     // Completing a task that has unstarted dependent tasks offers to start one of them.
@@ -381,23 +410,24 @@ export function GroupsView(props: GroupsViewProps) {
     // Status chips under a task: sleep, dormant relative dates, can-start, and due.
     const chips = () => {
       const result: { label: string; kind: "sleep" | "relative" | "waiting" | "due" }[] = [];
-      const sleep = sleepInfo(task(), props.now);
+      const sleep = sleepInfo(shown(), props.now);
       if (sleep.sleeping) result.push({ label: sleep.indefinite ? "Sleeping" : `Sleeping until ${formatDateTime(sleep.until)}`, kind: "sleep" });
       // A dependent task's relative dates only become real dates when it is started.
       const labels = { availableFrom: "Can start", latestStart: "Start by", deadline: "Due" } as const;
       if (dormant()) for (const field of RELATIVE_DATE_FIELDS) {
-        const days = task().relativeDates?.[field];
+        const days = shown().relativeDates?.[field];
         if (days != null) result.push({ label: `${labels[field]} ${days}d after starting`, kind: "relative" });
-      } else if (task().availableFrom && new Date(task().availableFrom as string) > props.now) {
-        result.push({ label: `Can start ${formatDateTime(task().availableFrom)}`, kind: "waiting" });
+      } else if (shown().availableFrom && new Date(shown().availableFrom as string) > props.now) {
+        result.push({ label: `Can start ${formatDateTime(shown().availableFrom)}`, kind: "waiting" });
       }
-      if (task().deadline) result.push({ label: `Due ${formatDateTime(task().deadline)}`, kind: "due" });
+      if (shown().deadline) result.push({ label: `Due ${formatDateTime(shown().deadline)}`, kind: "due" });
       return result;
     };
     const finish = (commit: boolean) => {
       if (!editing()) return;
       const title = titleField?.value.trim() ?? "", notes = notesField?.value ?? "";
       setEditing(null);
+      props.onLiveEdit(task().id, null);
       if (!commit) return;
       const patch: Partial<Pick<Task, "title" | "notes">> = {};
       if (title && title !== task().title) patch.title = title;
@@ -407,15 +437,20 @@ export function GroupsView(props: GroupsViewProps) {
     let caret: number | undefined;
     const edit = (field: "title" | "notes") => (event: MouseEvent) => {
       event.stopPropagation();
-      caret = field === "title" && !task().title ? 0 : clickedOffset(event, event.currentTarget as Element);
+      caret = field === "title" && !shown().title ? 0 : clickedOffset(event, event.currentTarget as Element);
       setEditing(field);
+      setSelection({ type: "task", id: task().id });
+      // Inline editing comes with the full editor open beside the board.
+      openedCard = (event.currentTarget as Element).closest(".board-task") as HTMLElement | null;
+      setSelection({ type: "task", id: task().id });
+      props.onEdit(task());
     };
     return <>
-      <div class="board-task" classList={{ selected: props.selectedId === task().id, done: task().state === "completed", dormant: dormant(), "task-dragging": taskDragId() === task().id, "drop-inside": taskDrop()?.kind === "inside" && taskDropId() === task().id, "drop-before": taskDrop()?.kind === "before" && taskDropId() === task().id, "drop-after": taskDrop()?.kind === "after" && taskDropId() === task().id }} style={{ "padding-left": `${rowProps.depth * 16 + 6}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
+      <div class="board-task" classList={{ selected: props.selectedId === task().id || (selection()?.type === "task" && selection()?.id === task().id), done: shown().state === "completed", dormant: dormant(), "task-dragging": taskDragId() === task().id, "drop-inside": taskDrop()?.kind === "inside" && taskDropId() === task().id, "drop-before": taskDrop()?.kind === "before" && taskDropId() === task().id, "drop-after": taskDrop()?.kind === "after" && taskDropId() === task().id }} style={{ "padding-left": `${rowProps.depth * 16 + 6}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
         onMouseDown={() => { clickEndedEdit = !!editing(); }}
         onClick={event => {
           if (clickEndedEdit) { clickEndedEdit = false; return; }
-          if (!(event.target instanceof Element && event.target.closest("button, textarea, .board-text"))) { openedCard = event.currentTarget as HTMLElement; props.onEdit(task()); }
+          if (!(event.target instanceof Element && event.target.closest("button, textarea, .board-text"))) { openedCard = event.currentTarget as HTMLElement; setSelection({ type: "task", id: task().id }); props.onEdit(task()); }
         }}>
         <Show when={!dormant()}><div class="task-grip" title="Drag to move" aria-hidden="true" onPointerDown={event => startTaskDrag(task().id, event)} /></Show>
         <Show when={!dormant()} fallback={<span class="dormant-indicator" title="Not started" aria-hidden="true" />}>
@@ -425,8 +460,8 @@ export function GroupsView(props: GroupsViewProps) {
         </Show>
         <span class="board-task-copy">
           <Show when={editing()} fallback={<>
-            <div class="board-task-title"><span class="board-text" onClick={edit("title")}>{task().title || "Untitled task"}</span></div>
-            <Show when={task().notes}>{notes => <div class="board-task-notes markdown-notes"><span class="board-text" innerHTML={renderNotes(notes())} onClick={event => {
+            <div class="board-task-title"><span class="board-text" onClick={edit("title")}>{shown().title || "Untitled task"}</span></div>
+            <Show when={shown().notes}>{notes => <div class="board-task-notes markdown-notes"><span class="board-text" innerHTML={renderNotes(notes())} onClick={event => {
               const link = event.target instanceof Element ? event.target.closest("a") : null;
               if (link) {
                 // Attachment links have no real URL; opening the task shows its attachments.
@@ -437,8 +472,8 @@ export function GroupsView(props: GroupsViewProps) {
             }} /></div>}</Show>
           </>}>
             <div class="board-edit" onFocusOut={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) finish(true); }}>
-              <InlineText class="board-task-title" label="Task title" multiline={false} value={task().title} autofocus={editing() === "title"} caret={caret} ref={element => { titleField = element; }} onFinish={finish} />
-              <InlineText class="board-task-notes" label="Task description" placeholder="Add description" multiline value={task().notes || ""} autofocus={editing() === "notes"} caret={caret} ref={element => { notesField = element; }} onFinish={finish} />
+              <InlineText class="board-task-title" label="Task title" multiline={false} value={shown().title} autofocus={editing() === "title"} caret={caret} ref={element => { titleField = element; }} onFinish={finish} onLive={value => props.onLiveEdit(task().id, { title: value })} />
+              <InlineText class="board-task-notes" label="Task description" placeholder="Add description" multiline value={shown().notes || ""} autofocus={editing() === "notes"} caret={caret} ref={element => { notesField = element; }} onFinish={finish} onLive={value => props.onLiveEdit(task().id, { notes: value })} />
             </div>
           </Show>
           <Show when={chips().length}>
@@ -543,10 +578,15 @@ export function GroupsView(props: GroupsViewProps) {
     const index = () => sectionProps.siblings.indexOf(sectionProps.id);
     const rename = (input: HTMLInputElement) => {
       const title = input.value.trim();
-      if (!title) { input.value = group().title; return; }
+      if (!title) { input.value = group().title; setShownTitle(group().title); return; }
       if (title !== group().title) void props.onRenameGroup(group(), title);
     };
-    return <section class="board-group" data-group-id={group().id} classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id, "nest-target": !!dragId() && nestId() === sectionProps.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === sectionProps.id, "col-picked": !!columnPick()?.includes(sectionProps.id) }}>
+    return <section class="board-group" data-group-id={group().id} classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id, "nest-target": !!dragId() && nestId() === sectionProps.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === sectionProps.id, "col-picked": !!columnPick()?.includes(sectionProps.id), selected: selection()?.type === "group" && selection()?.id === sectionProps.id }}
+      onClick={event => {
+        // Clicking a group's own background selects it (controls and tasks inside don't).
+        if ((event.target as Element).closest("button, input, select, a, .board-task, .task-menu")) return;
+        setSelection({ type: "group", id: sectionProps.id });
+      }}>
       <DragGrip id={group().id} />
       <header class="board-group-header">
         <button class="icon-button board-collapse" aria-label={collapsed() ? "Expand group" : "Collapse group"} aria-expanded={!collapsed()} onClick={() => setCollapsed(value => !value)}>{collapsed() ? "›" : "⌄"}</button>
@@ -606,6 +646,18 @@ export function GroupsView(props: GroupsViewProps) {
         </div>
       </div>}
     </Show>
+    <Show when={confirmDelete()}>{pending => {
+      const pendingNow = pending();
+      return <div class="start-prompt" role="alert">
+        <span>{pendingNow.kind === "group"
+          ? `Delete group “${pendingNow.group.title}”? Its tasks and subgroups move up a level.`
+          : `Delete “${pendingNow.task.title}”? Subtasks and dependent tasks go with it.`}</span>
+        <div>
+          <button class="danger-button" onClick={() => { setConfirmDelete(null); setSelection(null); if (pendingNow.kind === "group") void props.onDeleteGroup(pendingNow.group); else void props.onDeleteTask(pendingNow.task); }}>Delete</button>
+          <button class="text-button" onClick={() => setConfirmDelete(null)}>Cancel</button>
+        </div>
+      </div>;
+    }}</Show>
     <div class="groups-toolbar">
       <h1>Groups</h1>
       <button class={`secondary-button density-toggle ${props.compact ? "active" : ""}`} aria-pressed={props.compact} onClick={() => props.onCompactChange(!props.compact)}><Icon name="compact" size={15} />Compact</button>

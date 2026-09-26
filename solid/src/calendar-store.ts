@@ -48,11 +48,22 @@ export function createCalendarStore(options: { onChanged: () => void }) {
   const batch = <T>(label: string, run: () => Promise<T>) => change(() => historyBatch(label, run));
   const patchGroup = (group: Group, patch: Partial<Group>) => putItem(patchedItem(group, patch, new Date()), group);
 
+  // Unsaved editor text that the board renders immediately (before the debounced save).
+  const [liveEdits, setLiveEdits] = createSignal(new Map<string, Partial<Task>>());
+  const setLiveEdit = (id: string, patch: Partial<Task> | null) => setLiveEdits(current => {
+    const next = new Map(current);
+    if (patch) next.set(id, { ...next.get(id), ...patch });
+    else next.delete(id);
+    return next;
+  });
+
   return {
     items,
     history,
     refresh,
     getItem,
+    liveEdits,
+    setLiveEdit,
 
     saveItem: (item: Item, baseline: Item | null) => change(() => putItem(item, baseline)),
     deleteItem: (id: string) => change(() => deleteItem(id)),

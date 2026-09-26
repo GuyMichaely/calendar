@@ -219,7 +219,8 @@ export function taskPlacePatches(items: Item[], task: Task, parentId: string | n
   const at = index == null ? siblings.length : Math.max(0, Math.min(index, siblings.length));
   siblings.splice(at, 0, task);
   return siblings.flatMap((sibling, sortOrder) =>
-    sibling.id === task.id ? [{ task: sibling, patch: { sortOrder, parentId, groupId } }]
+    // Placing a task as a sibling also wakes it out of any dormant dependent state.
+    sibling.id === task.id ? [{ task: sibling, patch: { sortOrder, parentId, groupId, dependentOf: null, relativeDates: null } }]
       : sibling.sortOrder !== sortOrder ? [{ task: sibling, patch: { sortOrder } }] : []);
 }
 

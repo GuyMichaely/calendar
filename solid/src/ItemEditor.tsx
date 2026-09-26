@@ -89,6 +89,12 @@ export function ItemEditor(props: {
   onStartDependent?: (task: Task, completeParent: boolean) => Promise<void>;
   // Lets the app close an embedded editor (e.g. Escape pressed outside it) through the same checks.
   registerClose?: (close: () => void) => () => void;
+  // Rows drag between the Subtasks and Dependent tasks sections to switch relation.
+  onConvertChild?: (child: Task, to: "subtask" | "dependent") => Promise<unknown>;
+  // Unsaved text mirrors to the board card as it's typed (no debounce), and inline
+  // board edits flow back into this editor through the same map.
+  liveEdits?: () => Map<string, Partial<Task>>;
+  onLiveEdit?: (taskId: string, patch: Partial<Task> | null) => void;
 }) {
   const existing = props.request.item;
   const domId = `${++editorInstances}`;
@@ -126,10 +132,37 @@ export function ItemEditor(props: {
   let baseline = "";
   let edited = false;
 
+  // Why the current form can't save, if it can't. (Validates without saving.)
+  const [invalid, setInvalid] = createSignal("");
+  const validate = () => {
+    if (!formRef) return "";
+    if (!String(new FormData(formRef).get("title") || "").trim()) return "Enter a title to save.";
+    if (!formRef.checkValidity()) return "Complete the required fields to save.";
+    return "";
+  };
+  // What the board card should show right now (the form in flushable field shape).
+  const draftPatch = (): Partial<Task> | null => {
+    if (kind() !== "task" || !formRef) return null;
+    const data = new FormData(formRef);
+    return {
+      title: String(data.get("title") || ""),
+      notes: String(data.get("notes") || ""),
+      availableFrom: localInputToIso(data.get("availableFrom")),
+      deadline: localInputToIso(data.get("deadline")),
+      latestStart: localInputToIso(data.get("latestStart")),
+      groupId: String(data.get("groupId") || "") || null,
+      state: taskState(),
+      sleep: sleepMode() === "awake" ? null : { until: sleepMode() === "until" ? localInputToIso(data.get("sleepUntil")) : null, startedAt: existing?.kind === "task" ? existing.sleep?.startedAt || new Date().toISOString() : new Date().toISOString() },
+    };
+  };
+
   const syncDirty = () => {
     edited = true;
     queueMicrotask(() => {
       setDirty(!!baseline && serializeForm(formRef, pendingFiles(), removedAttachments()) !== baseline);
+      setInvalid(validate());
+      setCloseBlocked(false);
+      if (kind() === "task") props.onLiveEdit?.(itemId, draftPatch());
       clearTimeout(saveTimer);
       if (dirty() && !closing) saveTimer = setTimeout(() => { void persist(); }, 800);
     });
@@ -152,6 +185,8 @@ export function ItemEditor(props: {
     clearTimeout(saveTimer);
     if (inFlight) await inFlight;
     while (dirty()) {
+      // Invalid content can't be saved: a close request reverts to the last saved state.
+      if (invalid()) { revertAndClose(); return; }
       if (!(await persist())) { closing = false; setCloseBlocked(true); return; }
     }
     props.onClose();
@@ -166,8 +201,19 @@ export function ItemEditor(props: {
   onMount(() => window.addEventListener("beforeunload", beforeUnload));
   onCleanup(() => {
     clearTimeout(saveTimer); window.removeEventListener("beforeunload", beforeUnload);
+    props.onLiveEdit?.(itemId, null);
     // An embedded editor can be replaced without closing it; keep edits that were still waiting to save.
     if (props.embedded && dirty() && !closing) void persist();
+  });
+  // Inline board edits flow back in live: the title input re-renders from the store
+  // (see its value=), and the notes editor is updated unless it's the focused field.
+  createEffect(() => {
+    const draft = props.liveEdits?.().get(itemId);
+    if (!draft) return;
+    if (draft.notes !== undefined && notesRef && notesRef.value !== draft.notes) {
+      notesRef.value = draft.notes;
+      notesApi?.setMarkdown(draft.notes);
+    }
   });
   const flush = async () => {
     if (reverting) return true;
@@ -401,6 +447,52 @@ export function ItemEditor(props: {
     await props.onStartDependent(own ? (currentItem as Task) : dependent, completeParent);
     if (own && !props.embedded) { closing = true; props.onClose(); }
   };
+  // A row's left-edge grip drags it between the Subtasks and Dependent tasks sections.
+  const startRowDrag = (child: Task, from: "subtask" | "dependent") => (event: PointerEvent) => {
+    if (event.button !== 0 || !props.onConvertChild) return;
+    event.preventDefault();
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture(event.pointerId);
+    const row = handle.closest<HTMLElement>(".subtask-row, .dependent-row");
+    const ghost = row ? (row.cloneNode(true) as HTMLElement) : null;
+    const startX = event.clientX, startY = event.clientY;
+    if (row && ghost) {
+      const rect = row.getBoundingClientRect();
+      ghost.classList.add("row-ghost");
+      Object.assign(ghost.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, margin: "0", zIndex: "70" });
+      document.body.appendChild(ghost);
+    }
+    row?.classList.add("dragging");
+    const wanted = from === "subtask" ? "dependents" : "subtasks";
+    let zone: HTMLElement | null = null, live = true;
+    const move = (next: PointerEvent) => {
+      if (ghost) ghost.style.transform = `translate(${next.clientX - startX}px, ${next.clientY - startY}px)`;
+      const over = document.elementFromPoint(next.clientX, next.clientY)?.closest<HTMLElement>("[data-task-drop-zone]");
+      const hit = over && over.dataset.taskDropZone === wanted && over.dataset.taskId === itemId ? over : null;
+      if (zone !== hit) { zone?.classList.remove("zone-target"); zone = hit; zone?.classList.add("zone-target"); }
+    };
+    const commit = props.onConvertChild;
+    const finish = (drop: boolean) => {
+      if (!live) return;
+      live = false;
+      ghost?.remove();
+      row?.classList.remove("dragging");
+      zone?.classList.remove("zone-target");
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", cancel);
+      document.removeEventListener("keydown", escape, true);
+      if (drop && zone) void commit(child, wanted === "dependents" ? "dependent" : "subtask");
+    };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); finish(false); } };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up, { once: true });
+    handle.addEventListener("pointercancel", cancel, { once: true });
+    document.addEventListener("keydown", escape, true);
+  };
+
   const startButtons = (dependent: Task, parent?: Task) => <>
     <button type="button" class="text-button" onClick={() => void startDependent(dependent, false)}>Start</button>
     <Show when={parent && parent.state !== "completed"}><button type="button" class="text-button" title={`Start this and complete “${parent?.title || "Untitled task"}”`} onClick={() => void startDependent(dependent, true)}>Start & complete</button></Show>
@@ -408,12 +500,12 @@ export function ItemEditor(props: {
 
   const form = (
       <form ref={(element) => { formRef = element; }} onSubmit={(event) => { event.preventDefault(); void close(); }} onInput={syncDirty}>
-        <div class="editor-close-bar"><button type="button" class="icon-button editor-close" classList={{ invalid: dirty() && !!saveError() }} aria-label={dirty() && saveError() ? "Close (this item can't be saved as is)" : "Close"} title={dirty() && saveError() ? `Can't save: ${saveError()}` : "Close (Esc)"} onClick={() => void close()}>×</button></div>
+        <div class="editor-close-bar"><button type="button" class="icon-button editor-close" classList={{ invalid: dirty() && !!(saveError() || invalid()) }} aria-label={dirty() && (saveError() || invalid()) ? "Close (reverts the unsaved changes)" : "Close"} title={dirty() && (saveError() || invalid()) ? `Can't save: ${saveError() || invalid()} — closing reverts` : "Close (Esc)"} onClick={() => void close()}>×</button></div>
         <Show when={closeBlocked() && dirty() && saveError()}>
           <div class="close-blocked" role="alert">
             <p><strong>Can't save this {kind()}:</strong> {saveError()}</p>
-            <p>Closing now reverts it to the last saved version.</p>
-            <div><button type="button" class="secondary-button" onClick={() => setCloseBlocked(false)}>Keep editing</button><button type="button" class="danger-button" onClick={revertAndClose}>Revert & close</button></div>
+            <p>Closing now reverts it to the last saved version. Typing continues editing.</p>
+            <div><button type="button" class="danger-button" onClick={revertAndClose}>Revert & close</button></div>
           </div>
         </Show>
         <Show when={props.embedded} fallback={<p class="editor-eyebrow">{existing ? "The details" : props.request.parentId ? "New subtask" : "Make a little space for it"}</p>}>
@@ -421,7 +513,7 @@ export function ItemEditor(props: {
         </Show>
         <div class="dialog-header">
           <Show when={props.embedded && kind() === "task"}>{completionButton(true)}</Show>
-          <label class="editor-title-field"><span class="visually-hidden" id={`editor-title-${domId}`}>Item title</span><input class="editor-title-input" name="title" aria-label="Item title" required maxLength={240} placeholder="Untitled item" value={existing?.title || ""} data-dialog-autofocus={true} /><span class="title-edit-hint" aria-hidden="true">✎</span></label>
+          <label class="editor-title-field"><span class="visually-hidden" id={`editor-title-${domId}`}>Item title</span><input class="editor-title-input" name="title" aria-label="Item title" required maxLength={240} placeholder="Untitled item" value={props.liveEdits?.().get(itemId)?.title ?? existing?.title ?? ""} data-dialog-autofocus={true} /><span class="title-edit-hint" aria-hidden="true">✎</span></label>
         </div>
 
         <Show when={props.embedded && status()}><p class="detail-status">{status()}</p></Show>
@@ -467,7 +559,7 @@ export function ItemEditor(props: {
 
         <section class="notes-editor" aria-label="Notes">
           <div class="notes-toolbar"><span>Notes</span></div>
-          <NotesEditor ariaLabel="Notes" placeholder="Write notes…" initialMarkdown={existing?.notes || ""} onChange={onNotesChange} onEditor={api => { notesApi = api; }} />
+          <NotesEditor ariaLabel="Notes" placeholder="Write notes…" initialMarkdown={props.liveEdits?.().get(itemId)?.notes ?? existing?.notes ?? ""} onChange={onNotesChange} onEditor={api => { notesApi = api; }} />
           <textarea ref={notesRef} id={`item-notes-${domId}`} name="notes" hidden value={existing?.notes || ""} />
         </section>
 
@@ -478,12 +570,12 @@ export function ItemEditor(props: {
 
 
           <Show when={kind() === "task"}>
-              <div class="subtask-editor full-span" data-task-drop-zone="subtasks" data-task-id={itemId}><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" hidden={props.embedded} disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button>}</For>
+              <div class="subtask-editor full-span" data-task-drop-zone="subtasks" data-task-id={itemId}><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" hidden={props.embedded} disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <div class="subtask-row"><span class="subtask-grip" title="Drag to make this a dependent task" aria-hidden="true" onPointerDown={startRowDrag(child, "subtask")} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button></div>}</For>
                 <Show when={props.embedded && props.onQuickAddSubtask}><div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New subtask title" placeholder={hasSavedItem() ? "Add a next step…" : "Name this task first"} disabled={!hasSavedItem()} maxLength={240} value={subtaskDraft()} onInput={event => setSubtaskDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addSubtaskInline(); } }} /><button type="button" class="text-button" disabled={!subtaskDraft().trim()} onClick={() => void addSubtaskInline()}>Add</button></div></Show>
                 </div>
                 <Show when={hasSavedItem() && props.onAddDependent}>
                    <div class="subtask-editor dependents-editor full-span" data-task-drop-zone="dependents" data-task-id={itemId}><div class="subtask-heading"><strong>Dependent tasks</strong></div>
-                    <For each={dependents()}>{dependent => <div class="dependent-row"><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(dependent)}><span aria-hidden="true">◌</span> {dependent.title || "Untitled task"}</button>{startButtons(dependent, currentItem?.kind === "task" ? currentItem : undefined)}</div>}</For>
+                     <For each={dependents()}>{dependent => <div class="dependent-row"><span class="subtask-grip" title="Drag to make this a subtask" aria-hidden="true" onPointerDown={startRowDrag(dependent, "dependent")} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(dependent)}><span aria-hidden="true">◌</span> {dependent.title || "Untitled task"}</button>{startButtons(dependent, currentItem?.kind === "task" ? currentItem : undefined)}</div>}</For>
                     <div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New dependent task title" placeholder="Add a dependent task…" maxLength={240} value={dependentDraft()} onInput={event => setDependentDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addDependentInline(); } }} /><button type="button" class="text-button" disabled={!dependentDraft().trim()} onClick={() => void addDependentInline()}>Add</button></div>
                   </div>
                 </Show>

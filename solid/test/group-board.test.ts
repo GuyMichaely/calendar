@@ -142,13 +142,14 @@ test("taskPlacePatches nests, un-nests, re-groups, and indexes a task among new 
     task("kid", { parentId: "a", sortOrder: 0 }),
   ];
   const [a, b, kid] = items.filter(item => item.kind === "task") as Task[];
+  const clear = { dependentOf: null, relativeDates: null };
   // Nest b under a: appended as its second child, group cleared. (kid already has order 0.)
   expect(taskPlacePatches(items, b, a.id, null).map(({ task: t, patch }) => [t.id, patch]))
-    .toEqual([["b", { sortOrder: 1, parentId: "a", groupId: null }]]);
+    .toEqual([["b", { sortOrder: 1, parentId: "a", groupId: null, ...clear }]]);
   // Move b between groups at the end of home's top level.
   expect(taskPlacePatches(items, b, null, "home").map(({ task: t, patch }) => [t.id, patch]))
-    .toEqual([["b", { sortOrder: 0, parentId: null, groupId: "home" }]]);
+    .toEqual([["b", { sortOrder: 0, parentId: null, groupId: "home", ...clear }]]);
   // Put kid before a on work's top level: a and b shift down.
   expect(taskPlacePatches(items, kid, null, "work", 0).map(({ task: t, patch }) => [t.id, patch]))
-    .toEqual([["kid", { sortOrder: 0, parentId: null, groupId: "work" }], ["a", { sortOrder: 1 }], ["b", { sortOrder: 2 }]]);
+    .toEqual([["kid", { sortOrder: 0, parentId: null, groupId: "work", ...clear }], ["a", { sortOrder: 1 }], ["b", { sortOrder: 2 }]]);
 });

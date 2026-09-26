@@ -6,6 +6,9 @@ import { createNotesExtensions } from "./notes-markdown";
 // Lets the item form insert attachment links and keep a hidden field in sync.
 export type NotesEditorApi = {
   insertMarkdown(markdown: string): void;
+  // Replace the document from outside (inline board edits); ignored while the user
+  // is typing in this editor, so the caret is never disturbed mid-keystroke.
+  setMarkdown(markdown: string): void;
   focus(): void;
 };
 
@@ -59,6 +62,7 @@ export function NotesEditor(props: {
     });
   };
 
+  let focused = false;
   onMount(() => {
     editor = new Editor({
       element: container,
@@ -73,10 +77,12 @@ export function NotesEditor(props: {
           "aria-label": props.ariaLabel,
         },
       },
+      onFocus: () => { focused = true; },
+      onBlur: () => { focused = false; },
       onUpdate: () => {
         if (!editor) return;
         // Blank trailing paragraphs serialize as &nbsp;; notes don't need them.
-        props.onChange(editor.getMarkdown().replace(/(?:&nbsp;|[\s ])+$/g, ""));
+        props.onChange(editor.getMarkdown().replace(/(?:&nbsp;|[\s ])+$/g, ""));
       },
       onTransaction: refresh,
     });
@@ -84,6 +90,12 @@ export function NotesEditor(props: {
     props.onEditor?.({
       insertMarkdown: (markdown) => {
         editor?.chain().focus().insertContent(markdown, { contentType: "markdown" }).run();
+      },
+        setMarkdown: (markdown) => {
+        if (!editor || focused) return;
+        const current = editor.getMarkdown().replace(/(?:&nbsp;|[\s ])+$/g, "");
+        // contentType reaches the Markdown extension's setContent override (untyped upstream).
+        if (current !== markdown) editor.commands.setContent(markdown, { emitUpdate: false, contentType: "markdown" } as unknown as Parameters<typeof editor.commands.setContent>[1]);
       },
       focus: () => editor?.commands.focus(),
     });
