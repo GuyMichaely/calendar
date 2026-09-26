@@ -26,7 +26,7 @@ test("Solid dialogs protect dirty edits and preserve attachment and sleep feedba
   const editor = source("solid/src/ItemEditor.tsx");
   const shortcuts = source("solid/src/shortcuts.tsx");
   assert.match(editor, /draggingAttachments\(\) \? "dragging"/);
-  assert.match(editor, /Discard your unsaved changes\?/);
+  assert.match(editor, /Revert & close/);
 });
 
 test("Solid shell keeps calendar search and today navigation", () => {

@@ -1,4 +1,4 @@
-import { For, Index, Show, createEffect, createMemo, createSignal, onMount, type JSX } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { formatDateTime, isSleeping, sleepInfo } from "../../site/domain.js";
 import { groupDescendants } from "../../site/task-tree.js";
 import { Icon } from "./Icon";
@@ -27,6 +27,9 @@ export type GroupsViewProps = {
   onDeleteGroup: (group: Group) => Promise<void>;
   onPlaceGroup: (id: string, target: BoardTarget) => Promise<void>;
   onStartDependent: (task: Task, completeParent: boolean) => Promise<void>;
+  onDeleteTask: (task: Task) => Promise<void>;
+  onSleepTask: (task: Task) => Promise<void>;
+  onWakeTask: (task: Task) => Promise<void>;
   respectSleep: boolean;
 };
 
@@ -37,6 +40,9 @@ function clickedOffset(event: MouseEvent, element: Element) {
   const range = document.caretRangeFromPoint?.(event.clientX, event.clientY);
   return range && element.contains(range.startContainer) ? range.startOffset : undefined;
 }
+
+/** Tasks shown in a list, counting subtasks. */
+const countTasks = (nodes: TaskNode[]): number => nodes.reduce((total, node) => total + 1 + countTasks(node.children), 0);
 
 function textMatches(task: Task, query: string) {
   const needle = query.trim().toLowerCase();
@@ -200,6 +206,7 @@ export function GroupsView(props: GroupsViewProps) {
             </span>
           </Show>
         </span>
+        <TaskMenu task={task()} dormant={dormant()} parent={parent()} />
       </div>
       <TaskList nodes={rowProps.node.children} depth={rowProps.depth + 1} />
       <Show when={rowProps.node.dependents.length}>
@@ -207,6 +214,39 @@ export function GroupsView(props: GroupsViewProps) {
         <TaskList nodes={rowProps.node.dependents} depth={rowProps.depth + 1} />
       </Show>
     </>;
+  };
+
+  // The ⋮ menu on each task row.
+  const TaskMenu = (menuProps: { task: Task; dormant: boolean; parent?: Task }) => {
+    const [open, setOpen] = createSignal(false);
+    let root!: HTMLSpanElement;
+    createEffect(() => {
+      if (!open()) return;
+      const outside = (event: PointerEvent) => { if (!root.contains(event.target as Node)) setOpen(false); };
+      const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); setOpen(false); } };
+      document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", escape, true);
+      onCleanup(() => { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape, true); });
+    });
+    const act = (run: () => unknown) => () => { setOpen(false); void run(); };
+    const sleeping = () => sleepInfo(menuProps.task, props.now).sleeping;
+    return <span class="task-menu" ref={root}>
+      <button class="icon-button task-menu-button" aria-label={`Actions for ${menuProps.task.title || "Untitled task"}`} aria-haspopup="menu" aria-expanded={open()} onClick={() => setOpen(value => !value)}>⋮</button>
+      <Show when={open()}>
+        <div class="task-menu-list" role="menu">
+          <button role="menuitem" onClick={act(() => props.onEdit(menuProps.task))}>Open details</button>
+          <Show when={menuProps.dormant}>
+            <button role="menuitem" onClick={act(() => props.onStartDependent(menuProps.task, false))}>Start</button>
+            <Show when={menuProps.parent && menuProps.parent.state !== "completed"}><button role="menuitem" onClick={act(() => props.onStartDependent(menuProps.task, true))}>Start & complete “{menuProps.parent?.title}”</button></Show>
+          </Show>
+          <Show when={menuProps.task.state !== "completed" && !menuProps.dormant}>
+            <Show when={sleeping()} fallback={<button role="menuitem" onClick={act(() => props.onSleepTask(menuProps.task))}>Sleep until tomorrow</button>}>
+              <button role="menuitem" onClick={act(() => props.onWakeTask(menuProps.task))}>Wake</button>
+            </Show>
+          </Show>
+          <button role="menuitem" class="danger-text" onClick={act(() => props.onDeleteTask(menuProps.task))}>Delete</button>
+        </div>
+      </Show>
+    </span>;
   };
 
   const TaskList = (listProps: { nodes: TaskNode[]; depth: number }): JSX.Element => {
@@ -231,7 +271,9 @@ export function GroupsView(props: GroupsViewProps) {
     const group = () => node().group;
     let titleInput!: HTMLInputElement;
     const title = createMemo(() => group().title);
-    createEffect(() => { const value = title(); if (document.activeElement !== titleInput) titleInput.value = value; });
+    // The name field is as wide as its text so the count can sit right after it.
+    const [shownTitle, setShownTitle] = createSignal(group().title);
+    createEffect(() => { const value = title(); if (document.activeElement !== titleInput) { titleInput.value = value; setShownTitle(value); } });
     const [collapsed, setCollapsed] = createSignal(false);
     const [tools, setTools] = createSignal(false);
     const index = () => sectionProps.siblings.indexOf(sectionProps.id);
@@ -246,8 +288,10 @@ export function GroupsView(props: GroupsViewProps) {
       <Show when={!sectionProps.depth}><DragGrip id={group().id} /></Show>
       <header class="board-group-header">
         <button class="icon-button board-collapse" aria-label={collapsed() ? "Expand group" : "Collapse group"} aria-expanded={!collapsed()} onClick={() => setCollapsed(value => !value)}>{collapsed() ? "›" : "⌄"}</button>
-        <input ref={titleInput} class="board-group-title" data-group-title={group().id} aria-label="Group name"
-          onChange={event => rename(event.currentTarget)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.currentTarget.value = group().title; event.currentTarget.blur(); } }} />
+        <span class="title-fit" data-value={shownTitle()}><input ref={titleInput} size={1} class="board-group-title" data-group-title={group().id} aria-label="Group name" onInput={event => setShownTitle(event.currentTarget.value)}
+          onChange={event => rename(event.currentTarget)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.currentTarget.value = group().title; setShownTitle(group().title); event.currentTarget.blur(); } }} /></span>
+        <span class="board-count" title="Tasks in this group">{countTasks(node().tasks)}</span>
+        <span class="header-spacer" />
         <Show when={sectionProps.depth}>
           <button class="icon-button" aria-label="Move up" title="Move up" disabled={index() <= 0} onClick={() => void props.onReorderGroup(group(), -1)}>↑</button>
           <button class="icon-button" aria-label="Move down" title="Move down" disabled={index() >= sectionProps.siblings.length - 1} onClick={() => void props.onReorderGroup(group(), 1)}>↓</button>
@@ -287,7 +331,7 @@ export function GroupsView(props: GroupsViewProps) {
     const nodes = () => spec.builtin === "ungrouped" ? board().ungrouped : smart()[spec.builtin];
     return <section class="board-group smart-group" classList={{ dragging: dragId() === spec.id }}>
       <DragGrip id={spec.id} />
-      <header class="board-group-header"><h2>{spec.title}</h2><Show when={spec.builtin !== "ungrouped"}><span class="board-count">{nodes().length}</span></Show></header>
+      <header class="board-group-header"><h2>{spec.title}</h2><span class="board-count">{countTasks(nodes())}</span></header>
       <Show when={nodes().length || !empty} fallback={<p class="board-empty">{empty}</p>}><TaskList nodes={nodes()} depth={0} /></Show>
       <Show when={spec.builtin === "ungrouped"}><AddTask groupId={null} /></Show>
     </section>;

@@ -12,6 +12,7 @@ import {
   tomorrowMidnight,
 } from "../../site/domain.js";
 import { MarkdownNotes } from "./MarkdownNotes";
+import { DateTimeField } from "./DateTimeField";
 import { groupOptions } from "./group-board";
 import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
 import { attachmentMarkdown } from "./markdown";
@@ -86,6 +87,8 @@ export function ItemEditor(props: {
   onQuickAddSubtask?: (parent: Task, title: string) => Promise<boolean>;
   onAddDependent?: (parent: Task, title: string) => Promise<boolean>;
   onStartDependent?: (task: Task, completeParent: boolean) => Promise<void>;
+  // Lets the app close an embedded editor (e.g. Escape pressed outside it) through the same checks.
+  registerClose?: (close: () => void) => () => void;
 }) {
   const existing = props.request.item;
   const domId = `${++editorInstances}`;
@@ -144,15 +147,21 @@ export function ItemEditor(props: {
     });
   });
 
+  // Closing saves first. If the edits can't be saved, say why and offer to revert to the last saved version.
+  const [closeBlocked, setCloseBlocked] = createSignal(false);
   const close = async () => {
     closing = true;
     clearTimeout(saveTimer);
     if (inFlight) await inFlight;
     while (dirty()) {
-      if (!(await persist())) { closing = false; return; }
+      if (!(await persist())) { closing = false; setCloseBlocked(true); return; }
     }
     props.onClose();
   };
+  // Reverting skips the save that closing would otherwise require (the app flushes before switching tasks).
+  let reverting = false;
+  const revertAndClose = () => { reverting = closing = true; clearTimeout(saveTimer); props.onClose(); };
+  onMount(() => { const unregister = props.registerClose?.(() => void close()); onCleanup(() => unregister?.()); });
   const beforeUnload = (event: BeforeUnloadEvent) => {
     if (dirty() || saving()) { event.preventDefault(); event.returnValue = ""; }
   };
@@ -163,6 +172,7 @@ export function ItemEditor(props: {
     if (props.embedded && dirty() && !closing) void persist();
   });
   const flush = async () => {
+    if (reverting) return true;
     clearTimeout(saveTimer);
     if (inFlight) await inFlight;
     while (dirty()) { if (!(await persist())) return false; }
@@ -207,6 +217,7 @@ export function ItemEditor(props: {
 
   const saveOnce = async (): Promise<boolean> => {
     if (!dirty()) return true;
+    if (!String(new FormData(formRef).get("title") || "").trim()) { setSaveError("Enter a title to save."); return false; }
     if (!formRef.checkValidity()) {
       const sleepInput = formRef.elements.namedItem("sleepUntil") as HTMLInputElement | null;
       setSaveError(sleepInput?.validity.rangeOverflow ? "Sleep must end on or before the task’s due date." : "Complete the required fields to save.");
@@ -278,6 +289,7 @@ export function ItemEditor(props: {
         history: historyEntries,
       };
     } else {
+      if (!eventStart() && !eventEnd()) { setSaveError("Choose when the event starts."); return false; }
       let start = localInputToIso(eventStart());
       let end = localInputToIso(eventEnd());
       if (start && !end) {
@@ -450,13 +462,20 @@ export function ItemEditor(props: {
 
   const form = (
       <form ref={(element) => { formRef = element; }} onSubmit={(event) => { event.preventDefault(); void close(); }} onInput={syncDirty}>
+        <div class="editor-close-bar"><button type="button" class="icon-button editor-close" classList={{ invalid: dirty() && !!saveError() }} aria-label={dirty() && saveError() ? "Close (this item can't be saved as is)" : "Close"} title={dirty() && saveError() ? `Can't save: ${saveError()}` : "Close (Esc)"} onClick={() => void close()}>×</button></div>
+        <Show when={closeBlocked() && dirty() && saveError()}>
+          <div class="close-blocked" role="alert">
+            <p><strong>Can't save this {kind()}:</strong> {saveError()}</p>
+            <p>Closing now reverts it to the last saved version.</p>
+            <div><button type="button" class="secondary-button" onClick={() => setCloseBlocked(false)}>Keep editing</button><button type="button" class="danger-button" onClick={revertAndClose}>Revert & close</button></div>
+          </div>
+        </Show>
         <Show when={props.embedded} fallback={<p class="editor-eyebrow">{existing ? "The details" : props.request.parentId ? "New subtask" : "Make a little space for it"}</p>}>
           <nav class="detail-path" aria-label="Task path"><button type="button" class="text-button" onClick={close}>Tasks</button><For each={ancestors()}>{parent => <><span aria-hidden="true">›</span><button type="button" class="text-button" onClick={() => void navigateTask(parent)}>{parent.title || "Untitled task"}</button></>}</For></nav>
         </Show>
         <div class="dialog-header">
           <Show when={props.embedded && kind() === "task"}>{completionButton(true)}</Show>
           <label class="editor-title-field"><span class="visually-hidden" id={`editor-title-${domId}`}>Item title</span><input class="editor-title-input" name="title" aria-label="Item title" required maxLength={240} placeholder="Untitled item" value={existing?.title || ""} data-dialog-autofocus={true} /><span class="title-edit-hint" aria-hidden="true">✎</span></label>
-          <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
         </div>
 
         <Show when={props.embedded && status()}><p class="detail-status">{status()}</p></Show>
@@ -468,19 +487,19 @@ export function ItemEditor(props: {
 
         <Show when={kind() === "task"} fallback={
           <div class="form-grid">
-            <label class="field"><span>Starts</span><input name="eventStart" type="datetime-local" required value={eventStart()} onInput={(event) => { deriveEnd(event.currentTarget.value); syncDirty(); }} /></label>
-            <label class="field"><span>Ends</span><input name="eventEnd" type="datetime-local" value={eventEnd()} onInput={(event) => { deriveStart(event.currentTarget.value); syncDirty(); }} /></label>
+            <div class="field"><span>Starts</span><DateTimeField name="eventStart" label="Starts" value={eventStart()} onChange={value => { deriveEnd(value); syncDirty(); }} /></div>
+            <div class="field"><span>Ends</span><DateTimeField name="eventEnd" label="Ends" value={eventEnd()} onChange={value => { deriveStart(value); syncDirty(); }} /></div>
           </div>
         }>
           <div>
             <div class="form-grid">
               <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><Show when={!props.embedded}>{completionButton(false)}</Show></div>
-              {dateField("availableFrom", "Can start", <input name="availableFrom" aria-label="Can start" type="datetime-local" value={isoToLocalInput(task?.availableFrom)} />)}
-              {dateField("deadline", "Due", <input name="deadline" aria-label="Due" type="datetime-local" value={deadlineInput()} onInput={event => setDeadlineInput(event.currentTarget.value)} />)}
-              {dateField("latestStart", "Latest start", <input name="latestStart" aria-label="Latest start" type="datetime-local" value={isoToLocalInput(task?.latestStart)} />)}
+              {dateField("availableFrom", "Can start", <DateTimeField name="availableFrom" label="Can start" value={isoToLocalInput(task?.availableFrom)} onChange={syncDirty} />)}
+              {dateField("deadline", "Due", <DateTimeField name="deadline" label="Due" value={deadlineInput()} onChange={value => { setDeadlineInput(value); syncDirty(); }} />)}
+              {dateField("latestStart", "Latest start", <DateTimeField name="latestStart" label="Latest start" value={isoToLocalInput(task?.latestStart)} onChange={syncDirty} />)}
               <Show when={!task?.parentId && !props.request.parentId}><label class="field"><span>Group</span><select name="groupId" value={task?.groupId || props.request.groupId || ""}><option value="">No group</option><For each={groupChoices().map(option => option.group.id)}>{id => <option value={id}>{groupLabel(id)}</option>}</For></select></label></Show>
               <label class="field"><span>Sleep</span><select name="sleepMode" value={sleepMode()} onChange={(event) => { setSleepMode(event.currentTarget.value as ReturnType<typeof sleepMode>); syncDirty(); }}><option value="awake">Awake</option><option value="until">Until a date</option><option value="indefinite" disabled={!!deadlineInput()}>Indefinitely</option></select></label>
-              <label class="field" hidden={sleepMode() !== "until"}><span>Sleep until</span><input name="sleepUntil" type="datetime-local" max={deadlineInput() || undefined} value={sleepUntil} disabled={sleepMode() !== "until"} /></label>
+              <div class="field" hidden={sleepMode() !== "until"}><span>Sleep until</span><DateTimeField name="sleepUntil" label="Sleep until" value={sleepUntil} disabled={sleepMode() !== "until"} onChange={syncDirty} /></div>
             </div>
             <details class="schedule-box" open={!!task?.availabilitySchedule?.enabled}><summary><Icon name="clock" size={16} />Working hours<span>Optional</span></summary>
               <label class="toggle-row">
@@ -548,7 +567,6 @@ export function ItemEditor(props: {
           <Show when={hasSavedItem()}><button type="button" class="danger-button" disabled={saving()} onClick={() => void deleteCurrent()}>Delete</button></Show>
           <span role="status" title="Saved locally means this browser has stored the edit. Remote sync is reported in the app header.">{saving() ? "Saving…" : saveError() || (dirty() ? "Unsaved changes" : (hasSavedItem() ? "Saved locally" : "Not saved yet"))}</span>
           <div class="spacer" />
-          <Show when={dirty() && saveError()}><button type="button" class="secondary-button" disabled={saving()} onClick={() => { if (window.confirm("Discard your unsaved changes?")) { closing = true; clearTimeout(saveTimer); props.onClose(); } }}>Discard unsaved changes</button></Show>
           <button type="submit" class="secondary-button">Close</button>
         </div>
       </form>

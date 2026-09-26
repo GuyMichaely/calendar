@@ -40,6 +40,7 @@ import {
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
 import { GroupsView } from "./GroupsView";
 import { isDormant, projectDependents, startedTask } from "./dependencies";
+import { dependentTasks } from "../../site/task-tree.js";
 import { boardColumns, boardEntries, groupForest, layoutPatches, nextColumnKey, placeGroup as placeInLayout, sortedGroups, type BoardTarget } from "./group-board";
 import { ToastStack, type ToastMessage } from "./ToastStack";
 import { loadPollSeconds, animationsEnabled } from "./settings";
@@ -101,6 +102,7 @@ export function App() {
   const [selectedTaskId, setSelectedTaskId] = createSignal<string | null>(readSelectedTask());
   const [detailVersion, setDetailVersion] = createSignal(0);
   let flushDetail: (() => Promise<boolean>) | null = null;
+  let closeDetailEditor: (() => void) | null = null;
   const [toasts, setToasts] = createSignal<ToastMessage[]>([]);
   const [shortcuts, setShortcuts] = createSignal<Shortcuts>(loadShortcuts());
   const [shortcutsDirty, setShortcutsDirty] = createSignal(false);
@@ -273,6 +275,29 @@ export function App() {
       await refresh(); void requestRemoteSync(); return true;
     } catch (error) { showToast(errorMessage(error, "Could not add dependent task.")); return false; }
   };
+  // Deleting a task also deletes its subtasks and unstarted dependent tasks; one undo brings them back.
+  const deleteTask = async (task: Task) => {
+    const attached = dependentTasks(items(), task.id) as Task[];
+    const title = task.title || "Untitled task";
+    if (attached.length && !window.confirm(`Delete “${title}” and the ${attached.length} subtask${attached.length === 1 ? "" : "s"} or dependent task${attached.length === 1 ? "" : "s"} under it?`)) return;
+    // Close the task pane first if it shows one of them, so its pending edits can't recreate a deleted task.
+    const selected = selectedTaskId();
+    if (selected && [task.id, ...attached.map(item => item.id)].includes(selected)) { await selectTask(null, true); if (selectedTaskId()) return; }
+    try { await deleteItem(task.id); } catch (error) { showToast(errorMessage(error, "Could not delete task.")); return; }
+    await refresh(); void requestRemoteSync(); showToast(`Deleted “${title}” (Ctrl+Z to undo)`);
+  };
+  const sleepTask = async (task: Task) => {
+    const now = new Date().toISOString(), until = tomorrowMidnight(new Date()).toISOString();
+    try { await putItem({ ...task, sleep: { until, startedAt: now }, updatedAt: now, history: [...(task.history || []), { at: now, type: "slept", until }] }, task); }
+    catch (error) { showToast(errorMessage(error, "Could not sleep task.")); return; }
+    await refresh(); void requestRemoteSync(); showToast("Sleeping until tomorrow");
+  };
+  const wakeTask = async (task: Task) => {
+    const now = new Date().toISOString();
+    try { await putItem({ ...task, sleep: null, updatedAt: now, history: [...(task.history || []), { at: now, type: "woke" }] }, task); }
+    catch (error) { showToast(errorMessage(error, "Could not wake task.")); return; }
+    await refresh(); void requestRemoteSync(); showToast("Task is awake");
+  };
   const patchTask = async (task: Task, patch: Partial<Task>) => {
     try { await putItem({ ...task, ...patch, updatedAt: new Date().toISOString() }, task); await refresh(); void requestRemoteSync(); }
     catch (error) { showToast(errorMessage(error, "Could not update task.")); }
@@ -383,6 +408,10 @@ export function App() {
       setHistoryState({ canUndo: detail.canUndo ?? canUndo(), canRedo: detail.canRedo ?? canRedo(), undoLabel: detail.undoLabel ?? undoLabel(), redoLabel: detail.redoLabel ?? redoLabel() });
     };
     const onKeyDown = (event: KeyboardEvent) => {
+      // Escape closes the task pane even when focus is on the board (the pane handles it when focused inside).
+      if (event.key === "Escape" && !event.defaultPrevented && closeDetailEditor && !document.querySelector(".solid-dialog-backdrop") && !editableTarget(event.target) && !(event.target instanceof Element && event.target.closest(".item-detail"))) {
+        event.preventDefault(); closeDetailEditor(); return;
+      }
       if (!document.querySelector(".solid-dialog-backdrop") && !editableTarget(event.target)) {
         const modifier = event.ctrlKey || event.metaKey;
         if (modifier && !event.altKey) {
@@ -415,11 +444,11 @@ export function App() {
             <div class="tasks-workspace" classList={{ split: splitView() && !!detailRequest() }}>
             <GroupsView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null} showCompleted={showCompleted()} onShowCompletedChange={value => { setShowCompleted(value); localStorage.setItem("calendar.groups.showCompleted", value ? "1" : "0"); }}
               compact={compact()} onCompactChange={value => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onPatchTask={patchTask}
-              onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={renameGroup} onMoveGroup={moveGroup} onReorderGroup={reorderGroup} onDeleteGroup={deleteGroup} onPlaceGroup={placeGroup} onStartDependent={startDependent} respectSleep={calendarSleepMode() === "respect"} />
+              onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={renameGroup} onMoveGroup={moveGroup} onReorderGroup={reorderGroup} onDeleteGroup={deleteGroup} onPlaceGroup={placeGroup} onStartDependent={startDependent} onDeleteTask={deleteTask} onSleepTask={sleepTask} onWakeTask={wakeTask} respectSleep={calendarSleepMode() === "respect"} />
             <Show when={splitView() && detailRequest()}>
               <aside class="task-detail-pane" aria-label="Task details">
                 <Show when={detailRequest()} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
-                  <ItemEditor embedded request={request} items={items()} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} onStale={() => setDetailVersion(version => version + 1)}
+                  <ItemEditor embedded request={request} items={items()} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} registerClose={close => { closeDetailEditor = close; return () => { if (closeDetailEditor === close) closeDetailEditor = null; }; }} onStale={() => setDetailVersion(version => version + 1)}
                     onQuickAddSubtask={quickAddSubtask} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => void selectTask(task.id)} onAddSubtask={() => {}} onClose={() => void closeDetail()}
                     onDelete={async (item) => { await deleteItem(item.id); await refresh(); flushDetail = null; await selectTask(null, true); void requestRemoteSync(); showToast("Deleted"); }}
                     onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}
