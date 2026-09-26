@@ -76,7 +76,14 @@ export function GroupsView(props: GroupsViewProps) {
     const move = (next: PointerEvent) => {
       const edge = boardRef.getBoundingClientRect();
       if (next.clientX > edge.right - 40) boardRef.scrollLeft += 16; else if (next.clientX < edge.left + 40) boardRef.scrollLeft -= 16;
-      setDropKey(document.elementFromPoint(next.clientX, next.clientY)?.closest<HTMLElement>("[data-drop]")?.dataset.drop || "");
+      const hit = document.elementFromPoint(next.clientX, next.clientY);
+      const well = hit?.closest<HTMLElement>("[data-drop]")?.dataset.drop;
+      // Over another group, its left or right half means a new column on that side.
+      const entry = well ? null : hit?.closest<HTMLElement>("[data-board-entry]");
+      if (entry && entry.dataset.boardEntry !== id) {
+        const box = entry.getBoundingClientRect(), column = Number(entry.dataset.column);
+        setDropKey(`new-${next.clientX < box.left + box.width / 2 ? column : column + 1}`);
+      } else setDropKey(well || "");
     };
     const end = (drop: boolean) => () => {
       handle.removeEventListener("pointermove", move);
@@ -202,11 +209,12 @@ export function GroupsView(props: GroupsViewProps) {
       if (title !== group().title) void props.onRenameGroup(group(), title);
     };
     return <section class="board-group" classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id }}>
+      <Show when={!sectionProps.depth}><DragGrip id={group().id} /></Show>
       <header class="board-group-header">
         <button class="icon-button board-collapse" aria-label={collapsed() ? "Expand group" : "Collapse group"} aria-expanded={!collapsed()} onClick={() => setCollapsed(value => !value)}>{collapsed() ? "›" : "⌄"}</button>
         <input ref={titleInput} class="board-group-title" data-group-title={group().id} aria-label="Group name"
           onChange={event => rename(event.currentTarget)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.currentTarget.value = group().title; event.currentTarget.blur(); } }} />
-        <Show when={sectionProps.depth} fallback={<DragHandle id={group().id} />}>
+        <Show when={sectionProps.depth}>
           <button class="icon-button" aria-label="Move up" title="Move up" disabled={index() <= 0} onClick={() => void props.onReorderGroup(group(), -1)}>↑</button>
           <button class="icon-button" aria-label="Move down" title="Move down" disabled={index() >= sectionProps.siblings.length - 1} onClick={() => void props.onReorderGroup(group(), 1)}>↓</button>
         </Show>
@@ -235,7 +243,8 @@ export function GroupsView(props: GroupsViewProps) {
     return <For each={ids()}>{id => <Show when={groupsById().has(id)}><GroupSection id={id} depth={listProps.depth} siblings={ids()} /></Show>}</For>;
   };
 
-  const DragHandle = (handleProps: { id: string }) => <span class="board-drag-handle" title="Drag to move" aria-hidden="true" onPointerDown={startGroupDrag(handleProps.id)}>⠿</span>;
+  // The strip across the top of a top-level group is its drag handle.
+  const DragGrip = (gripProps: { id: string }) => <div class="board-grip" title="Drag to move" aria-hidden="true" onPointerDown={startGroupDrag(gripProps.id)}><span /></div>;
 
   // Built-in sections: availability lists across all groups, and tasks without a group.
   const BuiltinSection = (sectionProps: { id: string }) => {
@@ -243,7 +252,8 @@ export function GroupsView(props: GroupsViewProps) {
     const empty = { available: "Nothing is available right now.", upcoming: "Nothing is waiting to start.", sleeping: "No sleeping tasks.", ungrouped: "" }[spec.builtin];
     const nodes = () => spec.builtin === "ungrouped" ? board().ungrouped : smart()[spec.builtin];
     return <section class="board-group smart-group" classList={{ dragging: dragId() === spec.id }}>
-      <header class="board-group-header"><DragHandle id={spec.id} /><h2>{spec.title}</h2><Show when={spec.builtin !== "ungrouped"}><span class="board-count">{nodes().length}</span></Show></header>
+      <DragGrip id={spec.id} />
+      <header class="board-group-header"><h2>{spec.title}</h2><Show when={spec.builtin !== "ungrouped"}><span class="board-count">{nodes().length}</span></Show></header>
       <Show when={nodes().length || !empty} fallback={<p class="board-empty">{empty}</p>}><TaskList nodes={nodes()} depth={0} /></Show>
       <Show when={spec.builtin === "ungrouped"}><AddTask groupId={null} /></Show>
     </section>;
@@ -262,7 +272,9 @@ export function GroupsView(props: GroupsViewProps) {
         <div class="board-column">
           {dropTarget(`in-${columnIndex}-0`, () => ({ column: columnIndex, index: 0 }), "board-drop-slot")}
           <For each={column()}>{(id, position) => <>
-            <Show when={groupsById().has(id)} fallback={<Show when={BUILTIN_GROUPS.some(entry => entry.id === id)}><BuiltinSection id={id} /></Show>}><GroupSection id={id} depth={0} siblings={column()} /></Show>
+            <div class="board-entry" data-board-entry={id} data-column={columnIndex}>
+              <Show when={groupsById().has(id)} fallback={<Show when={BUILTIN_GROUPS.some(entry => entry.id === id)}><BuiltinSection id={id} /></Show>}><GroupSection id={id} depth={0} siblings={column()} /></Show>
+            </div>
             {dropTarget(`in-${columnIndex}-${id}`, () => ({ column: columnIndex, index: position() + 1 }), "board-drop-slot")}
           </>}</For>
         </div>

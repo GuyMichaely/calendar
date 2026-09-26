@@ -452,15 +452,18 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .smart-group + .smart-group { margin-top: 10px; }
 .board-count { margin-left: auto; padding-right: 6px; color: var(--muted); font-size: 11px; }
 .board-empty { margin: 2px 6px 6px; color: var(--muted); font-size: 11px; }
-.board-drag-handle { padding: 0 3px; color: var(--muted); cursor: grab; user-select: none; touch-action: none; }
+.board-grip { display: flex; justify-content: center; margin: -6px -6px 0; padding: 5px 0 3px; border-radius: 10px 10px 0 0; cursor: grab; touch-action: none; }
+.board-grip span { width: 30px; height: 4px; border-radius: 2px; background: var(--line); transition: background .15s, width .15s; }
+.board-grip:hover span { width: 38px; background: var(--muted); }
 .board.drag-active, .board.drag-active * { cursor: grabbing; user-select: none; }
 .board-group.dragging { opacity: .45; }
 /* Drop targets double as spacing: slots between stacked groups, strips between columns. */
 .board-drop-slot { flex: 0 0 10px; border-radius: 8px; }
 .board-column > .board-drop-slot:last-child { flex: 1 0 10px; }
-.board-drop-column { flex: 0 0 12px; border-radius: 8px; }
-.board.drag-active .board-drop-slot, .board.drag-active .board-drop-column { outline: 1px dashed var(--line); outline-offset: -2px; }
-.board-drop-slot.active, .board-drop-column.active { background: var(--accent-soft); outline-color: var(--accent) !important; }
+.board-drop-column { flex: 0 0 14px; border-radius: 8px; }
+/* While dragging, every place the group could go is a recessed well; the one that would take the drop turns orange. */
+.board.drag-active .board-drop-slot, .board.drag-active .board-drop-column { background: var(--surface-3); box-shadow: inset 0 1px 3px #0008; }
+.board.drag-active .board-drop-slot.active, .board.drag-active .board-drop-column.active { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
 .board.drag-active .board-drop-slot.active { flex-basis: 40px; }
 .board-group { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 6px 6px 8px; }
 .board-group.nested { margin: 10px 0 0 4px; border-radius: 8px; background: var(--surface-3); }
