@@ -121,6 +121,24 @@ export function GroupsView(props: GroupsViewProps) {
     if (id) setTimeout(() => { const input = document.querySelector<HTMLInputElement>(`[data-group-title="${CSS.escape(id)}"]`); input?.focus(); input?.select(); });
   };
 
+  // A task open in the beside-the-board editor should stay visible: the pane shrinks
+  // the board's width, which can push the card out of view. Remember the exact card
+  // that was clicked (a task can appear in several sections) and scroll to it.
+  let openedCard: HTMLElement | null = null;
+  let scrolledFor: string | null = null;
+  createEffect(() => {
+    const id = props.selectedId;
+    if (!id) { scrolledFor = null; return; }
+    if (id === scrolledFor) return;
+    scrolledFor = id;
+    requestAnimationFrame(() => {
+      const card = openedCard?.isConnected && openedCard.dataset.id === id
+        ? openedCard
+        : document.querySelector<HTMLElement>(`[data-task-card][data-id="${CSS.escape(id)}"]`);
+      card?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+    });
+  });
+
   // Textareas that replace a task's title and description while they are edited, sized to their whole text.
   const InlineText = (inlineProps: { value: string; multiline: boolean; label: string; class: string; placeholder?: string; autofocus: boolean; caret?: number; ref: (element: HTMLTextAreaElement) => void; onFinish: (commit: boolean) => void }) => {
     let ref!: HTMLTextAreaElement;
@@ -193,7 +211,7 @@ export function GroupsView(props: GroupsViewProps) {
         onMouseDown={() => { clickEndedEdit = !!editing(); }}
         onClick={event => {
           if (clickEndedEdit) { clickEndedEdit = false; return; }
-          if (!(event.target instanceof Element && event.target.closest("button, textarea, .board-text"))) props.onEdit(task());
+          if (!(event.target instanceof Element && event.target.closest("button, textarea, .board-text"))) { openedCard = event.currentTarget as HTMLElement; props.onEdit(task()); }
         }}>
         <Show when={!dormant()} fallback={<span class="dormant-indicator" title="Not started" aria-hidden="true" />}>
           <Show when={task().state !== "completed"} fallback={<span class="complete-indicator" aria-hidden="true">✓</span>}>
@@ -257,7 +275,7 @@ export function GroupsView(props: GroupsViewProps) {
       <button class="icon-button task-menu-button" aria-label={`Actions for ${menuProps.task.title || "Untitled task"}`} aria-haspopup="menu" aria-expanded={open()} onClick={() => setOpen(value => !value)}>⋮</button>
       <Show when={open()}>
         <div class="task-menu-list" role="menu">
-          <button role="menuitem" onClick={act(() => props.onEdit(menuProps.task))}>Open details</button>
+          <button role="menuitem" onClick={act(() => { openedCard = root.closest(".board-task"); props.onEdit(menuProps.task); })}>Open details</button>
           <Show when={menuProps.dormant}>
             <button role="menuitem" onClick={act(() => props.onStartDependent(menuProps.task, false))}>Start</button>
             <Show when={menuProps.parent && menuProps.parent.state !== "completed"}><button role="menuitem" onClick={act(() => props.onStartDependent(menuProps.task, true))}>Start & complete “{menuProps.parent?.title}”</button></Show>
