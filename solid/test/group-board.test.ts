@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { boardColumns, boardEntries, buildBoard, groupOptions, layoutPatches, nextColumnKey, placeGroup } from "../src/group-board";
+import { projectDependents, startedTask } from "../src/dependencies";
 import type { Group, Item, Task } from "../src/types";
 
 const at = "2026-09-26T00:00:00.000Z";
@@ -69,4 +70,24 @@ test("built-in sections start leftmost, are created when first moved, and never 
   expect(boardColumns(boardEntries(stored))).toEqual(moved);
   expect(groupOptions(stored).map(option => option.group.id)).toEqual(["work"]);
   expect(buildBoard(stored, () => true).groups.map(node => node.group.id)).toEqual(["work"]);
+});
+
+test("dependent tasks show under their parent task until started, then in their own group", () => {
+  const dependent = task("check mailbox", { groupId: "home", dependentOf: "balance" });
+  const board = buildBoard([group("home"), task("balance"), dependent], () => true);
+  expect(titles(board.ungrouped)).toEqual(["balance"]);
+  expect(titles(board.ungrouped[0].dependents)).toEqual(["check mailbox"]);
+  expect(board.groups[0].tasks).toEqual([]);
+  const started = startedTask({ ...dependent, relativeDates: { availableFrom: 0, deadline: 4 } }, new Date("2026-10-07T12:00:00.000Z"));
+  expect(started).toMatchObject({ dependentOf: null, relativeDates: null, availableFrom: null, deadline: "2026-10-11T12:00:00.000Z" });
+  expect(titles(buildBoard([group("home"), task("balance"), started], () => true).groups[0].tasks)).toEqual(["check mailbox"]);
+  const openOnly = (item: Task) => item.state !== "completed";
+  expect(buildBoard([task("balance", { state: "completed" }), dependent], openOnly).ungrouped).toEqual([]);
+});
+
+test("the calendar's what-if view starts dependent tasks on their parent task's latest date, through chains", () => {
+  const items: Item[] = [task("balance", { deadline: "2026-10-10T12:00:00.000Z" }), task("mailbox", { dependentOf: "balance", relativeDates: { deadline: 4 } }), task("deposit", { dependentOf: "mailbox", relativeDates: { availableFrom: 1 } })];
+  const projected = projectDependents(items, new Date(at));
+  expect(projected.get("mailbox")!.deadline).toBe("2026-10-14T12:00:00.000Z");
+  expect(projected.get("deposit")!.availableFrom).toBe("2026-10-15T12:00:00.000Z");
 });

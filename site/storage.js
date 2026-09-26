@@ -1,5 +1,5 @@
 import { sleepValidationMessage } from "./domain.js";
-import { validateGroupParent, validateTaskGroup, validateTaskParent } from "./task-tree.js";
+import { validateDependentOf, validateGroupParent, validateTaskGroup, validateTaskParent } from "./task-tree.js";
 import {
   applyLocalHistoryChange,
   deleteLocalItem,
@@ -345,7 +345,7 @@ export function parseBackup(text) {
     throw new Error("This backup contains embedded attachment bytes. Import supports attachment references only.");
   }
   for (const item of items) {
-    if (item.kind === "task") { validateTaskParent(items, item.id, item.parentId); validateTaskGroup(items, item.groupId); }
+    if (item.kind === "task") { validateTaskParent(items, item.id, item.parentId); validateTaskGroup(items, item.groupId); validateDependentOf(items, item.id, item.dependentOf); }
     if (item.kind === "group") validateGroupParent(items, item.id, item.parentId);
     const sleepError = sleepValidationMessage(item);
     if (sleepError) throw new Error(sleepError);

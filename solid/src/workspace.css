@@ -458,13 +458,13 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .board.drag-active, .board.drag-active * { cursor: grabbing; user-select: none; }
 .board-group.dragging { opacity: .45; }
 /* Drop targets double as spacing: slots between stacked groups, strips between columns. */
-.board-drop-slot { flex: 0 0 10px; border-radius: 8px; }
-.board-column > .board-drop-slot:last-child { flex: 1 0 10px; }
+.board-drop-slot { flex: 0 0 18px; border-radius: 8px; }
+.board-column > .board-drop-slot:last-child { flex: 1 0 18px; }
 .board-drop-column { flex: 0 0 14px; border-radius: 8px; }
 /* While dragging, every place the group could go is a recessed well; the one that would take the drop turns orange. */
 .board.drag-active .board-drop-slot, .board.drag-active .board-drop-column { background: var(--surface-3); box-shadow: inset 0 1px 3px #0008; }
 .board.drag-active .board-drop-slot.active, .board.drag-active .board-drop-column.active { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
-.board.drag-active .board-drop-slot.active { flex-basis: 40px; }
+.board.drag-active .board-drop-slot.active { flex-basis: 56px; }
 .board-group { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 6px 6px 8px; }
 .board-group.nested { margin: 10px 0 0 4px; border-radius: 8px; background: var(--surface-3); }
 .board-group-header { display: flex; align-items: center; gap: 2px; min-height: 32px; margin-bottom: 4px; }
@@ -512,3 +512,22 @@ main:has(.groups-panel) > .tasks-workspace:not(.split) { flex: 1; display: flex;
   main:has(.groups-panel) { padding-bottom: 0; }
   .groups-panel > .board { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 }
+/* Tasks waiting on the task above, below its subtasks. */
+.board-then { display: flex; align-items: center; gap: 6px; margin: 2px 6px 0; color: var(--muted); font-size: 9px; letter-spacing: .6px; text-transform: uppercase; }
+.board-then::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+/* Dependent tasks that haven't started: dimmed, with start actions. */
+.board-task.dormant .board-task-title, .board-task.dormant .board-task-notes { opacity: .6; }
+.dormant-indicator { width: 19px; height: 19px; flex: 0 0 19px; margin-top: 2px; border: 1.3px dashed var(--control-border); border-radius: 50%; }
+.dependent-actions { display: flex; flex-wrap: wrap; gap: 2px 8px; margin-top: 2px; }
+.dependent-actions .text-button { padding: 1px 0; font-size: 11px; color: var(--accent-strong); }
+.dependent-actions .parent-name { display: inline-block; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; color: var(--muted); }
+.start-prompt { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 40; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; max-width: min(640px, calc(100vw - 24px)); padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); box-shadow: var(--shadow); font-size: 12px; }
+.start-prompt > div { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 760px) { .start-prompt { bottom: calc(84px + env(safe-area-inset-bottom)); } }
+.date-mode { margin-left: 4px; border: 0; background: transparent; color: var(--accent-strong); font-size: 10px; }
+.dependent-start { display: flex; gap: 10px; margin: -8px 0 14px 38px; }
+.dependent-row { display: flex; align-items: center; gap: 8px; }
+.dependent-row .subtask-editor-link { flex: 1; min-width: 0; }
+.dependent-row .text-button { font-size: 10px; }
+/* Calendar what-if entries for unstarted dependent tasks. */
+.ghost-entry { opacity: .6; border-style: dashed !important; outline: 1px dashed var(--line); outline-offset: -1px; }

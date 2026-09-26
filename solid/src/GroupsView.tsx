@@ -4,6 +4,7 @@ import { groupDescendants } from "../../site/task-tree.js";
 import { Icon } from "./Icon";
 import { BUILTIN_GROUPS, boardColumns, boardEntries, buildBoard, flattenGroupNodes, groupOptions, type BoardTarget, type GroupNode, type TaskNode } from "./group-board";
 import { planTasks } from "./task-planning";
+import { RELATIVE_DATE_FIELDS, isDormant } from "./dependencies";
 import type { Group, Item, Task } from "./types";
 
 export type GroupsViewProps = {
@@ -25,6 +26,7 @@ export type GroupsViewProps = {
   onReorderGroup: (group: Group, offset: -1 | 1) => Promise<void>;
   onDeleteGroup: (group: Group) => Promise<void>;
   onPlaceGroup: (id: string, target: BoardTarget) => Promise<void>;
+  onStartDependent: (task: Task, completeParent: boolean) => Promise<void>;
   respectSleep: boolean;
 };
 
@@ -47,16 +49,19 @@ export function GroupsView(props: GroupsViewProps) {
   const groupsById = createMemo(() => flattenGroupNodes(board().groups));
   const columns = createMemo(() => boardColumns(boardEntries(props.items)));
   // Built-in groups list tasks by availability, across every group.
+  const itemsById = createMemo(() => new Map(props.items.map(item => [item.id, item])));
   const smart = createMemo(() => {
-    const tasks = props.items.filter((item): item is Task => item.kind === "task" && item.state !== "completed" && textMatches(item, props.query));
+    // Dependent tasks that haven't been started are left out until they are.
+    const tasks = props.items.filter((item): item is Task => item.kind === "task" && item.state !== "completed" && !isDormant(item, itemsById()) && textMatches(item, props.query));
     const plan = planTasks(tasks, props.now, props.respectSleep, "start", null);
-    const flat = (rows: { task: Task }[]) => rows.map(row => ({ task: row.task, children: [] }));
+    const flat = (rows: { task: Task }[]): TaskNode[] => rows.map(row => ({ task: row.task, children: [], dependents: [] }));
     return {
       available: flat(plan.now),
       upcoming: flat(plan.upcoming.filter(row => !isSleeping(row.task, props.now))),
       sleeping: flat(plan.upcoming.filter(row => isSleeping(row.task, props.now))),
     };
   });
+  const [startPrompt, setStartPrompt] = createSignal<{ owner: Task; dependents: Task[] } | null>(null);
   // Dragging a top-level group shows where it can go: between groups in a column, or as a new column.
   const [dragId, setDragId] = createSignal<string | null>(null);
   const [dropKey, setDropKey] = createSignal("");
@@ -122,6 +127,15 @@ export function GroupsView(props: GroupsViewProps) {
 
   const TaskRow = (rowProps: { node: TaskNode; depth: number }): JSX.Element => {
     const task = () => rowProps.node.task;
+    const dormant = () => isDormant(task(), itemsById());
+    const parent = () => itemsById().get(task().dependentOf || "") as Task | undefined;
+    // Completing a task that has unstarted dependent tasks offers to start one of them.
+    const complete = async () => {
+      const dependents = props.items.filter((item): item is Task => item.kind === "task" && item.dependentOf === task().id);
+      const owner = task();
+      await props.onComplete(owner);
+      if (dependents.length) setStartPrompt({ owner, dependents });
+    };
     // Clicking the title or description edits both in place; the session ends when focus leaves them.
     const [editing, setEditing] = createSignal<"title" | "notes" | null>(null);
     let titleField: HTMLTextAreaElement | undefined, notesField: HTMLTextAreaElement | undefined, clickEndedEdit = false;
@@ -129,6 +143,12 @@ export function GroupsView(props: GroupsViewProps) {
       const parts: string[] = [];
       const sleep = sleepInfo(task(), props.now);
       if (sleep.sleeping) parts.push(sleep.indefinite ? "Sleeping" : `Sleeping until ${formatDateTime(sleep.until)}`);
+      // A dependent task's relative dates only become real dates when it is started.
+      const labels = { availableFrom: "Can start", latestStart: "Start by", deadline: "Due" } as const;
+      if (dormant()) for (const field of RELATIVE_DATE_FIELDS) {
+        const days = task().relativeDates?.[field];
+        if (days != null) parts.push(`${labels[field]} ${days}d after starting`);
+      }
       if (task().deadline) parts.push(`Due ${formatDateTime(task().deadline)}`);
       return parts.join(" · ");
     };
@@ -149,14 +169,16 @@ export function GroupsView(props: GroupsViewProps) {
       setEditing(field);
     };
     return <>
-      <div class="board-task" classList={{ selected: props.selectedId === task().id, done: task().state === "completed" }} style={{ "padding-left": `${rowProps.depth * 16 + 6}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
+      <div class="board-task" classList={{ selected: props.selectedId === task().id, done: task().state === "completed", dormant: dormant() }} style={{ "padding-left": `${rowProps.depth * 16 + 6}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
         onMouseDown={() => { clickEndedEdit = !!editing(); }}
         onClick={event => {
           if (clickEndedEdit) { clickEndedEdit = false; return; }
           if (!(event.target instanceof Element && event.target.closest("button, textarea, .board-text"))) props.onEdit(task());
         }}>
-        <Show when={task().state !== "completed"} fallback={<span class="complete-indicator" aria-hidden="true">✓</span>}>
-          <button class="complete-button" aria-label={`Complete ${task().title}`} onClick={() => void props.onComplete(task())} />
+        <Show when={!dormant()} fallback={<span class="dormant-indicator" title="Not started" aria-hidden="true" />}>
+          <Show when={task().state !== "completed"} fallback={<span class="complete-indicator" aria-hidden="true">✓</span>}>
+            <button class="complete-button" aria-label={`Complete ${task().title}`} onClick={() => void complete()} />
+          </Show>
         </Show>
         <span class="board-task-copy">
           <Show when={editing()} fallback={<>
@@ -169,9 +191,21 @@ export function GroupsView(props: GroupsViewProps) {
             </div>
           </Show>
           <Show when={meta()}><small>{meta()}</small></Show>
+          <Show when={dormant()}>
+            <span class="dependent-actions">
+              <button class="text-button" onClick={() => void props.onStartDependent(task(), false)}>Start</button>
+              <Show when={parent()?.state !== "completed"}>
+                <button class="text-button" title={`Start this and complete “${parent()?.title || "Untitled task"}”`} onClick={() => void props.onStartDependent(task(), true)}>Start & complete <span class="parent-name">{parent()?.title}</span></button>
+              </Show>
+            </span>
+          </Show>
         </span>
       </div>
       <TaskList nodes={rowProps.node.children} depth={rowProps.depth + 1} />
+      <Show when={rowProps.node.dependents.length}>
+        <div class="board-then" style={{ "margin-left": `${(rowProps.depth + 1) * 16 + 6}px` }}>Dependent tasks</div>
+        <TaskList nodes={rowProps.node.dependents} depth={rowProps.depth + 1} />
+      </Show>
     </>;
   };
 
@@ -260,6 +294,15 @@ export function GroupsView(props: GroupsViewProps) {
   };
 
   return <section class="panel groups-panel">
+    <Show when={startPrompt()}>{prompt =>
+      <div class="start-prompt" role="status">
+        <span>Completed “{prompt().owner.title || "Untitled task"}”. Start a dependent task?</span>
+        <div>
+          <For each={prompt().dependents}>{dependent => <button class="secondary-button" onClick={() => { setStartPrompt(null); void props.onStartDependent(dependent, false); }}>{dependent.title || "Untitled task"}</button>}</For>
+          <button class="text-button" onClick={() => setStartPrompt(null)}>Not now</button>
+        </div>
+      </div>}
+    </Show>
     <div class="groups-toolbar">
       <h1>Groups</h1>
       <button class={`secondary-button density-toggle ${props.compact ? "active" : ""}`} aria-pressed={props.compact} onClick={() => props.onCompactChange(!props.compact)}><Icon name="compact" size={15} />Compact</button>

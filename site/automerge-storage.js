@@ -1,5 +1,5 @@
 import { sleepValidationMessage } from "./domain.js";
-import { taskDescendants, taskAncestors, validateTaskParent, validateGroupParent, validateTaskGroup, taskMoveUpdates } from "./task-tree.js";
+import { taskDescendants, taskAncestors, validateTaskParent, validateGroupParent, validateTaskGroup, validateDependentOf, dependentTasks, taskMoveUpdates } from "./task-tree.js";
 import * as Automerge from "@automerge/automerge";
 import {
   addAttachmentMetadata,
@@ -35,7 +35,7 @@ const COMMON_ITEM_FIELDS = new Set([
 ]);
 const TASK_ITEM_FIELDS = new Set([
   ...COMMON_ITEM_FIELDS, "state", "parentId", "sortOrder", "availableFrom", "deadline", "latestStart", "sleep",
-  "availabilitySchedule", "completedAt", "history", "groupId",
+  "availabilitySchedule", "completedAt", "history", "groupId", "dependentOf", "relativeDates",
 ]);
 const GROUP_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "parentId", "sortOrder", "boardColumn", "builtin"]);
 const EVENT_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end"]);
@@ -395,7 +395,7 @@ export function putLocalItem(item, baseline = null) {
     const currentHeads = Automerge.getHeads(doc);
     const before = hydrateItem(materializeItem(doc, item.id), currentHeads);
     const current = materializeItem(doc, item.id, { includeDeleted: true });
-    if (item.kind === "task") { const items = materializeItems(doc); validateTaskParent(items, item.id, item.parentId); validateTaskGroup(items, item.groupId); }
+    if (item.kind === "task") { const items = materializeItems(doc); validateTaskParent(items, item.id, item.parentId); validateTaskGroup(items, item.groupId); validateDependentOf(items, item.id, item.dependentOf); }
     if (item.kind === "group") validateGroupParent(materializeItems(doc), item.id, item.parentId);
     const historicalEdit = baseline && baselineHeads ? applyItemIntentAtHeads(doc, baselineHeads, baseline, item) : null;
     let nextDoc = historicalEdit?.newDoc || applyItemIntent(doc, baseline || current, item, { restoreDeleted: baseline == null });
@@ -431,7 +431,8 @@ export function deleteLocalItem(id, deletedAt = new Date().toISOString()) {
   return writeState((doc) => {
     const before = hydrateItem(materializeItem(doc, id), Automerge.getHeads(doc));
     if (!before) return { doc, result: { before: null, after: null, changes: [] } };
-    const targets = [before, ...(before.kind === "task" ? taskDescendants(materializeItems(doc), id) : [])];
+    // A task takes its subtasks and not-yet-started dependent tasks with it.
+    const targets = [before, ...(before.kind === "task" ? dependentTasks(materializeItems(doc), id) : [])];
     const changes = targets.map(item => ({ id: item.id, before: hydrateItem(materializeItem(doc, item.id), Automerge.getHeads(doc)), after: null }));
     let nextDoc = doc;
     for (const target of targets) nextDoc = tombstoneItem(nextDoc, target.id, deletedAt);

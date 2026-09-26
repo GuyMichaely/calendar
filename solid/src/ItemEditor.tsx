@@ -1,6 +1,6 @@
 import { Icon } from "./Icon";
 import { taskAncestors, taskDescendants } from "../../site/task-tree.js";
-import { For, Show, createEffect, createMemo, createSignal, onMount, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onMount, onCleanup, type JSX } from "solid-js";
 import {
   actionability,
   formatDateTime,
@@ -13,10 +13,12 @@ import {
 } from "../../site/domain.js";
 import { MarkdownNotes } from "./MarkdownNotes";
 import { groupOptions } from "./group-board";
+import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
 import { attachmentMarkdown } from "./markdown";
 import { DialogShell } from "./DialogShell";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
 import type { Attachment, CalendarEvent, Item, Task } from "./types";
+import type { RelativeDates } from "../../site/model";
 
 export type EditorRequest = {
   item: Task | CalendarEvent | null;
@@ -82,6 +84,8 @@ export function ItemEditor(props: {
   registerFlush?: (flush: () => Promise<boolean>) => () => void;
   onStale?: () => void;
   onQuickAddSubtask?: (parent: Task, title: string) => Promise<boolean>;
+  onAddDependent?: (parent: Task, title: string) => Promise<boolean>;
+  onStartDependent?: (task: Task, completeParent: boolean) => Promise<void>;
 }) {
   const existing = props.request.item;
   const domId = `${++editorInstances}`;
@@ -100,6 +104,9 @@ export function ItemEditor(props: {
   let inFlight: Promise<boolean> | null = null;
   let closing = false;
   const task = existing?.kind === "task" ? existing : null;
+  // A dependent task that hasn't started: its dates can be days after starting instead of fixed.
+  const dormant = () => !!task?.dependentOf && props.items.some(item => item.id === task.dependentOf && item.kind === "task");
+  const [dateModes, setDateModes] = createSignal(Object.fromEntries(RELATIVE_DATE_FIELDS.map(field => [field, task?.relativeDates?.[field] != null ? "after" : "date"])) as Record<RelativeDateField, "date" | "after">);
   const storedEvent = existing?.kind === "event" ? existing : null;
   const initialSleep = task ? sleepInfo(task, new Date()) : null;
   const defaults = eventDefaults(props.request);
@@ -250,6 +257,12 @@ export function ItemEditor(props: {
         completedAt: nextState === "completed" ? task?.completedAt || now : null,
         tags: parseTags(data.get("tags")),
         attachments: [...(currentItem?.attachments || []).filter(file => !submittedRemoved.has(file.id)), ...attachments],
+        dependentOf: dormant() ? task!.dependentOf : null,
+        relativeDates: dormant() ? (() => {
+          const relative: RelativeDates = {};
+          for (const field of RELATIVE_DATE_FIELDS) if (dateModes()[field] === "after") relative[field] = Math.max(0, Number(data.get(`${field}After`)) || 0);
+          return Object.keys(relative).length ? relative : null;
+        })() : null,
         availableFrom: localInputToIso(data.get("availableFrom")),
         deadline: localInputToIso(data.get("deadline")),
         latestStart: localInputToIso(data.get("latestStart")),
@@ -397,6 +410,7 @@ export function ItemEditor(props: {
     const stored = props.items.find(item => item.id === itemId);
     if (stored?.kind !== "task") return "";
     if (stored.state === "completed") return "Completed";
+    if (dormant()) return `Dependent task of “${parentTask()?.title || "Untitled task"}” · not started`;
     const sleep = sleepInfo(stored, new Date());
     if (sleep.sleeping) return sleep.indefinite ? "Sleeping indefinitely" : `Sleeping until ${formatDateTime(sleep.until)}`;
     return actionability(stored, new Date()).reason;
@@ -408,6 +422,31 @@ export function ItemEditor(props: {
     if (await props.onQuickAddSubtask(currentItem, title)) setSubtaskDraft(value => value.trim() === title ? "" : value);
   };
   const completionButton = (compact: boolean) => <button type="button" class={compact ? `detail-complete ${taskState() === "completed" ? "done" : ""}` : taskState() === "open" ? "primary-button" : "secondary-button"} aria-label={compact ? (taskState() === "open" ? "Complete task" : "Reopen task") : undefined} title={compact && descendants().length && taskState() === "open" ? `Complete task and ${descendants().length} subtasks` : undefined} onClick={toggleCompleted}>{compact ? (taskState() === "completed" ? "✓" : "") : taskState() === "open" ? (descendants().length ? `✓ Complete task + ${descendants().length} subtasks` : "✓ Complete task") : "↶ Reopen task"}</button>;
+
+  const dateField = (field: RelativeDateField, label: string, input: JSX.Element) =>
+    <div class="field">
+      <span>{label}<Show when={dormant()}> <select class="date-mode" name={`${field}Mode`} aria-label={`${label} is set`} value={dateModes()[field]} onChange={event => { const mode = event.currentTarget.value as "date" | "after"; setDateModes(modes => ({ ...modes, [field]: mode })); syncDirty(); }}><option value="date">on a date</option><option value="after">days after starting</option></select></Show></span>
+      <Show when={dormant() && dateModes()[field] === "after"} fallback={input}><input name={`${field}After`} aria-label={`${label}: days after starting`} type="number" min="0" step="0.5" value={task?.relativeDates?.[field] ?? 0} /></Show>
+    </div>;
+  const dependents = () => props.items.filter((item): item is Task => item.kind === "task" && item.dependentOf === itemId);
+  const parentTask = () => props.items.find((item): item is Task => item.kind === "task" && item.id === task?.dependentOf);
+  const [dependentDraft, setDependentDraft] = createSignal("");
+  const addDependentInline = async () => {
+    const title = dependentDraft().trim();
+    if (!title || currentItem?.kind !== "task" || !props.onAddDependent) return;
+    if (await props.onAddDependent(currentItem, title)) setDependentDraft(value => value.trim() === title ? "" : value);
+  };
+  // Starting saves pending edits first; the drawer then closes since the task is no longer dependent.
+  const startDependent = async (dependent: Task, completeParent: boolean) => {
+    if (!props.onStartDependent || !(await flush())) return;
+    const own = dependent.id === itemId;
+    await props.onStartDependent(own ? (currentItem as Task) : dependent, completeParent);
+    if (own && !props.embedded) { closing = true; props.onClose(); }
+  };
+  const startButtons = (dependent: Task, parent?: Task) => <>
+    <button type="button" class="text-button" onClick={() => void startDependent(dependent, false)}>Start</button>
+    <Show when={parent && parent.state !== "completed"}><button type="button" class="text-button" title={`Start this and complete “${parent?.title || "Untitled task"}”`} onClick={() => void startDependent(dependent, true)}>Start & complete</button></Show>
+  </>;
 
   const form = (
       <form ref={(element) => { formRef = element; }} onSubmit={(event) => { event.preventDefault(); void close(); }} onInput={syncDirty}>
@@ -421,6 +460,7 @@ export function ItemEditor(props: {
         </div>
 
         <Show when={props.embedded && status()}><p class="detail-status">{status()}</p></Show>
+        <Show when={dormant() && props.onStartDependent && task}>{own => <div class="dependent-start">{startButtons(own(), parentTask())}</div>}</Show>
         <div class="segmented kind-switch">
           <label><input type="radio" name="kind" value="task" checked={kind() === "task"} onChange={() => { setKind("task"); syncDirty(); }} /><span>Task</span></label>
           <label><input type="radio" name="kind" value="event" checked={kind() === "event"} onChange={() => { setKind("event"); syncDirty(); }} /><span>Event</span></label>
@@ -435,9 +475,9 @@ export function ItemEditor(props: {
           <div>
             <div class="form-grid">
               <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><Show when={!props.embedded}>{completionButton(false)}</Show></div>
-              <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" value={isoToLocalInput(task?.availableFrom)} /></label>
-              <label class="field"><span>Due</span><input name="deadline" type="datetime-local" value={deadlineInput()} onInput={event => setDeadlineInput(event.currentTarget.value)} /></label>
-              <label class="field"><span>Latest start</span><input name="latestStart" type="datetime-local" value={isoToLocalInput(task?.latestStart)} /></label>
+              {dateField("availableFrom", "Can start", <input name="availableFrom" aria-label="Can start" type="datetime-local" value={isoToLocalInput(task?.availableFrom)} />)}
+              {dateField("deadline", "Due", <input name="deadline" aria-label="Due" type="datetime-local" value={deadlineInput()} onInput={event => setDeadlineInput(event.currentTarget.value)} />)}
+              {dateField("latestStart", "Latest start", <input name="latestStart" aria-label="Latest start" type="datetime-local" value={isoToLocalInput(task?.latestStart)} />)}
               <Show when={!task?.parentId && !props.request.parentId}><label class="field"><span>Group</span><select name="groupId" value={task?.groupId || props.request.groupId || ""}><option value="">No group</option><For each={groupChoices().map(option => option.group.id)}>{id => <option value={id}>{groupLabel(id)}</option>}</For></select></label></Show>
               <label class="field"><span>Sleep</span><select name="sleepMode" value={sleepMode()} onChange={(event) => { setSleepMode(event.currentTarget.value as ReturnType<typeof sleepMode>); syncDirty(); }}><option value="awake">Awake</option><option value="until">Until a date</option><option value="indefinite" disabled={!!deadlineInput()}>Indefinitely</option></select></label>
               <label class="field" hidden={sleepMode() !== "until"}><span>Sleep until</span><input name="sleepUntil" type="datetime-local" max={deadlineInput() || undefined} value={sleepUntil} disabled={sleepMode() !== "until"} /></label>
@@ -477,6 +517,13 @@ export function ItemEditor(props: {
               <div class="subtask-editor full-span"><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" hidden={props.embedded} disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button>}</For>
                 <Show when={props.embedded && props.onQuickAddSubtask}><div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New subtask title" placeholder={hasSavedItem() ? "Add a next step…" : "Name this task first"} disabled={!hasSavedItem()} maxLength={240} value={subtaskDraft()} onInput={event => setSubtaskDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addSubtaskInline(); } }} /><button type="button" class="text-button" disabled={!subtaskDraft().trim()} onClick={() => void addSubtaskInline()}>Add</button></div></Show>
                 <small class="muted">Completed together. Each subtask can have its own dates and notes.</small></div>
+                <Show when={hasSavedItem() && props.onAddDependent}>
+                  <div class="subtask-editor dependents-editor full-span"><div class="subtask-heading"><strong>Dependent tasks</strong></div>
+                    <For each={dependents()}>{dependent => <div class="dependent-row"><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(dependent)}><span aria-hidden="true">◌</span> {dependent.title || "Untitled task"}</button>{startButtons(dependent, currentItem?.kind === "task" ? currentItem : undefined)}</div>}</For>
+                    <div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New dependent task title" placeholder="Add a dependent task…" maxLength={240} value={dependentDraft()} onInput={event => setDependentDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addDependentInline(); } }} /><button type="button" class="text-button" disabled={!dependentDraft().trim()} onClick={() => void addDependentInline()}>Add</button></div>
+                    <small class="muted">Prepared next steps, hidden until you start one. Starting makes it a normal task with its dates set from that moment.</small>
+                  </div>
+                </Show>
           </Show>
           <section class="attachments-section full-span" aria-labelledby={`attachments-title-${domId}`}>
             <h3 id={`attachments-title-${domId}`}>Attachments</h3>

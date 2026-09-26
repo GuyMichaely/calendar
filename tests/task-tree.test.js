@@ -28,3 +28,13 @@ test('drag moves order siblings, allow nesting and promotion, and reject descend
   assert.equal(rows.find(row => row.task.id === 'child').hidden, true);
   assert.equal(rows.length, items.length);
 });
+
+test('dependent tasks belong to a task without loops, and deleting a task reaches them', async () => {
+  const { validateDependentOf, dependentTasks } = await import('../site/task-tree.js');
+  const items = [task('a'), { ...task('b'), dependentOf: 'a' }, { ...task('c'), dependentOf: 'b' }, task('d', 'b'), { id: 'g', kind: 'group', title: 'g' }];
+  assert.deepEqual(dependentTasks(items, 'a').map(item => item.id).sort(), ['b', 'c', 'd']);
+  assert.throws(() => validateDependentOf(items, 'a', 'c'), /cannot depend on itself/);
+  assert.throws(() => validateDependentOf(items, 'a', 'a'), /cannot depend on itself/);
+  assert.throws(() => validateDependentOf(items, 'a', 'g'), /only belong to tasks/);
+  assert.doesNotThrow(() => validateDependentOf(items, 'd', 'deleted-task'));
+});

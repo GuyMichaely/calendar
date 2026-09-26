@@ -51,6 +51,16 @@ export type Task = BaseItem & {
   history?: HistoryEntry[];
   // Only top-level tasks use this; subtasks appear wherever their parent task is.
   groupId?: string | null;
+  // A dependent task: prepared under another task and dormant until started, which clears this.
+  dependentOf?: string | null;
+  // A dependent task's dates as days after it is started; they become fixed dates when it starts.
+  relativeDates?: RelativeDates | null;
+};
+
+export type RelativeDates = {
+  availableFrom?: number | null;
+  latestStart?: number | null;
+  deadline?: number | null;
 };
 
 export type CalendarEvent = BaseItem & {

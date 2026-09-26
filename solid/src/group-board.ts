@@ -1,6 +1,8 @@
+import { isDormant } from "./dependencies";
 import type { Group, Item, Task } from "./types";
 
-export type TaskNode = { task: Task; children: TaskNode[] };
+// Dependents are dependent tasks not yet started; they show under their parent task until started.
+export type TaskNode = { task: Task; children: TaskNode[]; dependents: TaskNode[] };
 export type GroupNode = { group: Group; tasks: TaskNode[]; groups: GroupNode[] };
 export type Board = { ungrouped: TaskNode[]; groups: GroupNode[] };
 
@@ -59,24 +61,29 @@ export function buildBoard(items: Item[], include: (task: Task) => boolean): Boa
   const groupIds = new Set(groups.map(group => group.id));
   const tasks = items.filter((item): item is Task => item.kind === "task").sort(byOrder);
   const taskIds = new Set(tasks.map(task => task.id));
+  const byId = new Map(items.map(item => [item.id, item]));
   const childTasks = new Map<string, Task[]>();
+  const dependentTasks = new Map<string, Task[]>();
   const topTasks = new Map<string | null, Task[]>();
   for (const task of tasks) {
     if (task.parentId && taskIds.has(task.parentId)) push(childTasks, task.parentId, task);
+    else if (isDormant(task, byId)) push(dependentTasks, task.dependentOf!, task);
     else {
       const groupId = task.groupId && groupIds.has(task.groupId) ? task.groupId : null;
       const list = topTasks.get(groupId);
       if (list) list.push(task); else topTasks.set(groupId, [task]);
     }
   }
-  const seen = new Set<string>();
-  const taskNode = (task: Task): TaskNode | null => {
-    if (seen.has(task.id)) return null;
-    seen.add(task.id);
-    const children = (childTasks.get(task.id) || []).map(taskNode).filter((node): node is TaskNode => !!node);
-    return include(task) || children.length ? { task, children } : null;
+  // The path guard stops loops that concurrent edits on two devices could create.
+  const taskNode = (task: Task, path: Set<string>): TaskNode | null => {
+    if (path.has(task.id)) return null;
+    const inner = new Set(path).add(task.id);
+    const nodes = (list: Task[] = []) => list.map(entry => taskNode(entry, inner)).filter((node): node is TaskNode => !!node);
+    // Unstarted dependent tasks of a completed task are hidden along with it.
+    const children = nodes(childTasks.get(task.id)), dependents = include(task) || task.state !== "completed" ? nodes(dependentTasks.get(task.id)) : [];
+    return include(task) || children.length || dependents.length ? { task, children, dependents } : null;
   };
-  const taskNodes = (groupId: string | null) => (topTasks.get(groupId) || []).map(taskNode).filter((node): node is TaskNode => !!node);
+  const taskNodes = (groupId: string | null) => (topTasks.get(groupId) || []).map(task => taskNode(task, new Set())).filter((node): node is TaskNode => !!node);
   const { roots, children } = groupForest(groups);
   const groupNode = (group: Group): GroupNode => ({
     group,

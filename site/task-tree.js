@@ -42,6 +42,31 @@ export function validateTaskGroup(items, groupId) {
   if (group && group.kind !== "group") throw new Error("Tasks can only be placed in groups.");
 }
 
+/** Subtasks and not-yet-started dependent tasks under a task, at any depth. */
+export function dependentTasks(items, id) {
+  const result = [], seen = new Set([id]), pending = [id];
+  while (pending.length) {
+    const owner = pending.pop();
+    for (const item of items) if (item.kind === "task" && (item.parentId === owner || item.dependentOf === owner) && !seen.has(item.id)) {
+      seen.add(item.id); result.push(item); pending.push(item.id);
+    }
+  }
+  return result;
+}
+
+/** A dependent task belongs to another task, never (through other dependent tasks) to itself. */
+export function validateDependentOf(items, id, dependentOf) {
+  if (dependentOf == null || dependentOf === "") return;
+  if (typeof dependentOf !== "string") throw new Error("A dependent task must belong to a task ID.");
+  const owner = items.find(item => item.id === dependentOf);
+  if (owner && owner.kind !== "task") throw new Error("Dependent tasks can only belong to tasks.");
+  const byId = new Map(items.map(item => [item.id, item]));
+  for (let current = dependentOf, seen = new Set(); current; current = byId.get(current)?.dependentOf) {
+    if (current === id || seen.has(current)) throw new Error("A task cannot depend on itself.");
+    seen.add(current);
+  }
+}
+
 /** @param {import('./model').Item[]} items */
 export function taskAncestors(items, id) {
   const tasks = new Map(items.filter(item => item.kind === "task").map(item => [item.id, item]));

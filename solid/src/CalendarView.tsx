@@ -44,6 +44,10 @@ export function CalendarView(props: {
   onMonthChange: (date: Date) => void;
   onSleepModeChange: (mode: CalendarSleepMode) => void;
   onEdit: (item: Task | CalendarEvent) => void;
+  // Unstarted dependent tasks, projected as if started on their parent task's latest date.
+  ghostIds: Set<string>;
+  showDependents: boolean;
+  onShowDependentsChange: (value: boolean) => void;
   onCreateForDay: (date: Date) => void;
   onOpenTodayTasks: () => void;
 }) {
@@ -127,6 +131,11 @@ export function CalendarView(props: {
         }
       }
     }
+    for (const entry of entries) if (props.ghostIds.has(entry.item.id)) {
+      entry.className += " ghost-entry";
+      entry.label = `If started: ${entry.label}`;
+      entry.title += " (dependent task, if started on its parent task's latest date)";
+    }
     for (const entry of entries) if (isSleeping(entry.item, props.now)) {
       entry.className += " sleeping-entry";
       entry.label = `☾ ${entry.label}`;
@@ -135,7 +144,7 @@ export function CalendarView(props: {
     return entries.sort((a, b) => a.sort - b.sort || compareItemCreation(a.item, b.item) || a.title.localeCompare(b.title));
   };
 
-  const pendingForDay = (day: Date) => dateKey(day) === today() ? visibleItems().filter((item): item is Task => item.kind === "task" && isPendingOnDate(item, day) && (props.sleepMode === "ignore" || !isSleeping(item, props.now))) : [];
+  const pendingForDay = (day: Date) => dateKey(day) === today() ? visibleItems().filter((item): item is Task => item.kind === "task" && !props.ghostIds.has(item.id) && isPendingOnDate(item, day) && (props.sleepMode === "ignore" || !isSleeping(item, props.now))) : [];
   const matchingPending = (day: Date) => props.query ? pendingForDay(day).filter(item => textMatches(item, props.query)) : pendingForDay(day);
   const pendingText = (day: Date) => {
     const count = matchingPending(day).length;
@@ -153,6 +162,7 @@ export function CalendarView(props: {
         <button class="icon-button" aria-label="Next month" onClick={() => props.onMonthChange(new Date(props.month.getFullYear(), props.month.getMonth() + 1, 1))}>›</button>
       </div></div>
       <SleepControls mode={props.sleepMode} hideSleeping={props.hideSleeping} onModeChange={props.onSleepModeChange} onHideChange={props.onHideSleepingChange} />
+      <label class="check-row"><input type="checkbox" checked={props.showDependents} onChange={event => props.onShowDependentsChange(event.currentTarget.checked)} />Show dependent tasks</label>
     </div>
     <div class="calendar-layout">
       <div class="calendar-board">

@@ -39,6 +39,7 @@ import {
 } from "./remote-sync";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
 import { GroupsView } from "./GroupsView";
+import { isDormant, projectDependents, startedTask } from "./dependencies";
 import { boardColumns, boardEntries, groupForest, layoutPatches, nextColumnKey, placeGroup as placeInLayout, sortedGroups, type BoardTarget } from "./group-board";
 import { ToastStack, type ToastMessage } from "./ToastStack";
 import { loadPollSeconds, animationsEnabled } from "./settings";
@@ -63,6 +64,7 @@ export function App() {
   const [view, setView] = createSignal<View>(readView());
   const [showCompleted, setShowCompleted] = createSignal(localStorage.getItem("calendar.groups.showCompleted") === "1");
   const [compact, setCompact] = createSignal(localStorage.getItem("calendar.compactTasks") === "1");
+  const [showDependents, setShowDependents] = createSignal(localStorage.getItem("calendar.showDependents") === "1");
   const [query, setQuery] = createSignal("");
   const [animationPreference, setAnimationPreference] = createSignal(localStorage.getItem("calendar.animations"));
   const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -79,6 +81,13 @@ export function App() {
   const changeHideSleeping = (hide: boolean) => { setHideSleeping(hide); localStorage.setItem("calendar.hideSleeping", hide ? "1" : "0"); };
   const nowAtStart = new Date();
   const [clock, setClock] = createSignal(nowAtStart);
+  // The calendar leaves out dependent tasks that haven't started, or shows them as what-if entries.
+  const calendarView = createMemo(() => {
+    const byId = new Map(items().map(item => [item.id, item]));
+    if (!showDependents()) return { items: items().filter(item => !isDormant(item, byId)), ghostIds: new Set<string>() };
+    const projected = projectDependents(items(), clock());
+    return { items: items().map(item => projected.get(item.id) || item), ghostIds: new Set(projected.keys()) };
+  });
   const [calendarMonth, setCalendarMonth] = createSignal(new Date(nowAtStart.getFullYear(), nowAtStart.getMonth(), 1));
   const [editor, setEditor] = createSignal<EditorRequest | null>(null);
   // Wide screens keep the task list beside an embedded editor for the selected task.
@@ -240,6 +249,30 @@ export function App() {
       await refresh(); void requestRemoteSync(); return true;
     } catch (error) { showToast(errorMessage(error, "Could not add task.")); return false; }
   };
+  // Starting a dependent task detaches it with fixed dates; optionally its parent task is completed in the same undo step.
+  const startDependent = async (task: Task, completeParent: boolean) => {
+    const now = new Date(), iso = now.toISOString();
+    const parent = items().find((item): item is Task => item.kind === "task" && item.id === task.dependentOf);
+    const closing = completeParent && parent && parent.state !== "completed" ? parent : null;
+    try {
+      await historyBatch(`Start “${task.title}”`, async () => {
+        await putItem(startedTask(task, now), task);
+        if (closing) await putItem({ ...closing, state: "completed", completedAt: iso, sleep: null, updatedAt: iso, history: [...(closing.history || []), { at: iso, type: "completed" }] }, closing);
+      });
+    } catch (error) { showToast(errorMessage(error, "Could not start task.")); return; }
+    await refresh(); void requestRemoteSync();
+    showToast(closing ? `Started “${task.title}” and completed “${closing.title}”` : `Started “${task.title}”`);
+  };
+  const addDependent = async (parent: Task, title: string) => {
+    const now = new Date().toISOString();
+    // A dependent task starts in the group of its parent task (or of that task's top-level ancestor).
+    let top = parent;
+    for (let next = items().find(item => item.id === top.parentId); next?.kind === "task"; next = items().find(item => item.id === top.parentId)) top = next;
+    try {
+      await putItem({ id: crypto.randomUUID(), kind: "task", title: title.trim(), state: "open", dependentOf: parent.id, groupId: top.groupId ?? null, tags: [], attachments: [], history: [{ at: now, type: "created" }], createdAt: now, updatedAt: now });
+      await refresh(); void requestRemoteSync(); return true;
+    } catch (error) { showToast(errorMessage(error, "Could not add dependent task.")); return false; }
+  };
   const patchTask = async (task: Task, patch: Partial<Task>) => {
     try { await putItem({ ...task, ...patch, updatedAt: new Date().toISOString() }, task); await refresh(); void requestRemoteSync(); }
     catch (error) { showToast(errorMessage(error, "Could not update task.")); }
@@ -378,16 +411,16 @@ export function App() {
           syncDetail={remoteError() || (lastSyncedAt() ? `Last synced at ${lastSyncedAt()!.toLocaleTimeString()}` : "Your edits are saved in this browser. Open Settings to connect another device.")}
           identity={remoteSession()?.authenticated ? remoteIdentityLabel() : ""}
           canUndo={historyState().canUndo} canRedo={historyState().canRedo} undoLabel={historyState().undoLabel} redoLabel={historyState().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
-          <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={changeSleepMode} hideSleeping={hideSleeping()} onHideSleepingChange={changeHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
+          <Show when={view() === "tasks"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={showDependents()} onShowDependentsChange={value => { setShowDependents(value); localStorage.setItem("calendar.showDependents", value ? "1" : "0"); }} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={changeSleepMode} hideSleeping={hideSleeping()} onHideSleepingChange={changeHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
             <div class="tasks-workspace" classList={{ split: splitView() && !!detailRequest() }}>
             <GroupsView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null} showCompleted={showCompleted()} onShowCompletedChange={value => { setShowCompleted(value); localStorage.setItem("calendar.groups.showCompleted", value ? "1" : "0"); }}
               compact={compact()} onCompactChange={value => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onPatchTask={patchTask}
-              onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={renameGroup} onMoveGroup={moveGroup} onReorderGroup={reorderGroup} onDeleteGroup={deleteGroup} onPlaceGroup={placeGroup} respectSleep={calendarSleepMode() === "respect"} />
+              onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={renameGroup} onMoveGroup={moveGroup} onReorderGroup={reorderGroup} onDeleteGroup={deleteGroup} onPlaceGroup={placeGroup} onStartDependent={startDependent} respectSleep={calendarSleepMode() === "respect"} />
             <Show when={splitView() && detailRequest()}>
               <aside class="task-detail-pane" aria-label="Task details">
                 <Show when={detailRequest()} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
                   <ItemEditor embedded request={request} items={items()} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} onStale={() => setDetailVersion(version => version + 1)}
-                    onQuickAddSubtask={quickAddSubtask} onEditItem={task => void selectTask(task.id)} onAddSubtask={() => {}} onClose={() => void closeDetail()}
+                    onQuickAddSubtask={quickAddSubtask} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => void selectTask(task.id)} onAddSubtask={() => {}} onClose={() => void closeDetail()}
                     onDelete={async (item) => { await deleteItem(item.id); await refresh(); flushDetail = null; await selectTask(null, true); void requestRemoteSync(); showToast("Deleted"); }}
                     onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}
                 </Show>
@@ -396,7 +429,7 @@ export function App() {
             </div>
           </Show>
         </WorkspaceShell>
-        <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await deleteItem(item.id); await refresh(); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}</Show>
+        <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await deleteItem(item.id); await refresh(); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}</Show>
         <Show when={showSettings()}><DialogShell labelledBy="settings-title" className="settings-dialog" onClose={closeSettings}>
           <div class="settings-content">
             <div class="dialog-header"><h2 id="settings-title">Settings</h2><button class="icon-button" aria-label="Close settings" onClick={closeSettings}>×</button></div>
