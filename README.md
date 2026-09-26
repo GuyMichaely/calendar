@@ -98,3 +98,14 @@ Authenticated devices sync after local changes, on reconnect/resume, and every 1
 The menu's Data submenu contains backups and remote sync configuration. Import previews new/matching item counts, updates matching IDs, retains items absent from the file, and supports undo. A JSON backup contains item values and attachment references; it excludes attachment files and CRDT history. Full server backups must include the data volume (or the cloud stores).
 
 Server-only code lives under backend/. The sync/ directory holds the shared Automerge model and browser protocol client. Obsolete one-time migrations have been removed; previous versions remain in Git.
+
+# User added to do list; ignore if you are an agent
+- have a view for the calendar and on the to do list to filter out what doesn't have a due date today/this week/this month
+- have some concept (i need to specify a way to input this as a user) to show task duration. e.g. if i want to show that an event is taking place over a period of a few days i'll want it to span those days on the calendar probably. not sure if i want ongoing tasks with no due date to participate in this
+- copy microsoft's "plan" feature where tasks can belond to a plan and the plan can have buckets composed of tasks. want to also make sure that the user can just add tasks without an associated plan.  basically a glorified lists functionality, maybe just stick to simple lists
+- make it so using the arrow keys to navigate through item focus loops around when pressing up on top item or down on bottom item
+- what's the "saved on this device" status for? 
+- decide what to do about displaying sleeping/waiting tasks as descendents of open tasks
+
+1. sleeping and waiting dates don't display year. don't display year if it's the current year, otherwise display year
+2. 
