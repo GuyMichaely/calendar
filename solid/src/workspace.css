@@ -494,8 +494,8 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .board-add { display: flex; align-items: center; gap: 8px; padding: 4px 6px; color: var(--muted); }
 .board-add input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 4px 0; color: var(--text); font-size: 12px; }
 .board-add input:focus { outline: none; }
+/* Phones keep the columns side by side and swipe between them; the next column peeks in. */
 @media (max-width: 760px) {
-  .board { flex-direction: column; overflow-x: visible; }
-  .board-column { flex: none; width: 100%; }
-  .board-column + .board-column { margin-left: 0; margin-top: 12px; }
+  .board { scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
+  .board-column { flex-basis: 82vw; scroll-snap-align: start; }
 }
