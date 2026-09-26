@@ -1,5 +1,5 @@
 import { SleepControls } from "./SleepControls";
-import { Show, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { dateKey, sleepInfo } from "../../site/domain.js";
 import { WorkspaceShell } from "./WorkspaceShell";
 import { DialogShell } from "./DialogShell";
@@ -128,6 +128,24 @@ export function App() {
     const item = untrack(items).find(item => item.id === selectedTaskId());
     return item?.kind === "task" ? { item, kind: item.kind, nonce: Date.now() } : null;
   });
+  // The detail pane animates in and out: it stays mounted (with its last request)
+  // for a beat after closing while the board slides back to full width.
+  const paneOpen = () => splitView() && !!detailRequest();
+  const [paneMounted, setPaneMounted] = createSignal(false);
+  const [paneClosing, setPaneClosing] = createSignal(false);
+  let paneWasOpen = false, paneTimer: ReturnType<typeof setTimeout> | undefined, lastRequest: EditorRequest | null = null;
+  createEffect(() => {
+    if (detailRequest()) lastRequest = detailRequest();
+    const open = paneOpen();
+    if (open === paneWasOpen) return;
+    paneWasOpen = open;
+    clearTimeout(paneTimer);
+    if (open) { setPaneMounted(true); setPaneClosing(false); return; }
+    if (!animations()) { setPaneMounted(false); setPaneClosing(false); return; }
+    setPaneClosing(true);
+    paneTimer = setTimeout(() => { if (!paneOpen()) setPaneMounted(false); setPaneClosing(false); }, 260);
+  });
+  onCleanup(() => clearTimeout(paneTimer));
   // Save the open task before showing another; a failed save keeps it open with its error.
   const selectTask = async (id: string | null, replace = false) => {
     if (id === selectedTaskId()) return;
@@ -257,13 +275,13 @@ export function App() {
           identity={remote.session()?.authenticated ? remote.identityLabel() : ""}
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
           <Show when={view() === "tasks"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} sleepMode={prefs.calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={prefs.setCalendarSleepMode} hideSleeping={prefs.hideSleeping()} onHideSleepingChange={prefs.setHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
-            <div class="tasks-workspace" classList={{ split: splitView() && !!detailRequest() }}>
+            <div class="tasks-workspace" classList={{ split: paneOpen() }} data-animations={animations() ? "on" : "off"}>
             <GroupsView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null} showCompleted={prefs.showCompleted()} onShowCompletedChange={prefs.setShowCompleted}
               compact={prefs.compact()} onCompactChange={prefs.setCompact} onPatchTask={patchTask}
               onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={(group, title) => groupChange(() => store.renameGroup(group, title))} onMoveGroup={(group, parentId) => groupChange(() => store.moveGroup(group, parentId))} onReorderGroup={(group, offset) => groupChange(() => store.reorderGroup(group, offset))} onDeleteGroup={deleteGroup} onPlaceGroup={(id, target) => groupChange(() => store.placeGroup(id, target))} onDropTask={dropTask} onStartDependent={startDependent} onDeleteTask={deleteTask} onSleepTask={sleepTask} onWakeTask={wakeTask} respectSleep={prefs.calendarSleepMode() === "respect"} />
-            <Show when={splitView() && detailRequest()}>
-              <aside class="task-detail-pane" aria-label="Task details">
-                <Show when={detailRequest()} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
+            <Show when={paneMounted()}>
+              <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
+                <Show when={detailRequest() || lastRequest} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
                   <ItemEditor embedded request={request} items={items()} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} registerClose={close => { closeDetailEditor = close; return () => { if (closeDetailEditor === close) closeDetailEditor = null; }; }} onStale={() => setDetailVersion(version => version + 1)}
                     onQuickAddSubtask={quickAddSubtask} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => void selectTask(task.id)} onAddSubtask={() => {}} onClose={() => void closeDetail()}
                     onDelete={async (item) => { await store.deleteItem(item.id); flushDetail = null; await selectTask(null, true); showToast("Deleted"); }}

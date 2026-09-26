@@ -429,11 +429,17 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .prototype-badge { align-self: flex-start; margin: -22px 0 22px 52px; padding: 2px 7px; border-radius: 99px; background: #e89678; color: #1b1411; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
 .mobile-word .prototype-badge { margin: 0 0 0 8px; vertical-align: 3px; }
 
-/* Wide screens keep the task list beside the selected task's editor. */
-.tasks-workspace.split { display: grid; grid-template-columns: minmax(360px, 5fr) minmax(440px, 6fr); gap: 20px; align-items: start; }
+/* Wide screens keep the task list beside the selected task's editor. The pane's
+   track is always present (0% when closed) so its width changes can animate. */
+.tasks-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0%); gap: 0; }
+.tasks-workspace.split { grid-template-columns: minmax(0, 1fr) minmax(400px, 36%); gap: 20px; align-items: start; }
+.tasks-workspace[data-animations="on"] { transition: grid-template-columns .24s ease, gap .24s ease; }
+@keyframes pane-in { from { opacity: 0; transform: translateX(26px); } }
+.tasks-workspace[data-animations="on"] .task-detail-pane:not(.closing) { animation: pane-in .24s ease; }
+.task-detail-pane.closing { opacity: 0; transition: opacity .2s ease .03s; }
 .tasks-workspace.split .tasks-panel { max-width: none; min-width: 0; }
 .task-card.selected-task { background: var(--surface); border-color: var(--line); box-shadow: inset 3px 0 var(--accent); }
-.task-detail-pane { position: sticky; top: 72px; height: calc(100dvh - 88px); overflow: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.task-detail-pane { position: sticky; top: 72px; height: calc(100dvh - 88px); overflow: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); min-width: 0; }
 .task-detail-empty { display: grid; align-content: center; justify-items: start; gap: 8px; height: 100%; padding: 40px 44px; color: var(--muted); }
 .task-detail-empty h2 { margin: 0; color: var(--text); font-size: 22px; letter-spacing: -.5px; max-width: 18em; }
 .task-detail-empty p:last-child { margin: 0; font-size: 12px; max-width: 30em; line-height: 1.6; }
@@ -463,7 +469,6 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .subtask-quick-add .text-button { font-size: 10px; }
 
 /* Groups board: top-level groups are columns; nested groups stack inside them. */
-.tasks-workspace.split { grid-template-columns: minmax(0, 1fr) minmax(400px, 36%); }
 .groups-panel { min-width: 0; max-width: none; margin-inline: 0; }
 .groups-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-bottom: 14px; }
 .groups-toolbar h1 { margin: 0; font-size: 28px; letter-spacing: -.7px; }
@@ -541,8 +546,8 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 
 /* The board fills the rest of the screen so swiping below short columns still scrolls it. */
 main:has(.groups-panel) { display: flex; flex-direction: column; }
-main:has(.groups-panel) > .tasks-workspace:not(.split) { flex: 1; display: flex; flex-direction: column; }
-.tasks-workspace:not(.split) > .groups-panel { flex: 1; display: flex; flex-direction: column; }
+main:has(.groups-panel) > .tasks-workspace:not(.split) { flex: 1; grid-template-rows: minmax(0, 1fr); }
+.tasks-workspace:not(.split) > .groups-panel { display: flex; flex-direction: column; min-height: 0; }
 .groups-panel > .board { flex: 1; }
 @media (max-width: 760px) {
   main:has(.groups-panel) { padding-bottom: 0; }
