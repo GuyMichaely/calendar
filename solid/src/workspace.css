@@ -499,3 +499,13 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
   .board { scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
   .board-column { flex-basis: 82vw; scroll-snap-align: start; }
 }
+
+/* The board fills the rest of the screen so swiping below short columns still scrolls it. */
+main:has(.groups-panel) { display: flex; flex-direction: column; }
+main:has(.groups-panel) > .tasks-workspace:not(.split) { flex: 1; display: flex; flex-direction: column; }
+.tasks-workspace:not(.split) > .groups-panel { flex: 1; display: flex; flex-direction: column; }
+.groups-panel > .board { flex: 1; }
+@media (max-width: 760px) {
+  main:has(.groups-panel) { padding-bottom: 0; }
+  .groups-panel > .board { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+}
