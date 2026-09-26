@@ -257,9 +257,10 @@ export function TasksView(props: TasksViewProps) {
   return (
     <section class={`panel tasks-panel ${props.compact ? "compact" : ""} ${props.animations ? "motion-enabled" : ""}`}>
       <div class="panel-heading">
-        <div><p class="page-eyebrow">{new Intl.DateTimeFormat(undefined, {weekday: "long", month: "long", day: "numeric"}).format(props.now)}</p>
-          <h1>{props.query ? "Search results" : props.scope === "open" ? "Tasks" : "Completed"}<Show when={props.scope === "open" && !props.query}><span class="heading-sun"><Icon name="sun" size={33} /></span></Show></h1>
+        <div class="task-heading-copy">
+          <h1>{props.query ? "Search results" : props.scope === "open" ? "Tasks" : "Completed"}</h1>
           <p class="page-description">{props.query ? `Matching “${props.query}”` : props.scope === "open" ? `${actionable().length} ready · ${openCount()} open tasks` : `${rows().completed.length} tasks taken care of.`}</p>
+          <p class="task-heading-date">{new Intl.DateTimeFormat(undefined, {weekday: "short", month: "short", day: "numeric"}).format(props.now)}</p>
         </div>
         <button type="button" class={`secondary-button density-toggle ${props.compact ? "active" : ""}`} aria-pressed={props.compact} onClick={() => props.onCompactChange(!props.compact)}><Icon name="compact" size={16} /><span>Compact</span></button>
       </div>

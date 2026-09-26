@@ -115,7 +115,6 @@ test("attachment blobs stay local while attachment metadata is synchronized", ()
     id: "a2",
     name: "two.txt",
     size: 2,
-    contentHash: "sha256:abc",
     blob: new Blob(["hi"]),
   });
 

@@ -1,6 +1,6 @@
 # Interface redesign
 
-The `ui/redesign` branch explores a quieter planning workspace. It changes presentation and navigation; the task model, Automerge document, native sync protocol, auth, and backend remain the same.
+The redesign provides a quieter planning workspace while preserving the Automerge document and native sync protocol. Authentication also supports returning to the explicitly allowed local preview after Google sign-in.
 
 ## The design
 
@@ -26,7 +26,7 @@ A task with a due date cannot be put to sleep past it or indefinitely. The edito
 
 ## Try it
 
-Run `./scripts/bun run dev:solid --host 127.0.0.1 --port 5177`, then open `http://127.0.0.1:5177/calendar/`. The local origin has its own browser storage. Use quick capture or import a backup in Settings to populate it. Production at `guymichaely.com/calendar` is unchanged until this branch is merged to `main`.
+Run `./scripts/bun run dev:solid --host 127.0.0.1 --port 5177`, then open `http://127.0.0.1:5177/calendar/`. The local origin has its own browser storage. Use quick capture or import a backup in Settings to populate it. Production at `guymichaely.com/calendar` is published from `main` after the verification workflow succeeds. The preceding interface remains available in Git history.
 
 The visual review used representative sample tasks and events in an isolated browser profile. No sample data is bundled in the app.
 
@@ -39,3 +39,5 @@ Sleep follow-up: all 104 repository tests and 32 Solid tests pass, together with
 The calendar uses a compact toolbar, reduced outer padding, and only the weeks needed for the displayed month. Tasks are excluded from browser scroll anchoring so changing sleep visibility moves rows rather than the page heading.
 
 Navigation/density follow-up: 107 repository tests and 35 Solid tests pass with TypeScript and production build checks. Browser checks cover desktop/mobile scroll offsets of 100, 650, and 1500 pixels with animations on and off, unchanged heading/capture positions through both sleep-toggle directions, and four-, five-, and six-week months.
+
+Tasks use a compact heading with inline counts, narrower outer margins, closer controls and sections, and shorter rows. Notes remain visible by default; Compact mode additionally hides notes, tags, and attachment previews. Desktop and mobile browser checks cover scrolling through sleep changes, navigation, and widths from 320 to 1280 pixels.
