@@ -28,6 +28,14 @@ export type GroupsViewProps = {
   respectSleep: boolean;
 };
 
+// The character offset under a click within an element's text, so editing can start there.
+function clickedOffset(event: MouseEvent, element: Element) {
+  const position = document.caretPositionFromPoint?.(event.clientX, event.clientY);
+  if (position && element.contains(position.offsetNode)) return position.offset;
+  const range = document.caretRangeFromPoint?.(event.clientX, event.clientY);
+  return range && element.contains(range.startContainer) ? range.startOffset : undefined;
+}
+
 function textMatches(task: Task, query: string) {
   const needle = query.trim().toLowerCase();
   return !needle || [task.title, task.notes || "", ...(task.tags || [])].some(value => value.toLowerCase().includes(needle));
@@ -85,7 +93,7 @@ export function GroupsView(props: GroupsViewProps) {
   };
 
   // Textareas that replace a task's title and description while they are edited, sized to their whole text.
-  const InlineText = (inlineProps: { value: string; multiline: boolean; label: string; class: string; placeholder?: string; autofocus: boolean; ref: (element: HTMLTextAreaElement) => void; onFinish: (commit: boolean) => void }) => {
+  const InlineText = (inlineProps: { value: string; multiline: boolean; label: string; class: string; placeholder?: string; autofocus: boolean; caret?: number; ref: (element: HTMLTextAreaElement) => void; onFinish: (commit: boolean) => void }) => {
     let ref!: HTMLTextAreaElement;
     const fit = () => { ref.style.height = "auto"; ref.style.height = `${ref.scrollHeight}px`; };
     const onInput = () => {
@@ -97,7 +105,7 @@ export function GroupsView(props: GroupsViewProps) {
       }
       fit();
     };
-    onMount(() => { fit(); if (inlineProps.autofocus) { ref.focus(); ref.setSelectionRange(ref.value.length, ref.value.length); } });
+    onMount(() => { fit(); if (inlineProps.autofocus) { const caret = Math.min(inlineProps.caret ?? ref.value.length, ref.value.length); ref.focus(); ref.setSelectionRange(caret, caret); } });
     return <textarea ref={element => { ref = element; inlineProps.ref(element); }} class={`board-inline ${inlineProps.class}`} aria-label={inlineProps.label} placeholder={inlineProps.placeholder} rows={1} value={inlineProps.value} onInput={onInput}
       onKeyDown={event => {
         if (event.key === "Escape") { event.preventDefault(); inlineProps.onFinish(false); }
@@ -127,7 +135,12 @@ export function GroupsView(props: GroupsViewProps) {
       if (notes !== (task().notes || "")) patch.notes = notes;
       if (Object.keys(patch).length) void props.onPatchTask(task(), patch);
     };
-    const edit = (field: "title" | "notes") => (event: MouseEvent) => { event.stopPropagation(); setEditing(field); };
+    let caret: number | undefined;
+    const edit = (field: "title" | "notes") => (event: MouseEvent) => {
+      event.stopPropagation();
+      caret = field === "title" && !task().title ? 0 : clickedOffset(event, event.currentTarget as Element);
+      setEditing(field);
+    };
     return <>
       <div class="board-task" classList={{ selected: props.selectedId === task().id, done: task().state === "completed" }} style={{ "padding-left": `${rowProps.depth * 16 + 6}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
         onMouseDown={() => { clickEndedEdit = !!editing(); }}
@@ -144,8 +157,8 @@ export function GroupsView(props: GroupsViewProps) {
             <Show when={task().notes}><div class="board-task-notes"><span class="board-text" onClick={edit("notes")}>{task().notes}</span></div></Show>
           </>}>
             <div class="board-edit" onFocusOut={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) finish(true); }}>
-              <InlineText class="board-task-title" label="Task title" multiline={false} value={task().title} autofocus={editing() === "title"} ref={element => { titleField = element; }} onFinish={finish} />
-              <InlineText class="board-task-notes" label="Task description" placeholder="Add description" multiline value={task().notes || ""} autofocus={editing() === "notes"} ref={element => { notesField = element; }} onFinish={finish} />
+              <InlineText class="board-task-title" label="Task title" multiline={false} value={task().title} autofocus={editing() === "title"} caret={caret} ref={element => { titleField = element; }} onFinish={finish} />
+              <InlineText class="board-task-notes" label="Task description" placeholder="Add description" multiline value={task().notes || ""} autofocus={editing() === "notes"} caret={caret} ref={element => { notesField = element; }} onFinish={finish} />
             </div>
           </Show>
           <Show when={meta()}><small>{meta()}</small></Show>
