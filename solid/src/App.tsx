@@ -62,6 +62,7 @@ export function App() {
   const [loadingError, setLoadingError] = createSignal("");
   const [view, setView] = createSignal<View>(readView());
   const [showCompleted, setShowCompleted] = createSignal(localStorage.getItem("calendar.groups.showCompleted") === "1");
+  const [compact, setCompact] = createSignal(localStorage.getItem("calendar.compactTasks") === "1");
   const [query, setQuery] = createSignal("");
   const [animationPreference, setAnimationPreference] = createSignal(localStorage.getItem("calendar.animations"));
   const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -239,6 +240,10 @@ export function App() {
       await refresh(); void requestRemoteSync(); return true;
     } catch (error) { showToast(errorMessage(error, "Could not add task.")); return false; }
   };
+  const patchTask = async (task: Task, patch: Partial<Task>) => {
+    try { await putItem({ ...task, ...patch, updatedAt: new Date().toISOString() }, task); await refresh(); void requestRemoteSync(); }
+    catch (error) { showToast(errorMessage(error, "Could not update task.")); }
+  };
   // Groups: siblings share a parent (top-level groups share none) and are ordered by sortOrder.
   const siblingGroups = (parentId: string | null) => { const forest = groupForest(sortedGroups(items())); return parentId ? forest.children.get(parentId) || [] : forest.roots; };
   const nextGroupOrder = (parentId: string | null) => Math.max(-1, ...siblingGroups(parentId).map(group => group.sortOrder ?? -1)) + 1;
@@ -366,6 +371,7 @@ export function App() {
           <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={changeSleepMode} hideSleeping={hideSleeping()} onHideSleepingChange={changeHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
             <div class="tasks-workspace" classList={{ split: splitView() && !!detailRequest() }}>
             <GroupsView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null} showCompleted={showCompleted()} onShowCompletedChange={value => { setShowCompleted(value); localStorage.setItem("calendar.groups.showCompleted", value ? "1" : "0"); }}
+              compact={compact()} onCompactChange={value => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onPatchTask={patchTask}
               onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={renameGroup} onMoveGroup={moveGroup} onReorderGroup={reorderGroup} onDeleteGroup={deleteGroup} />
             <Show when={splitView() && detailRequest()}>
               <aside class="task-detail-pane" aria-label="Task details">
