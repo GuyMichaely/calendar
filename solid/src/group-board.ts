@@ -136,10 +136,29 @@ export type BoardTarget = { column: number; index: number } | { newColumn: numbe
 
 /** Move a top-level group within the column layout; empty columns disappear. */
 export function placeGroup(columns: string[][], id: string, target: BoardTarget): string[][] {
-  const next: (string | null)[][] = columns.map(column => column.map(entry => entry === id ? null : entry));
-  if ("newColumn" in target) next.splice(target.newColumn, 0, [id]);
-  else next[target.column]?.splice(target.index, 0, id);
+  return placeGroups(columns, [id], target);
+}
+
+/** Move several groups (kept in their current relative order) into one board position. */
+export function placeGroups(columns: string[][], ids: string[], target: BoardTarget): string[][] {
+  const moving = new Set(ids), rank = new Map(ids.map((entry, index) => [entry, index]));
+  const lifted: string[] = [];
+  // Null placeholders keep the target's column/slot indices aligned with the dragged layout.
+  const next: (string | null)[][] = columns.map(column => column.map(entry => {
+    if (!moving.has(entry)) return entry;
+    lifted.push(entry);
+    return null;
+  }));
+  // Keep the order the groups had on the board, not the order of the selection list.
+  lifted.sort((a, b) => rank.get(a)! - rank.get(b)!);
+  if ("newColumn" in target) next.splice(target.newColumn, 0, lifted);
+  else next[target.column]?.splice(target.index, 0, ...lifted);
   return next.map(column => column.filter((entry): entry is string => entry !== null)).filter(column => column.length);
+}
+
+/** Two column layouts holding the same groups in the same places. */
+export function sameLayout(a: string[][], b: string[][]): boolean {
+  return a.length === b.length && a.every((column, i) => column.length === b[i].length && column.every((entry, j) => entry === b[i][j]));
 }
 
 /** The column and position each group needs to match a layout. Built-in sections not yet stored are created. */

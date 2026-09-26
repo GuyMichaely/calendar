@@ -3,7 +3,7 @@ import { formatDateTime, isSleeping, sleepInfo } from "../../site/domain.js";
 import { taskDescendants } from "../../site/task-tree.js";
 import { Icon } from "./Icon";
 import { renderNotes } from "./markdown";
-import { BUILTIN_GROUPS, boardColumns, boardEntries, buildBoard, nestList, flattenGroupNodes, type BoardTarget, type GroupNode, type TaskNode } from "./group-board";
+import { BUILTIN_GROUPS, boardColumns, boardEntries, buildBoard, nestList, flattenGroupNodes, placeGroups, sameLayout, type BoardTarget, type GroupNode, type TaskNode } from "./group-board";
 import { planTasks } from "./task-planning";
 import { RELATIVE_DATE_FIELDS, isDormant } from "./dependencies";
 import type { Group, Item, Task } from "./types";
@@ -33,6 +33,7 @@ export type GroupsViewProps = {
   onReorderGroup: (group: Group, offset: -1 | 1) => Promise<void>;
   onDeleteGroup: (group: Group) => Promise<void>;
   onPlaceGroup: (id: string, target: BoardTarget) => Promise<void>;
+  onPlaceGroups: (ids: string[], target: BoardTarget) => Promise<unknown>;
   onDropTask: (task: Task, drop: TaskDrop) => Promise<unknown>;
   onStartDependent: (task: Task, completeParent: boolean) => Promise<void>;
   onDeleteTask: (task: Task) => Promise<void>;
@@ -87,6 +88,15 @@ export function GroupsView(props: GroupsViewProps) {
     targets.set(key, target);
     return <div class={class_} data-drop={key} classList={{ active: !!dragId() && dropKey() === key }} />;
   };
+  // A bar atop each column selects all its groups; a selected group drags the whole set.
+  const [columnPick, setColumnPick] = createSignal<string[] | null>(null);
+  const toggleColumnPick = (ids: string[]) => setColumnPick(previous => previous && ids.every(id => previous.includes(id)) ? null : ids);
+  const pickedColumn = (ids: string[]) => { const pick = columnPick(); return !!ids.length && !!pick && ids.every(id => pick.includes(id)); };
+  onMount(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setColumnPick(null); };
+    document.addEventListener("keydown", onKey);
+    onCleanup(() => document.removeEventListener("keydown", onKey));
+  });
   // Pointer-based so it works with touch as well as a mouse. The dragged group follows
   // the pointer as a fixed ghost while wells expand to preview where it would land.
   const startGroupDrag = (id: string) => (event: PointerEvent) => {
@@ -95,6 +105,20 @@ export function GroupsView(props: GroupsViewProps) {
     const handle = event.currentTarget as HTMLElement;
     handle.setPointerCapture(event.pointerId);
     setDragId(id);
+    // Dragging a group whose column is selected moves all of them, in board order.
+    const pick = columnPick();
+    const onBoard = new Set(columns().flat());
+    const ids = pick && pick.includes(id) ? pick.filter(entry => onBoard.has(entry)) : [id];
+    const multi = ids.length > 1, moving = new Set(ids);
+    const node = groupsById().get(id);
+    // What the board looked like at drag start; targets reproducing it are no-ops and
+    // don't highlight (the wells straddling the dragged column, an only-group's own
+    // column slots, re-nesting at the same spot, …).
+    const startLayout = boardColumns(boardEntries(props.items));
+    const targetIsNoop = (key: string) => {
+      const resolve = targets.get(key);
+      return !!resolve && sameLayout(placeGroups(startLayout, ids, resolve()), startLayout);
+    };
     // A fixed clone tracks the pointer; the original stays ghosted in place.
     const section = handle.closest<HTMLElement>(".board-group");
     const ghost = section ? (section.cloneNode(true) as HTMLElement) : null;
@@ -108,12 +132,16 @@ export function GroupsView(props: GroupsViewProps) {
       boardRef.style.setProperty("--drop-h", `${rect.height}px`);
       boardRef.style.setProperty("--drop-w", `${rect.width}px`);
     }
-    // A group can't be dropped into itself or its own subgroups.
-    const node = groupsById().get(id);
-    const excluded = new Set(node ? [id, ...flattenGroupNodes(node.groups).keys()] : [id]);
+    // A group can't be dropped into itself or its (or a dragged sibling's) subgroups.
+    const excluded = new Set(ids.flatMap(entry => {
+      const entryNode = groupsById().get(entry);
+      return entryNode ? [entry, ...flattenGroupNodes(entryNode.groups).keys()] : [entry];
+    }));
     // A rAF loop drives the drag: pointermove events stop when a held finger is
-    // stationary, so edge scrolling and drop-target tracking run every frame.
-    let lastX = startX, lastY = startY, frame = 0;
+    // stationary, so edge scrolling runs every frame. But the drop target only
+    // re-aims when the pointer actually moves or the board scrolls — otherwise
+    // opening wells would shift content out from under a still pointer ("chasing").
+    let lastX = startX, lastY = startY, aimX = Infinity, aimY = Infinity, lastScroll = -1, frame = 0;
     const update = () => {
       if (ghost) ghost.style.transform = `translate(${lastX - startX}px, ${lastY - startY}px)`;
       const edge = boardRef.getBoundingClientRect();
@@ -121,6 +149,9 @@ export function GroupsView(props: GroupsViewProps) {
       const leftDepth = edge.left + EDGE - lastX, rightDepth = lastX - (edge.right - EDGE);
       if (rightDepth > 0) boardRef.scrollLeft += Math.min(28, 4 + rightDepth * 0.4);
       else if (leftDepth > 0) boardRef.scrollLeft -= Math.min(28, 4 + leftDepth * 0.4);
+      const scrolled = boardRef.scrollLeft !== lastScroll; lastScroll = boardRef.scrollLeft;
+      if (Math.abs(lastX - aimX) + Math.abs(lastY - aimY) <= 5 && !scrolled) { frame = requestAnimationFrame(update); return; }
+      aimX = lastX; aimY = lastY;
       const hit = document.elementFromPoint(lastX, lastY);
       const well = hit?.closest<HTMLElement>("[data-drop]")?.dataset.drop;
       let key = well || "", nest = "";
@@ -134,44 +165,60 @@ export function GroupsView(props: GroupsViewProps) {
             const box = host.getBoundingClientRect();
             const relX = (lastX - box.left) / box.width;
             const column = Number(entry.dataset.column);
-            // Over a top-level group's outer thirds it becomes a new column on that
-            // side; the middle nests inside it. Built-in sections can't nest, so
-            // only the halves-to-columns rule applies to them.
-            const edgeShare = node ? 0.3 : 0.5;
+            // Over a top-level group's outer sixths it becomes a new column on that
+            // side; the middle nests inside it (single drags only). Built-in sections
+            // can't nest, so only the halves-to-columns rule applies to them.
+            const edgeShare = node ? 1 / 6 : 0.5;
             if (relX < edgeShare) key = `new-${column}`;
             else if (relX > 1 - edgeShare) key = `new-${column + 1}`;
-            else nest = hostId;
-          } else if (node) nest = hostId; // Nested hosts: dropping nests inside.
+            else if (!multi) nest = hostId;
+          } else if (!multi) nest = hostId; // Nested hosts: dropping nests inside.
         } else if (!host) {
           // Over an entry's empty margin, the same halves-to-column rule applies.
           const entry = hit?.closest<HTMLElement>("[data-board-entry]");
-          if (entry && entry.dataset.boardEntry !== id) {
+          if (entry && !moving.has(entry.dataset.boardEntry || "")) {
             const box = entry.getBoundingClientRect(), column = Number(entry.dataset.column);
             key = `new-${lastX < box.left + box.width / 2 ? column : column + 1}`;
           }
         }
       }
+      // Dropping onto the current parent when already last in it changes nothing.
+      if (nest && node?.group.parentId === nest && groupsById().get(nest)?.groups.at(-1)?.group.id === id) nest = "";
+      if (targetIsNoop(key)) key = "";
       setDropKey(key); setNestId(nest);
       frame = requestAnimationFrame(update);
     };
     const move = (next: PointerEvent) => { lastX = next.clientX; lastY = next.clientY; };
-    const end = (drop: boolean) => () => {
+    let live = true;
+    const finish = (drop: boolean) => {
+      if (!live) return;
+      live = false;
       cancelAnimationFrame(frame);
       ghost?.remove();
       boardRef.style.removeProperty("--drop-h");
       boardRef.style.removeProperty("--drop-w");
       handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", cancel);
+      document.removeEventListener("keydown", escape, true);
       const key = dropKey(), nest = nestId(), target = targets.get(key);
       setDragId(null); setDropKey(""); setNestId("");
       if (!drop) return;
       const dragged = groupsById().get(id)?.group;
       if (nest) { if (dragged) void props.onMoveGroup(dragged, nest); }
-      else if (key && target) void props.onPlaceGroup(id, target());
+      else if (key && target) {
+        if (multi) { setColumnPick(null); void props.onPlaceGroups(ids, target()); }
+        else void props.onPlaceGroup(id, target());
+      }
     };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); finish(false); } };
     frame = requestAnimationFrame(update);
     handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", end(true), { once: true });
-    handle.addEventListener("pointercancel", end(false), { once: true });
+    handle.addEventListener("pointerup", up, { once: true });
+    handle.addEventListener("pointercancel", cancel, { once: true });
+    document.addEventListener("keydown", escape, true);
   };
 
   // Task dragging: a grip on each card undocks it; dropping onto another card nests
@@ -242,11 +289,17 @@ export function GroupsView(props: GroupsViewProps) {
       frame = requestAnimationFrame(update);
     };
     const move = (next: PointerEvent) => { lastX = next.clientX; lastY = next.clientY; };
-    const end = (dropIt: boolean) => () => {
+    let live = true;
+    const finish = (dropIt: boolean) => {
+      if (!live) return;
+      live = false;
       cancelAnimationFrame(frame);
       ghost?.remove();
       document.querySelectorAll(".zone-target").forEach(element => element.classList.remove("zone-target"));
       handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", cancel);
+      document.removeEventListener("keydown", escape, true);
       const drop = taskDrop();
       setTaskDragId(null); setTaskDrop(null);
       if (!dropIt || !drop || !dragged) return;
@@ -259,10 +312,14 @@ export function GroupsView(props: GroupsViewProps) {
           : { kind: drop.kind, ref });
       }
     };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); finish(false); } };
     frame = requestAnimationFrame(update);
     handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", end(true), { once: true });
-    handle.addEventListener("pointercancel", end(false), { once: true });
+    handle.addEventListener("pointerup", up, { once: true });
+    handle.addEventListener("pointercancel", cancel, { once: true });
+    document.addEventListener("keydown", escape, true);
   };
   const focusGroupTitle = (id: string | null) => {
     if (id) setTimeout(() => { const input = document.querySelector<HTMLInputElement>(`[data-group-title="${CSS.escape(id)}"]`); input?.focus(); input?.select(); });
@@ -489,7 +546,7 @@ export function GroupsView(props: GroupsViewProps) {
       if (!title) { input.value = group().title; return; }
       if (title !== group().title) void props.onRenameGroup(group(), title);
     };
-    return <section class="board-group" data-group-id={group().id} classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id, "nest-target": !!dragId() && nestId() === sectionProps.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === sectionProps.id }}>
+    return <section class="board-group" data-group-id={group().id} classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id, "nest-target": !!dragId() && nestId() === sectionProps.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === sectionProps.id, "col-picked": !!columnPick()?.includes(sectionProps.id) }}>
       <DragGrip id={group().id} />
       <header class="board-group-header">
         <button class="icon-button board-collapse" aria-label={collapsed() ? "Expand group" : "Collapse group"} aria-expanded={!collapsed()} onClick={() => setCollapsed(value => !value)}>{collapsed() ? "›" : "⌄"}</button>
@@ -531,7 +588,7 @@ export function GroupsView(props: GroupsViewProps) {
     const spec = BUILTIN_GROUPS.find(entry => entry.id === sectionProps.id)!;
     const empty = { available: "Nothing is available right now.", upcoming: "Nothing is waiting to start.", sleeping: "No sleeping tasks.", ungrouped: "" }[spec.builtin];
     const nodes = () => spec.builtin === "ungrouped" ? board().ungrouped : smart()[spec.builtin];
-    return <section class="board-group smart-group" data-builtin={spec.builtin} classList={{ dragging: dragId() === spec.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === null && spec.builtin === "ungrouped" }}>
+    return <section class="board-group smart-group" data-builtin={spec.builtin} classList={{ dragging: dragId() === spec.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === null && spec.builtin === "ungrouped", "col-picked": !!columnPick()?.includes(spec.id) }}>
       <DragGrip id={spec.id} />
       <header class="board-group-header"><h2>{spec.title}</h2><span class="board-count">{countTasks(nodes())}</span></header>
       <Show when={nodes().length || !empty} fallback={<p class="board-empty">{empty}</p>}><TaskList nodes={nodes()} depth={0} /></Show>
@@ -559,6 +616,7 @@ export function GroupsView(props: GroupsViewProps) {
       {dropTarget("new-0", () => ({ newColumn: 0 }), "board-drop-column")}
       <Index each={columns()}>{(column, columnIndex) => <>
         <div class="board-column">
+          <button class="column-pick" aria-pressed={pickedColumn(column())} aria-label={`Select all groups in column ${columnIndex + 1}`} title="Select all groups in this column to drag them together (Escape clears)" onClick={() => toggleColumnPick(column())} />
           {dropTarget(`in-${columnIndex}-0`, () => ({ column: columnIndex, index: 0 }), "board-drop-slot")}
           <For each={column()}>{(id, position) => <>
             <div class="board-entry" data-board-entry={id} data-column={columnIndex}>

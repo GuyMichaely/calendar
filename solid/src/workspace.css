@@ -500,6 +500,13 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .board.drag-active .board-drop-column.active { flex-basis: var(--drop-w, 56px); }
 .board-group.nest-target { outline: 2px solid var(--accent); outline-offset: -2px; }
 .board-group-ghost { pointer-events: none; box-shadow: var(--shadow); opacity: .95; }
+/* The bar atop a column selects all its groups so they drag as a unit. */
+.column-pick { display: block; width: 100%; height: 5px; margin: 0 0 7px; padding: 0; border: 0; border-radius: 99px; background: var(--line); opacity: 0; cursor: pointer; transition: opacity .15s, background .15s; }
+.board-column:hover .column-pick, .column-pick[aria-pressed="true"] { opacity: .45; }
+.column-pick:hover { opacity: 1; background: var(--muted); }
+.column-pick[aria-pressed="true"] { background: var(--accent); opacity: .95; }
+@media (hover: none) { .column-pick { opacity: .45; } }
+.board-group.col-picked { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .board-group { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 6px 6px 8px; }
 .board-group.nested { margin: 10px 0 0 4px; border-radius: 8px; background: var(--surface-3); }
 .board-group-header { display: flex; align-items: center; gap: 2px; min-height: 32px; margin-bottom: 4px; }

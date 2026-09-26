@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { boardColumns, boardEntries, buildBoard, groupOptions, layoutPatches, nestList, nextColumnKey, placeGroup, taskPlacePatches, taskSiblings } from "../src/group-board";
+import { boardColumns, boardEntries, buildBoard, groupOptions, layoutPatches, nestList, nextColumnKey, placeGroup, placeGroups, sameLayout, taskPlacePatches, taskSiblings } from "../src/group-board";
 import { projectDependents, startedTask } from "../src/dependencies";
 import type { Group, Item, Task } from "../src/types";
 
@@ -56,6 +56,27 @@ test("placing a group moves it between columns, into new columns, and drops empt
   expect(placeGroup(columns, "a", { newColumn: 2 })).toEqual([["b"], ["c"], ["a"]]);
   const groups = [group("a", null, 0), group("b", null, 1), group("c", null, 2)];
   expect(layoutPatches([["b", "a"], ["c"]], groups).map(({ group, patch }) => [group.id, patch])).toEqual([["b", { boardColumn: 0, sortOrder: 0 }], ["a", { boardColumn: 0, sortOrder: 1 }], ["c", { boardColumn: 1, sortOrder: 0 }]]);
+});
+
+test("wells straddling the dragged group or its column reproduce its layout (no-op drops)", () => {
+  const columns = [["a"], ["b"], ["c"]];
+  // Dragging b: the slot wells around it inside its column and the column wells
+  // immediately left and right of its column all land it where it already sits.
+  expect(sameLayout(placeGroup(columns, "b", { column: 1, index: 0 }), columns)).toBe(true);
+  expect(sameLayout(placeGroup(columns, "b", { column: 1, index: 1 }), columns)).toBe(true);
+  expect(sameLayout(placeGroup(columns, "b", { newColumn: 1 }), columns)).toBe(true);
+  expect(sameLayout(placeGroup(columns, "b", { newColumn: 2 }), columns)).toBe(true);
+  // But one column further is a real move.
+  expect(sameLayout(placeGroup(columns, "b", { newColumn: 3 }), columns)).toBe(false);
+  expect(placeGroup(columns, "b", { newColumn: 3 })).toEqual([["a"], ["c"], ["b"]]);
+});
+
+test("placeGroups moves a whole column as a unit, keeping its order", () => {
+  const columns = [["a"], ["b", "c"], ["d"]];
+  expect(placeGroups(columns, ["b", "c"], { newColumn: 3 })).toEqual([["a"], ["d"], ["b", "c"]]);
+  expect(placeGroups(columns, ["b", "c"], { column: 0, index: 1 })).toEqual([["a", "b", "c"], ["d"]]);
+  // Dragging a selected column to a straddling side is still a no-op.
+  expect(sameLayout(placeGroups(columns, ["b", "c"], { newColumn: 1 }), columns)).toBe(true);
 });
 
 test("built-in sections start leftmost, are created when first moved, and never count as user groups", () => {

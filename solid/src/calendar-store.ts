@@ -17,7 +17,7 @@ import {
 } from "../../site/storage.js";
 import { tomorrowMidnight } from "../../site/domain.js";
 import { startedTask } from "./dependencies";
-import { boardColumns, boardEntries, groupPlacement, layoutPatches, placeGroup as placeInLayout, reorderPatches, taskPlacePatches, taskSiblings, ungroupPatches, type BoardTarget } from "./group-board";
+import { boardColumns, boardEntries, groupPlacement, layoutPatches, placeGroups as placeInLayout, reorderPatches, taskPlacePatches, taskSiblings, ungroupPatches, type BoardTarget } from "./group-board";
 import { completedTask, dependentGroupId, newGroup, newTask, patchedItem, sleptTask, wokenTask } from "./item-changes";
 import type { Group, Item, Task } from "./types";
 
@@ -87,10 +87,21 @@ export function createCalendarStore(options: { onChanged: () => void }) {
       const entries = boardEntries(items());
       const dragged = items().find((item): item is Group => item.kind === "group" && item.id === id);
       if (!entries.some(group => group.id === id) && (!dragged || dragged.builtin)) return;
-      const patches: { group: Group; patch: Partial<Group>; create: boolean }[] = layoutPatches(placeInLayout(boardColumns(entries), id, target), items());
+      const patches: { group: Group; patch: Partial<Group>; create: boolean }[] = layoutPatches(placeInLayout(boardColumns(entries), [id], target), items());
       // A nested group dragged onto the board leaves its parent and becomes a column entry.
       if (dragged?.parentId) patches.unshift({ group: dragged, patch: { parentId: null }, create: false });
       if (patches.length) await batch("Move group", async () => {
+        for (const { group, patch, create } of patches) await (create ? putItem({ ...group, ...patch }) : patchGroup(group, patch));
+      });
+    },
+    /** Move a whole column's worth of top-level groups to one board position in a single undoable step. */
+    placeGroups: async (ids: string[], target: BoardTarget) => {
+      const entries = boardEntries(items());
+      const valid = new Set(entries.map(group => group.id));
+      const moving = ids.filter(id => valid.has(id));
+      if (!moving.length) return;
+      const patches = layoutPatches(placeInLayout(boardColumns(entries), moving, target), items());
+      if (patches.length) await batch("Move groups", async () => {
         for (const { group, patch, create } of patches) await (create ? putItem({ ...group, ...patch }) : patchGroup(group, patch));
       });
     },
