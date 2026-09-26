@@ -67,6 +67,8 @@ export type Group = BaseItem & {
   sortOrder?: number;
   // Top-level groups only: which board column the group is stacked in.
   boardColumn?: number;
+  // Built-in board sections store only their position; they hold no tasks.
+  builtin?: "available" | "upcoming" | "sleeping" | "ungrouped";
 };
 
 export type Item = Task | CalendarEvent | Group;

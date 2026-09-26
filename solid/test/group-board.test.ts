@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { boardColumns, buildBoard, groupOptions, layoutPatches, nextColumnKey, placeGroup } from "../src/group-board";
+import { boardColumns, boardEntries, buildBoard, groupOptions, layoutPatches, nextColumnKey, placeGroup } from "../src/group-board";
 import type { Group, Item, Task } from "../src/types";
 
 const at = "2026-09-26T00:00:00.000Z";
@@ -55,4 +55,18 @@ test("placing a group moves it between columns, into new columns, and drops empt
   expect(placeGroup(columns, "a", { newColumn: 2 })).toEqual([["b"], ["c"], ["a"]]);
   const groups = [group("a", null, 0), group("b", null, 1), group("c", null, 2)];
   expect(layoutPatches([["b", "a"], ["c"]], groups).map(({ group, patch }) => [group.id, patch])).toEqual([["b", { boardColumn: 0, sortOrder: 0 }], ["a", { boardColumn: 0, sortOrder: 1 }], ["c", { boardColumn: 1, sortOrder: 0 }]]);
+});
+
+test("built-in sections start leftmost, are created when first moved, and never count as user groups", () => {
+  const items: Item[] = [{ ...group("work", null, 0), boardColumn: 0 }];
+  expect(boardColumns(boardEntries(items))).toEqual([["builtin-available", "builtin-upcoming", "builtin-sleeping"], ["builtin-ungrouped"], ["work"]]);
+  const moved = placeGroup(boardColumns(boardEntries(items)), "builtin-sleeping", { column: 2, index: 1 });
+  const patches = layoutPatches(moved, items);
+  const sleeping = patches.find(entry => entry.group.id === "builtin-sleeping")!;
+  expect(sleeping).toMatchObject({ create: true, patch: { boardColumn: 2, sortOrder: 1 }, group: { kind: "group", builtin: "sleeping" } });
+  const patched = new Map(patches.map(entry => [entry.group.id, { ...entry.group, ...entry.patch }]));
+  const stored = [...items.map(item => patched.get(item.id) || item), ...patches.filter(entry => entry.create).map(entry => patched.get(entry.group.id)!)];
+  expect(boardColumns(boardEntries(stored))).toEqual(moved);
+  expect(groupOptions(stored).map(option => option.group.id)).toEqual(["work"]);
+  expect(buildBoard(stored, () => true).groups.map(node => node.group.id)).toEqual(["work"]);
 });

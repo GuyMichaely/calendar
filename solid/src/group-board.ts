@@ -13,8 +13,23 @@ function push<T>(map: Map<string, T[]>, key: string, value: T) {
   if (list) list.push(value); else map.set(key, [value]);
 }
 
+/** User groups: built-in sections are stored as groups only to remember their position. */
 export function sortedGroups(items: Item[]) {
-  return items.filter((item): item is Group => item.kind === "group").sort(byOrder);
+  return items.filter((item): item is Group => item.kind === "group" && !item.builtin).sort(byOrder);
+}
+
+// Built-in sections start in the leftmost columns, before any user column.
+export const BUILTIN_GROUPS = [
+  { id: "builtin-available", builtin: "available", title: "Available", boardColumn: -2, sortOrder: 0 },
+  { id: "builtin-upcoming", builtin: "upcoming", title: "Upcoming", boardColumn: -2, sortOrder: 1 },
+  { id: "builtin-sleeping", builtin: "sleeping", title: "Sleeping", boardColumn: -2, sortOrder: 2 },
+  { id: "builtin-ungrouped", builtin: "ungrouped", title: "No group", boardColumn: -1, sortOrder: 0 },
+] as const;
+export type BuiltinKind = (typeof BUILTIN_GROUPS)[number]["builtin"];
+
+export function builtinGroup(id: string, createdAt = new Date().toISOString()): Group | null {
+  const spec = BUILTIN_GROUPS.find(entry => entry.id === id);
+  return spec ? { id: spec.id, kind: "group", title: spec.title, builtin: spec.builtin, parentId: null, boardColumn: spec.boardColumn, sortOrder: spec.sortOrder, createdAt, updatedAt: createdAt } : null;
 }
 
 // Top-level groups have no (existing) parent. Groups caught in a cycle, which
@@ -93,9 +108,16 @@ export function groupOptions(items: Item[], exclude = new Set<string>()) {
 // column (created before columns existed) gets a column of its own.
 const columnKey = (group: Group) => group.boardColumn ?? group.sortOrder ?? 0;
 
-export function boardColumns(roots: Group[]): string[][] {
+/** Everything placed on the board: top-level user groups and the built-in sections (stored or default). */
+export function boardEntries(items: Item[]): Group[] {
+  const stored = new Map(items.filter((item): item is Group => item.kind === "group" && !!item.builtin).map(group => [group.id, group]));
+  const builtins = BUILTIN_GROUPS.map(spec => stored.get(spec.id) || builtinGroup(spec.id, new Date(0).toISOString())!);
+  return [...builtins, ...groupForest(sortedGroups(items)).roots];
+}
+
+export function boardColumns(entries: Group[]): string[][] {
   const columns = new Map<number, Group[]>();
-  for (const group of roots) columns.set(columnKey(group), [...(columns.get(columnKey(group)) || []), group]);
+  for (const group of [...entries].sort(byOrder)) columns.set(columnKey(group), [...(columns.get(columnKey(group)) || []), group]);
   return [...columns.entries()].sort(([a], [b]) => a - b).map(([, groups]) => groups.map(group => group.id));
 }
 
@@ -113,11 +135,13 @@ export function placeGroup(columns: string[][], id: string, target: BoardTarget)
   return next.map(column => column.filter((entry): entry is string => entry !== null)).filter(column => column.length);
 }
 
-/** The column and position each group needs to match a layout. */
-export function layoutPatches(columns: string[][], groups: Group[]) {
-  const byId = new Map(groups.map(group => [group.id, group]));
+/** The column and position each group needs to match a layout. Built-in sections not yet stored are created. */
+export function layoutPatches(columns: string[][], items: Item[]) {
+  const byId = new Map(items.filter((item): item is Group => item.kind === "group").map(group => [group.id, group]));
   return columns.flatMap((column, boardColumn) => column.flatMap((id, sortOrder) => {
-    const group = byId.get(id);
-    return group && (group.boardColumn !== boardColumn || group.sortOrder !== sortOrder) ? [{ group, patch: { boardColumn, sortOrder } }] : [];
+    const stored = byId.get(id);
+    const group = stored || builtinGroup(id);
+    if (!group || (stored && group.boardColumn === boardColumn && group.sortOrder === sortOrder)) return [];
+    return [{ group, patch: { boardColumn, sortOrder }, create: !stored }];
   }));
 }

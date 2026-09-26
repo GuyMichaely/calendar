@@ -2,7 +2,7 @@ import { For, Index, Show, createEffect, createMemo, createSignal, onMount, type
 import { formatDateTime, isSleeping, sleepInfo } from "../../site/domain.js";
 import { groupDescendants } from "../../site/task-tree.js";
 import { Icon } from "./Icon";
-import { boardColumns, buildBoard, flattenGroupNodes, groupOptions, type BoardTarget, type GroupNode, type TaskNode } from "./group-board";
+import { BUILTIN_GROUPS, boardColumns, boardEntries, buildBoard, flattenGroupNodes, groupOptions, type BoardTarget, type GroupNode, type TaskNode } from "./group-board";
 import { planTasks } from "./task-planning";
 import type { Group, Item, Task } from "./types";
 
@@ -45,7 +45,7 @@ export function GroupsView(props: GroupsViewProps) {
   const board = createMemo(() => buildBoard(props.items, task => (props.showCompleted || task.state !== "completed") && textMatches(task, props.query)));
   // Components are keyed by id so inputs keep focus and drafts when the board is rebuilt.
   const groupsById = createMemo(() => flattenGroupNodes(board().groups));
-  const columns = createMemo(() => boardColumns(board().groups.map(node => node.group)));
+  const columns = createMemo(() => boardColumns(boardEntries(props.items)));
   // Built-in groups list tasks by availability, across every group.
   const smart = createMemo(() => {
     const tasks = props.items.filter((item): item is Task => item.kind === "task" && item.state !== "completed" && textMatches(item, props.query));
@@ -206,7 +206,7 @@ export function GroupsView(props: GroupsViewProps) {
         <button class="icon-button board-collapse" aria-label={collapsed() ? "Expand group" : "Collapse group"} aria-expanded={!collapsed()} onClick={() => setCollapsed(value => !value)}>{collapsed() ? "›" : "⌄"}</button>
         <input ref={titleInput} class="board-group-title" data-group-title={group().id} aria-label="Group name"
           onChange={event => rename(event.currentTarget)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.currentTarget.value = group().title; event.currentTarget.blur(); } }} />
-        <Show when={sectionProps.depth} fallback={<span class="board-drag-handle" title="Drag to move" aria-hidden="true" onPointerDown={startGroupDrag(group().id)}>⠿</span>}>
+        <Show when={sectionProps.depth} fallback={<DragHandle id={group().id} />}>
           <button class="icon-button" aria-label="Move up" title="Move up" disabled={index() <= 0} onClick={() => void props.onReorderGroup(group(), -1)}>↑</button>
           <button class="icon-button" aria-label="Move down" title="Move down" disabled={index() >= sectionProps.siblings.length - 1} onClick={() => void props.onReorderGroup(group(), 1)}>↓</button>
         </Show>
@@ -235,11 +235,19 @@ export function GroupsView(props: GroupsViewProps) {
     return <For each={ids()}>{id => <Show when={groupsById().has(id)}><GroupSection id={id} depth={listProps.depth} siblings={ids()} /></Show>}</For>;
   };
 
-  const SmartGroup = (smartProps: { title: string; nodes: TaskNode[]; empty: string }) =>
-    <section class="board-group smart-group">
-      <header class="board-group-header"><h2>{smartProps.title}</h2><span class="board-count">{smartProps.nodes.length}</span></header>
-      <Show when={smartProps.nodes.length} fallback={<p class="board-empty">{smartProps.empty}</p>}><TaskList nodes={smartProps.nodes} depth={0} /></Show>
+  const DragHandle = (handleProps: { id: string }) => <span class="board-drag-handle" title="Drag to move" aria-hidden="true" onPointerDown={startGroupDrag(handleProps.id)}>⠿</span>;
+
+  // Built-in sections: availability lists across all groups, and tasks without a group.
+  const BuiltinSection = (sectionProps: { id: string }) => {
+    const spec = BUILTIN_GROUPS.find(entry => entry.id === sectionProps.id)!;
+    const empty = { available: "Nothing is available right now.", upcoming: "Nothing is waiting to start.", sleeping: "No sleeping tasks.", ungrouped: "" }[spec.builtin];
+    const nodes = () => spec.builtin === "ungrouped" ? board().ungrouped : smart()[spec.builtin];
+    return <section class="board-group smart-group" classList={{ dragging: dragId() === spec.id }}>
+      <header class="board-group-header"><DragHandle id={spec.id} /><h2>{spec.title}</h2><Show when={spec.builtin !== "ungrouped"}><span class="board-count">{nodes().length}</span></Show></header>
+      <Show when={nodes().length || !empty} fallback={<p class="board-empty">{empty}</p>}><TaskList nodes={nodes()} depth={0} /></Show>
+      <Show when={spec.builtin === "ungrouped"}><AddTask groupId={null} /></Show>
     </section>;
+  };
 
   return <section class="panel groups-panel">
     <div class="groups-toolbar">
@@ -249,24 +257,12 @@ export function GroupsView(props: GroupsViewProps) {
       <button class="secondary-button" onClick={async () => focusGroupTitle(await props.onCreateGroup(null))}><Icon name="plus" size={15} />New group</button>
     </div>
     <div ref={boardRef} class="board" classList={{ compact: props.compact, "drag-active": !!dragId() }}>
-      <div class="board-column">
-        <SmartGroup title="Available" nodes={smart().available} empty="Nothing is available right now." />
-        <SmartGroup title="Upcoming" nodes={smart().upcoming} empty="Nothing is waiting to start." />
-        <SmartGroup title="Sleeping" nodes={smart().sleeping} empty="No sleeping tasks." />
-      </div>
-      <div class="board-column">
-        <section class="board-group">
-          <header class="board-group-header"><h2>No group</h2></header>
-          <TaskList nodes={board().ungrouped} depth={0} />
-          <AddTask groupId={null} />
-        </section>
-      </div>
       {dropTarget("new-0", () => ({ newColumn: 0 }), "board-drop-column")}
       <Index each={columns()}>{(column, columnIndex) => <>
         <div class="board-column">
           {dropTarget(`in-${columnIndex}-0`, () => ({ column: columnIndex, index: 0 }), "board-drop-slot")}
           <For each={column()}>{(id, position) => <>
-            <Show when={groupsById().has(id)}><GroupSection id={id} depth={0} siblings={column()} /></Show>
+            <Show when={groupsById().has(id)} fallback={<Show when={BUILTIN_GROUPS.some(entry => entry.id === id)}><BuiltinSection id={id} /></Show>}><GroupSection id={id} depth={0} siblings={column()} /></Show>
             {dropTarget(`in-${columnIndex}-${id}`, () => ({ column: columnIndex, index: position() + 1 }), "board-drop-slot")}
           </>}</For>
         </div>
