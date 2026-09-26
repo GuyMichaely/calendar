@@ -108,6 +108,6 @@ Server-only code lives under backend/. The sync/ directory holds the shared Auto
 - make it so using the arrow keys to navigate through item focus loops around when pressing up on top item or down on bottom item
 - what's the "saved on this device" status for? 
 - decide what to do about displaying sleeping/waiting tasks as descendents of open tasks
-
+- decouple model and view
 1. sleeping and waiting dates don't display year. don't display year if it's the current year, otherwise display year
 2. 
