@@ -2,7 +2,7 @@ import { For, Index, Show, createEffect, createMemo, createSignal, onMount, type
 import { formatDateTime, isSleeping, sleepInfo } from "../../site/domain.js";
 import { groupDescendants } from "../../site/task-tree.js";
 import { Icon } from "./Icon";
-import { BUILTIN_GROUPS, boardColumns, boardEntries, buildBoard, flattenGroupNodes, groupOptions, type BoardTarget, type GroupNode, type TaskNode } from "./group-board";
+import { BUILTIN_GROUPS, boardColumns, boardEntries, buildBoard, nestList, flattenGroupNodes, groupOptions, type BoardTarget, type GroupNode, type TaskNode } from "./group-board";
 import { planTasks } from "./task-planning";
 import { RELATIVE_DATE_FIELDS, isDormant } from "./dependencies";
 import type { Group, Item, Task } from "./types";
@@ -54,7 +54,7 @@ export function GroupsView(props: GroupsViewProps) {
     // Dependent tasks that haven't been started are left out until they are.
     const tasks = props.items.filter((item): item is Task => item.kind === "task" && item.state !== "completed" && !isDormant(item, itemsById()) && textMatches(item, props.query));
     const plan = planTasks(tasks, props.now, props.respectSleep, "start", null);
-    const flat = (rows: { task: Task }[]): TaskNode[] => rows.map(row => ({ task: row.task, children: [], dependents: [] }));
+    const flat = (rows: { task: Task }[]): TaskNode[] => nestList(rows.map(row => row.task), props.items);
     return {
       available: flat(plan.now),
       upcoming: flat(plan.upcoming.filter(row => !isSleeping(row.task, props.now))),

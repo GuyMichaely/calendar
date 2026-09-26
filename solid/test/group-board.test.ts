@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { boardColumns, boardEntries, buildBoard, groupOptions, layoutPatches, nextColumnKey, placeGroup } from "../src/group-board";
+import { boardColumns, boardEntries, buildBoard, groupOptions, layoutPatches, nestList, nextColumnKey, placeGroup } from "../src/group-board";
 import { projectDependents, startedTask } from "../src/dependencies";
 import type { Group, Item, Task } from "../src/types";
 
@@ -90,4 +90,14 @@ test("the calendar's what-if view starts dependent tasks on their parent task's 
   const projected = projectDependents(items, new Date(at));
   expect(projected.get("mailbox")!.deadline).toBe("2026-10-14T12:00:00.000Z");
   expect(projected.get("deposit")!.availableFrom).toBe("2026-10-15T12:00:00.000Z");
+});
+
+test("built-in lists nest tasks under their nearest listed ancestor and keep their order", () => {
+  const items: Item[] = [task("trip"), task("dates", { parentId: "trip" }), task("flights", { parentId: "dates" }), task("other")];
+  const listed = [items[3], items[2], items[0]] as Task[];
+  const nested = nestList(listed, items);
+  expect(titles(nested)).toEqual(["other", "trip"]);
+  expect(titles(nested[1].children)).toEqual(["flights"]);
+  const looped: Item[] = [task("a", { parentId: "b" }), task("b", { parentId: "a" })];
+  expect(titles(nestList(looped as Task[], looped)).sort()).toEqual(["a", "b"]);
 });

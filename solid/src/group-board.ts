@@ -152,3 +152,31 @@ export function layoutPatches(columns: string[][], items: Item[]) {
     return [{ group, patch: { boardColumn, sortOrder }, create: !stored }];
   }));
 }
+
+/**
+ * Nest a flat list (like Available or Upcoming) so each task sits under its nearest ancestor that is also
+ * in the list; order is kept. Ancestors that would loop (concurrent moves) leave the task at the top level.
+ */
+export function nestList(tasks: Task[], items: Item[]): TaskNode[] {
+  const byId = new Map(items.map(item => [item.id, item]));
+  const inList = new Set(tasks.map(task => task.id));
+  const host = (task: Task) => {
+    const seen = new Set([task.id]);
+    for (let id = task.parentId; id && !seen.has(id); ) {
+      if (inList.has(id)) return id;
+      seen.add(id);
+      const parent = byId.get(id);
+      id = parent?.kind === "task" ? parent.parentId : null;
+    }
+    return null;
+  };
+  const hosts = new Map(tasks.map(task => [task.id, host(task)]));
+  const loops = (id: string) => { const seen = new Set<string>(); for (let at = hosts.get(id); at; at = hosts.get(at)) { if (at === id || seen.has(at)) return true; seen.add(at); } return false; };
+  const nodes = new Map(tasks.map(task => [task.id, { task, children: [], dependents: [] } as TaskNode]));
+  const roots: TaskNode[] = [];
+  for (const task of tasks) {
+    const parent = hosts.get(task.id);
+    (parent && !loops(task.id) ? nodes.get(parent)!.children : roots).push(nodes.get(task.id)!);
+  }
+  return roots;
+}
