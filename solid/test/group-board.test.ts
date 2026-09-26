@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { boardColumns, boardEntries, buildBoard, groupOptions, layoutPatches, nestList, nextColumnKey, placeGroup } from "../src/group-board";
+import { boardColumns, boardEntries, buildBoard, groupOptions, layoutPatches, nestList, nextColumnKey, placeGroup, taskPlacePatches, taskSiblings } from "../src/group-board";
 import { projectDependents, startedTask } from "../src/dependencies";
 import type { Group, Item, Task } from "../src/types";
 
@@ -100,4 +100,34 @@ test("built-in lists nest tasks under their nearest listed ancestor and keep the
   expect(titles(nested[1].children)).toEqual(["flights"]);
   const looped: Item[] = [task("a", { parentId: "b" }), task("b", { parentId: "a" })];
   expect(titles(nestList(looped as Task[], looped)).sort()).toEqual(["a", "b"]);
+});
+
+test("taskSiblings lists a group's top level or a task's children, in order", () => {
+  const items: Item[] = [
+    group("work"),
+    task("a", { groupId: "work", sortOrder: 1 }), task("b", { groupId: "work", sortOrder: 0 }),
+    task("kid", { parentId: "a" }), task("loose"),
+    task("waiting", { dependentOf: "a" }), // dormant dependents are not siblings
+  ];
+  expect(taskSiblings(items, null, "work").map(t => t.id)).toEqual(["b", "a"]);
+  expect(taskSiblings(items, "a", null).map(t => t.id)).toEqual(["kid"]);
+  expect(taskSiblings(items, null, null).map(t => t.id)).toEqual(["loose"]);
+});
+
+test("taskPlacePatches nests, un-nests, re-groups, and indexes a task among new siblings", () => {
+  const items: Item[] = [
+    group("work"), group("home"),
+    task("a", { groupId: "work", sortOrder: 0 }), task("b", { groupId: "work", sortOrder: 1 }),
+    task("kid", { parentId: "a", sortOrder: 0 }),
+  ];
+  const [a, b, kid] = items.filter(item => item.kind === "task") as Task[];
+  // Nest b under a: appended as its second child, group cleared. (kid already has order 0.)
+  expect(taskPlacePatches(items, b, a.id, null).map(({ task: t, patch }) => [t.id, patch]))
+    .toEqual([["b", { sortOrder: 1, parentId: "a", groupId: null }]]);
+  // Move b between groups at the end of home's top level.
+  expect(taskPlacePatches(items, b, null, "home").map(({ task: t, patch }) => [t.id, patch]))
+    .toEqual([["b", { sortOrder: 0, parentId: null, groupId: "home" }]]);
+  // Put kid before a on work's top level: a and b shift down.
+  expect(taskPlacePatches(items, kid, null, "work", 0).map(({ task: t, patch }) => [t.id, patch]))
+    .toEqual([["kid", { sortOrder: 0, parentId: null, groupId: "work" }], ["a", { sortOrder: 1 }], ["b", { sortOrder: 2 }]]);
 });

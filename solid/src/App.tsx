@@ -10,7 +10,7 @@ import { createRemoteSync } from "./remote-session";
 import { createCalendarStore } from "./calendar-store";
 import { createPreferences } from "./preferences";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
-import { GroupsView } from "./GroupsView";
+import { GroupsView, type TaskDrop } from "./GroupsView";
 import { isDormant, projectDependents } from "./dependencies";
 import { dependentTasks } from "../../site/task-tree.js";
 import { ToastStack, type ToastMessage } from "./ToastStack";
@@ -148,6 +148,9 @@ export function App() {
   const addTask = (groupId: string | null, title: string) => attempt(() => store.addTask(groupId, title), "Could not add task.");
   const addDependent = (parent: Task, title: string) => attempt(() => store.addDependent(parent, title), "Could not add dependent task.");
   const completeTask = async (task: Task) => { await attempt(() => store.completeTask(task), "Could not complete task.", "Task completed"); };
+  const dropTask = (task: Task, drop: TaskDrop) => attempt(() => store.moveTask(task,
+    drop.kind === "inside" ? { parent: drop.parent } : drop.kind === "group" ? { groupId: drop.groupId } : { ref: drop.ref, before: drop.kind === "before" }
+  ), "Could not move task.");
   const startDependent = async (task: Task, completeParent: boolean) => {
     try {
       const { completed } = await store.startDependent(task, completeParent);
@@ -256,7 +259,7 @@ export function App() {
             <div class="tasks-workspace" classList={{ split: splitView() && !!detailRequest() }}>
             <GroupsView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null} showCompleted={prefs.showCompleted()} onShowCompletedChange={prefs.setShowCompleted}
               compact={prefs.compact()} onCompactChange={prefs.setCompact} onPatchTask={patchTask}
-              onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={(group, title) => groupChange(() => store.renameGroup(group, title))} onMoveGroup={(group, parentId) => groupChange(() => store.moveGroup(group, parentId))} onReorderGroup={(group, offset) => groupChange(() => store.reorderGroup(group, offset))} onDeleteGroup={deleteGroup} onPlaceGroup={(id, target) => groupChange(() => store.placeGroup(id, target))} onStartDependent={startDependent} onDeleteTask={deleteTask} onSleepTask={sleepTask} onWakeTask={wakeTask} respectSleep={prefs.calendarSleepMode() === "respect"} />
+              onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={(group, title) => groupChange(() => store.renameGroup(group, title))} onMoveGroup={(group, parentId) => groupChange(() => store.moveGroup(group, parentId))} onReorderGroup={(group, offset) => groupChange(() => store.reorderGroup(group, offset))} onDeleteGroup={deleteGroup} onPlaceGroup={(id, target) => groupChange(() => store.placeGroup(id, target))} onDropTask={dropTask} onStartDependent={startDependent} onDeleteTask={deleteTask} onSleepTask={sleepTask} onWakeTask={wakeTask} respectSleep={prefs.calendarSleepMode() === "respect"} />
             <Show when={splitView() && detailRequest()}>
               <aside class="task-detail-pane" aria-label="Task details">
                 <Show when={detailRequest()} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>

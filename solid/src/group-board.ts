@@ -181,6 +181,29 @@ export function nestList(tasks: Task[], items: Item[]): TaskNode[] {
   return roots;
 }
 
+/** Sibling tasks as shown on the board: top level of a group (or the no-group list), or a task's children. Dormant dependent tasks live in their own sublist. */
+export function taskSiblings(items: Item[], parentId: string | null, groupId: string | null): Task[] {
+  const byId = new Map(items.map(item => [item.id, item]));
+  const groupIds = new Set(items.filter(item => item.kind === "group").map(item => item.id));
+  return items.filter((item): item is Task => {
+    if (item.kind !== "task") return false;
+    if (parentId) return item.parentId === parentId && byId.get(parentId)?.kind === "task";
+    if (item.parentId && byId.get(item.parentId)?.kind === "task") return false;
+    if (isDormant(item, byId)) return false;
+    return (item.groupId && groupIds.has(item.groupId) ? item.groupId : null) === groupId;
+  }).sort(byOrder);
+}
+
+/** The sortOrder (and parent) changes that place `task` among new siblings at `index` — the end by default. */
+export function taskPlacePatches(items: Item[], task: Task, parentId: string | null, groupId: string | null, index?: number) {
+  const siblings = taskSiblings(items, parentId, groupId).filter(sibling => sibling.id !== task.id);
+  const at = index == null ? siblings.length : Math.max(0, Math.min(index, siblings.length));
+  siblings.splice(at, 0, task);
+  return siblings.flatMap((sibling, sortOrder) =>
+    sibling.id === task.id ? [{ task: sibling, patch: { sortOrder, parentId, groupId } }]
+      : sibling.sortOrder !== sortOrder ? [{ task: sibling, patch: { sortOrder } }] : []);
+}
+
 // Groups: siblings share a parent (top-level groups share none) and are ordered by sortOrder.
 export function siblingGroups(items: Item[], parentId: string | null) {
   const forest = groupForest(sortedGroups(items));

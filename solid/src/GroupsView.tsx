@@ -1,11 +1,17 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { formatDateTime, isSleeping, sleepInfo } from "../../site/domain.js";
+import { taskDescendants } from "../../site/task-tree.js";
 import { Icon } from "./Icon";
 import { renderNotes } from "./markdown";
 import { BUILTIN_GROUPS, boardColumns, boardEntries, buildBoard, nestList, flattenGroupNodes, type BoardTarget, type GroupNode, type TaskNode } from "./group-board";
 import { planTasks } from "./task-planning";
 import { RELATIVE_DATE_FIELDS, isDormant } from "./dependencies";
 import type { Group, Item, Task } from "./types";
+
+export type TaskDrop =
+  | { kind: "inside"; parent: Task }
+  | { kind: "before" | "after"; ref: Task }
+  | { kind: "group"; groupId: string | null };
 
 export type GroupsViewProps = {
   items: Item[];
@@ -26,6 +32,7 @@ export type GroupsViewProps = {
   onReorderGroup: (group: Group, offset: -1 | 1) => Promise<void>;
   onDeleteGroup: (group: Group) => Promise<void>;
   onPlaceGroup: (id: string, target: BoardTarget) => Promise<void>;
+  onDropTask: (task: Task, drop: TaskDrop) => Promise<unknown>;
   onStartDependent: (task: Task, completeParent: boolean) => Promise<void>;
   onDeleteTask: (task: Task) => Promise<void>;
   onSleepTask: (task: Task) => Promise<void>;
@@ -165,6 +172,81 @@ export function GroupsView(props: GroupsViewProps) {
     handle.addEventListener("pointerup", end(true), { once: true });
     handle.addEventListener("pointercancel", end(false), { once: true });
   };
+
+  // Task dragging: a grip on each card undocks it; dropping onto another card nests
+  // it as a subtask (middle), orders as a sibling (top/bottom edge), or re-groups it.
+  const [taskDragId, setTaskDragId] = createSignal<string | null>(null);
+  const [taskDrop, setTaskDrop] = createSignal<{ kind: "before" | "after" | "inside" | "group"; id: string | null } | null>(null);
+  const taskDropId = () => taskDrop()?.id;
+  const startTaskDrag = (id: string, event: PointerEvent) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const handle = event.currentTarget as HTMLElement;
+    const card = handle.closest<HTMLElement>("[data-task-card]");
+    handle.setPointerCapture(event.pointerId);
+    setTaskDragId(id);
+    // A rAF loop drives the drag; pointermove stops when a held finger is stationary.
+    let lastX = event.clientX, lastY = event.clientY, frame = 0;
+    const ghost = card ? (card.cloneNode(true) as HTMLElement) : null;
+    const startX = event.clientX, startY = event.clientY;
+    if (card && ghost) {
+      const rect = card.getBoundingClientRect();
+      ghost.classList.remove("drop-inside", "drop-before", "drop-after");
+      ghost.classList.add("task-ghost");
+      Object.assign(ghost.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, maxHeight: "72px", overflow: "hidden", margin: "0", zIndex: "60" });
+      document.body.appendChild(ghost);
+    }
+    const byId = itemsById();
+    const dragged = byId.get(id) as Task | undefined;
+    // A task can't be dropped onto itself or its own subtasks.
+    const excluded = new Set([id, ...taskDescendants(props.items, id).map(task => task.id)]);
+    const update = () => {
+      if (ghost) ghost.style.transform = `translate(${lastX - startX}px, ${lastY - startY}px)`;
+      const edge = boardRef.getBoundingClientRect();
+      const EDGE = 56;
+      const leftDepth = edge.left + EDGE - lastX, rightDepth = lastX - (edge.right - EDGE);
+      if (rightDepth > 0) boardRef.scrollLeft += Math.min(28, 4 + rightDepth * 0.4);
+      else if (leftDepth > 0) boardRef.scrollLeft -= Math.min(28, 4 + leftDepth * 0.4);
+      if (lastY > innerHeight - 48) window.scrollBy(0, Math.min(24, 4 + (lastY - (innerHeight - 48)) * 0.3));
+      else if (lastY < 104) window.scrollBy(0, -Math.min(24, 4 + (104 - lastY) * 0.3));
+      const hit = document.elementFromPoint(lastX, lastY);
+      let drop: { kind: "before" | "after" | "inside" | "group"; id: string | null } | null = null;
+      const hostCard = hit?.closest<HTMLElement>("[data-task-card]");
+      if (hostCard && !excluded.has(hostCard.dataset.id || "")) {
+        if (!hostCard.classList.contains("dormant")) {
+          const box = hostCard.getBoundingClientRect();
+          const relY = (lastY - box.top) / box.height;
+          drop = { kind: relY < 0.28 ? "before" : relY > 0.72 ? "after" : "inside", id: hostCard.dataset.id || null };
+        }
+      } else if (!hostCard) {
+        const section = hit?.closest<HTMLElement>(".board-group");
+        if (section?.classList.contains("smart-group")) {
+          if (section.dataset.builtin === "ungrouped") drop = { kind: "group", id: null };
+        } else if (section?.dataset.groupId) drop = { kind: "group", id: section.dataset.groupId };
+      }
+      setTaskDrop(drop);
+      frame = requestAnimationFrame(update);
+    };
+    const move = (next: PointerEvent) => { lastX = next.clientX; lastY = next.clientY; };
+    const end = (dropIt: boolean) => () => {
+      cancelAnimationFrame(frame);
+      ghost?.remove();
+      handle.removeEventListener("pointermove", move);
+      const drop = taskDrop();
+      setTaskDragId(null); setTaskDrop(null);
+      if (!dropIt || !drop || !dragged) return;
+      if (drop.kind === "group") void props.onDropTask(dragged, { kind: "group", groupId: drop.id });
+      else {
+        const ref = byId.get(drop.id || "") as Task | undefined;
+        if (!ref) return;
+        void props.onDropTask(dragged, drop.kind === "inside" ? { kind: "inside", parent: ref } : { kind: drop.kind, ref });
+      }
+    };
+    frame = requestAnimationFrame(update);
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end(true), { once: true });
+    handle.addEventListener("pointercancel", end(false), { once: true });
+  };
   const focusGroupTitle = (id: string | null) => {
     if (id) setTimeout(() => { const input = document.querySelector<HTMLInputElement>(`[data-group-title="${CSS.escape(id)}"]`); input?.focus(); input?.select(); });
   };
@@ -255,12 +337,13 @@ export function GroupsView(props: GroupsViewProps) {
       setEditing(field);
     };
     return <>
-      <div class="board-task" classList={{ selected: props.selectedId === task().id, done: task().state === "completed", dormant: dormant() }} style={{ "padding-left": `${rowProps.depth * 16 + 6}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
+      <div class="board-task" classList={{ selected: props.selectedId === task().id, done: task().state === "completed", dormant: dormant(), "task-dragging": taskDragId() === task().id, "drop-inside": taskDrop()?.kind === "inside" && taskDropId() === task().id, "drop-before": taskDrop()?.kind === "before" && taskDropId() === task().id, "drop-after": taskDrop()?.kind === "after" && taskDropId() === task().id }} style={{ "padding-left": `${rowProps.depth * 16 + 6}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
         onMouseDown={() => { clickEndedEdit = !!editing(); }}
         onClick={event => {
           if (clickEndedEdit) { clickEndedEdit = false; return; }
           if (!(event.target instanceof Element && event.target.closest("button, textarea, .board-text"))) { openedCard = event.currentTarget as HTMLElement; props.onEdit(task()); }
         }}>
+        <Show when={!dormant()}><div class="task-grip" title="Drag to move" aria-hidden="true" onPointerDown={event => startTaskDrag(task().id, event)} /></Show>
         <Show when={!dormant()} fallback={<span class="dormant-indicator" title="Not started" aria-hidden="true" />}>
           <Show when={task().state !== "completed"} fallback={<span class="complete-indicator" aria-hidden="true">✓</span>}>
             <button class="complete-button" aria-label={`Complete ${task().title}`} onClick={() => void complete()} />
@@ -381,7 +464,7 @@ export function GroupsView(props: GroupsViewProps) {
       if (!title) { input.value = group().title; return; }
       if (title !== group().title) void props.onRenameGroup(group(), title);
     };
-    return <section class="board-group" data-group-id={group().id} classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id, "nest-target": !!dragId() && nestId() === sectionProps.id }}>
+    return <section class="board-group" data-group-id={group().id} classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id, "nest-target": !!dragId() && nestId() === sectionProps.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === sectionProps.id }}>
       <DragGrip id={group().id} />
       <header class="board-group-header">
         <button class="icon-button board-collapse" aria-label={collapsed() ? "Expand group" : "Collapse group"} aria-expanded={!collapsed()} onClick={() => setCollapsed(value => !value)}>{collapsed() ? "›" : "⌄"}</button>
@@ -423,7 +506,7 @@ export function GroupsView(props: GroupsViewProps) {
     const spec = BUILTIN_GROUPS.find(entry => entry.id === sectionProps.id)!;
     const empty = { available: "Nothing is available right now.", upcoming: "Nothing is waiting to start.", sleeping: "No sleeping tasks.", ungrouped: "" }[spec.builtin];
     const nodes = () => spec.builtin === "ungrouped" ? board().ungrouped : smart()[spec.builtin];
-    return <section class="board-group smart-group" classList={{ dragging: dragId() === spec.id }}>
+    return <section class="board-group smart-group" data-builtin={spec.builtin} classList={{ dragging: dragId() === spec.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === null && spec.builtin === "ungrouped" }}>
       <DragGrip id={spec.id} />
       <header class="board-group-header"><h2>{spec.title}</h2><span class="board-count">{countTasks(nodes())}</span></header>
       <Show when={nodes().length || !empty} fallback={<p class="board-empty">{empty}</p>}><TaskList nodes={nodes()} depth={0} /></Show>
@@ -447,7 +530,7 @@ export function GroupsView(props: GroupsViewProps) {
       <label class="check-row"><input type="checkbox" checked={props.showCompleted} onChange={event => props.onShowCompletedChange(event.currentTarget.checked)} />Show completed</label>
       <button class="secondary-button" onClick={async () => focusGroupTitle(await props.onCreateGroup(null))}><Icon name="plus" size={15} />New group</button>
     </div>
-    <div ref={boardRef} class="board" classList={{ compact: props.compact, "drag-active": !!dragId() }}>
+    <div ref={boardRef} class="board" classList={{ compact: props.compact, "drag-active": !!dragId(), "task-dragging": !!taskDragId() }}>
       {dropTarget("new-0", () => ({ newColumn: 0 }), "board-drop-column")}
       <Index each={columns()}>{(column, columnIndex) => <>
         <div class="board-column">

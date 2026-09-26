@@ -17,7 +17,7 @@ import {
 } from "../../site/storage.js";
 import { tomorrowMidnight } from "../../site/domain.js";
 import { startedTask } from "./dependencies";
-import { boardColumns, boardEntries, groupPlacement, layoutPatches, placeGroup as placeInLayout, reorderPatches, ungroupPatches, type BoardTarget } from "./group-board";
+import { boardColumns, boardEntries, groupPlacement, layoutPatches, placeGroup as placeInLayout, reorderPatches, taskPlacePatches, taskSiblings, ungroupPatches, type BoardTarget } from "./group-board";
 import { completedTask, dependentGroupId, newGroup, newTask, patchedItem, sleptTask, wokenTask } from "./item-changes";
 import type { Group, Item, Task } from "./types";
 
@@ -98,6 +98,25 @@ export function createCalendarStore(options: { onChanged: () => void }) {
       const patches = reorderPatches(items(), group, offset);
       if (patches.length) await batch("Reorder groups", async () => { for (const { group, patch } of patches) await patchGroup(group, patch); });
     },
+    /** Nest as a task's last subtask, or move between groups / onto the top level of one. */
+    moveTask: (task: Task, target: { parent: Task } | { groupId: string | null } | { ref: Task; before: boolean }) => batch("Move task", async () => {
+      let patches: { task: Task; patch: Partial<Task> }[];
+      if ("parent" in target) {
+        patches = taskPlacePatches(items(), task, target.parent.id, null);
+      } else if ("ref" in target) {
+        const byId = new Map(items().map(item => [item.id, item]));
+        const ref = target.ref;
+        const parentId = ref.parentId && byId.get(ref.parentId)?.kind === "task" ? ref.parentId : null;
+        const groupId = parentId ? null : (ref.groupId && byId.get(ref.groupId)?.kind === "group" ? ref.groupId : null);
+        const siblings = taskSiblings(items(), parentId, groupId).filter(sibling => sibling.id !== task.id);
+        const index = siblings.findIndex(sibling => sibling.id === ref.id);
+        patches = taskPlacePatches(items(), task, parentId, groupId, index < 0 ? undefined : target.before ? index : index + 1);
+      } else {
+        patches = taskPlacePatches(items(), task, null, target.groupId);
+      }
+      for (const { task: item, patch } of patches) await putItem(patchedItem(item, patch, new Date()), item);
+    }),
+
     deleteGroup: (group: Group) => batch(`Delete group “${group.title}”`, async () => {
       const { groups, tasks } = ungroupPatches(items(), group);
       for (const { group, patch } of groups) await patchGroup(group, patch);

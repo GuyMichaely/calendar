@@ -575,6 +575,17 @@ main:has(.groups-panel) > .tasks-workspace:not(.split) { flex: 1; display: flex;
 
 /* Task actions menu. */
 .board-task { position: relative; }
+/* Task drag & drop: a slim dotted grip on the left edge of each card. */
+.task-grip { flex: 0 0 9px; align-self: stretch; margin: -2px 0 -2px -4px; border-radius: 3px; cursor: grab; touch-action: none; opacity: .3; background-image: radial-gradient(circle, var(--muted) 1px, transparent 1.4px); background-size: 4px 7px; background-repeat: repeat-y; background-position: center; }
+.task-grip:hover { opacity: .95; }
+@media (hover: none) { .task-grip { opacity: .7; } }
+.board.task-dragging, .board.task-dragging * { cursor: grabbing; user-select: none; }
+.board-task.task-dragging { opacity: .45; }
+.board-task.drop-inside { outline: 2px solid var(--accent); outline-offset: -2px; }
+.board-task.drop-before { box-shadow: 0 -3px 0 -1px var(--accent); }
+.board-task.drop-after { box-shadow: 0 3px 0 -1px var(--accent); }
+.board-group.drop-group { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.task-ghost { pointer-events: none; box-shadow: var(--shadow); opacity: .92; background: var(--surface); }
 .task-menu { position: relative; margin-left: auto; flex: 0 0 auto; }
 .task-menu-button { width: 22px; height: 22px; color: var(--muted); font-size: 15px; line-height: 1; opacity: .55; }
 .board-task:hover .task-menu-button, .task-menu-button[aria-expanded="true"], .task-menu-button:focus-visible { opacity: 1; }
