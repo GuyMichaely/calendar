@@ -1,6 +1,6 @@
 import { SleepControls } from "./SleepControls";
 import type { TaskSort } from "./task-planning";
-import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import {
   dateKey,
   formatDateTime,
@@ -44,6 +44,8 @@ import { loadPollSeconds, animationsEnabled } from "./settings";
 import type { CalendarSleepMode, HorizonMode, Item, Task, View } from "./types";
 
 function readView(): View { return location.hash === "#calendar" ? "calendar" : "tasks"; }
+function readSelectedTask() { const match = /^#tasks\/(.+)$/.exec(location.hash); return match ? decodeURIComponent(match[1]) : null; }
+function tasksHash(id: string | null) { return id ? `#tasks/${encodeURIComponent(id)}` : "#tasks"; }
 function readHorizon(): number | null {
   const stored = localStorage.getItem("calendar.upcomingHorizon");
   if (stored === "off") return null;
@@ -58,7 +60,7 @@ function errorMessage(error: unknown, fallback: string) { return error instanceo
 type HistoryState = { canUndo: boolean; canRedo: boolean; undoLabel: string; redoLabel: string; };
 
 export function App() {
-  if (!["#tasks", "#calendar"].includes(location.hash)) history.replaceState(null, "", "#tasks");
+  if (!["#tasks", "#calendar"].includes(location.hash) && !readSelectedTask()) history.replaceState(null, "", "#tasks");
   const backendUrl = configuredBackendUrl();
   const remote = backendUrl ? createRemoteCalendarClient({ backendUrl, storage: { readSnapshot: readSyncSnapshot, mergeSnapshot: mergeSyncSnapshot } }) : null;
   const [remoteUrlDraft, setRemoteUrlDraft] = createSignal(backendUrl);
@@ -92,6 +94,17 @@ export function App() {
   const [clock, setClock] = createSignal(nowAtStart);
   const [calendarMonth, setCalendarMonth] = createSignal(new Date(nowAtStart.getFullYear(), nowAtStart.getMonth(), 1));
   const [editor, setEditor] = createSignal<EditorRequest | null>(null);
+  // Wide screens keep the task list beside an embedded editor for the selected task.
+  const splitQuery = window.matchMedia("(min-width: 1180px)");
+  const [splitView, setSplitView] = createSignal(splitQuery.matches);
+  onMount(() => {
+    const update = () => setSplitView(splitQuery.matches);
+    splitQuery.addEventListener("change", update);
+    onCleanup(() => splitQuery.removeEventListener("change", update));
+  });
+  const [selectedTaskId, setSelectedTaskId] = createSignal<string | null>(readSelectedTask());
+  const [detailVersion, setDetailVersion] = createSignal(0);
+  let flushDetail: (() => Promise<boolean>) | null = null;
   const [sleepTask, setSleepTask] = createSignal<Task | null>(null);
   const [toasts, setToasts] = createSignal<ToastMessage[]>([]);
   const [shortcuts, setShortcuts] = createSignal<Shortcuts>(loadShortcuts());
@@ -183,7 +196,7 @@ export function App() {
   };
   const navigate = (next: View) => {
     setView(next);
-    const hash = `#${next}`;
+    const hash = next === "tasks" ? tasksHash(selectedTaskId()) : `#${next}`;
     if (location.hash !== hash) history.pushState(null, "", hash);
   };
   const editorParents: string[] = [];
@@ -200,6 +213,27 @@ export function App() {
     editorParents.push(parent.id);
     setEditor({item: null, kind: "task", parentId: parent.id, nonce: Date.now()});
   };
+  const selectedExists = createMemo(() => { const id = selectedTaskId(); return !!id && items().some(item => item.id === id); });
+  const detailRequest = createMemo<EditorRequest | null>(() => {
+    detailVersion();
+    if (!selectedExists()) return null;
+    const item = untrack(items).find(item => item.id === selectedTaskId());
+    return item ? { item, kind: item.kind, nonce: Date.now() } : null;
+  });
+  // Save the open task before showing another; a failed save keeps it open with its error.
+  const selectTask = async (id: string | null, replace = false) => {
+    if (id === selectedTaskId()) return;
+    if (flushDetail && !(await flushDetail())) return;
+    setSelectedTaskId(id);
+    const hash = tasksHash(id);
+    if (location.hash !== hash) history[replace ? "replaceState" : "pushState"](null, "", hash);
+  };
+  const closeDetail = async () => {
+    const id = selectedTaskId();
+    await selectTask(null);
+    if (!selectedTaskId() && id) document.querySelector<HTMLElement>(`[data-task-card][data-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+  };
+  const editTask = (task: Task) => { if (splitView()) void selectTask(task.id); else openEditor(task); };
   const openEditor = (item: Item | null = null, kind?: "task" | "event", date?: Date) => { editorParents.length = 0; setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() }); };
   const mutateTask = async (task: Task, patch: Partial<Task>, historyEntry: { type: string; [key: string]: unknown }, message: string) => {
     const now = new Date().toISOString();
@@ -213,6 +247,13 @@ export function App() {
       await putItem({id: crypto.randomUUID(), kind: "task", title: title.trim(), state: "open", tags: [], attachments: [], history: [{at: now, type: "created"}], createdAt: now, updatedAt: now});
       await refresh(); setQuery(""); void requestRemoteSync(); return true;
     } catch (error) { showToast(errorMessage(error, "Could not add task.")); return false; }
+  };
+  const quickAddSubtask = async (parent: Task, title: string) => {
+    const now = new Date().toISOString();
+    try {
+      await putItem({id: crypto.randomUUID(), kind: "task", title: title.trim(), state: "open", parentId: parent.id, tags: [], attachments: [], history: [{at: now, type: "created"}], createdAt: now, updatedAt: now});
+      await refresh(); void requestRemoteSync(); return true;
+    } catch (error) { showToast(errorMessage(error, "Could not add subtask.")); return false; }
   };
   const completeTask = async (task: Task) => {
     const now = new Date().toISOString();
@@ -282,7 +323,16 @@ export function App() {
       if (remote) await checkRemoteSession();
     })();
     const clockTimer = window.setInterval(() => { if (!document.querySelector(".solid-dialog-backdrop")) setClock(new Date()); }, 30_000);
-    const syncLocation = () => setView(readView());
+    const syncLocation = () => {
+      setView(readView());
+      const id = readSelectedTask();
+      if (readView() !== "tasks" || id === selectedTaskId()) return;
+      const previous = selectedTaskId();
+      void (async () => {
+        if (flushDetail && !(await flushDetail())) { history.pushState(null, "", tasksHash(previous)); return; }
+        setSelectedTaskId(id);
+      })();
+    };
     const syncRemoteWhenVisible = () => { if (document.visibilityState === "visible") refreshRemoteOnResume(); };
     const syncHistory = (event: Event) => {
       const detail = (event as CustomEvent<Partial<HistoryState>>).detail || {};
@@ -325,7 +375,19 @@ export function App() {
           identity={remoteSession()?.authenticated ? remoteIdentityLabel() : ""}
           canUndo={historyState().canUndo} canRedo={historyState().canRedo} undoLabel={historyState().undoLabel} redoLabel={historyState().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
           <Show when={view() === "tasks"} fallback={<CalendarView items={items()} query={query()} month={calendarMonth()} sleepMode={calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={changeSleepMode} hideSleeping={hideSleeping()} onHideSleepingChange={changeHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => { changeTaskScope("open"); localStorage.setItem("calendar.section.now", "open"); localStorage.setItem("calendar.section.upcoming", "open"); navigate("tasks"); requestAnimationFrame(() => document.querySelector('[data-section="now"]')?.scrollIntoView({ block: "start" })); }} />}>
-            <TasksView sleepMode={calendarSleepMode()} onSleepModeChange={changeSleepMode} hideSleeping={hideSleeping()} onHideSleepingChange={changeHideSleeping} sort={taskSort()} onSortChange={changeTaskSort} scope={taskScope()} onScopeChange={changeTaskScope} onQuickAdd={quickAddTask} animations={animations()} onMove={async (id, target, placement) => { try { await moveTask(id, target, placement); await refresh(); void requestRemoteSync(); } catch (error) { showToast(errorMessage(error, "Could not move task")); } }} onAddSubtask={task => setEditor({ item: null, kind: "task", parentId: task.id, nonce: Date.now() })} items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={(task) => openEditor(task)} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
+            <div class="tasks-workspace" classList={{ split: splitView() }}>
+            <TasksView selectedId={splitView() ? selectedTaskId() : null} sleepMode={calendarSleepMode()} onSleepModeChange={changeSleepMode} hideSleeping={hideSleeping()} onHideSleepingChange={changeHideSleeping} sort={taskSort()} onSortChange={changeTaskSort} scope={taskScope()} onScopeChange={changeTaskScope} onQuickAdd={quickAddTask} animations={animations()} onMove={async (id, target, placement) => { try { await moveTask(id, target, placement); await refresh(); void requestRemoteSync(); } catch (error) { showToast(errorMessage(error, "Could not move task")); } }} onAddSubtask={task => setEditor({ item: null, kind: "task", parentId: task.id, nonce: Date.now() })} items={items()} query={query()} compact={compact()} horizonDays={horizonDays()} horizonMode={horizonMode()} shortcuts={shortcuts()} now={clock()} onCompactChange={(value) => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onHorizonChange={(value) => { setHorizonDays(value); localStorage.setItem("calendar.upcomingHorizon", value === null ? "off" : String(value)); }} onHorizonModeChange={(value) => { setHorizonMode(value); localStorage.setItem("calendar.upcomingHorizonMode", value); }} onEdit={editTask} onComplete={completeTask} onWake={wakeTask} onSleepTomorrow={sleepTomorrow} onSleepIndefinite={sleepIndefinite} onSleepCustom={setSleepTask} onSleepToWait={sleepToWait} onWaitToSleep={waitToSleep} />
+            <Show when={splitView()}>
+              <aside class="task-detail-pane" aria-label="Task details">
+                <Show when={detailRequest()} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
+                  <ItemEditor embedded request={request} items={items()} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} onStale={() => setDetailVersion(version => version + 1)}
+                    onQuickAddSubtask={quickAddSubtask} onEditItem={task => void selectTask(task.id)} onAddSubtask={() => {}} onClose={() => void closeDetail()}
+                    onDelete={async (item) => { await deleteItem(item.id); await refresh(); flushDetail = null; await selectTask(null, true); void requestRemoteSync(); showToast("Deleted"); }}
+                    onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}
+                </Show>
+              </aside>
+            </Show>
+            </div>
           </Show>
         </WorkspaceShell>
         <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await deleteItem(item.id); await refresh(); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); void requestRemoteSync(); showToast("Deleted"); }} onSave={async (item, _created, baseline) => { const saved = await putItem(item, baseline); await refresh(); void requestRemoteSync(); return saved; }} onError={showToast} />}</Show>

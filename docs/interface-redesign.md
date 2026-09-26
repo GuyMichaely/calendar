@@ -41,3 +41,7 @@ The calendar uses a compact toolbar, reduced outer padding, and only the weeks n
 Navigation/density follow-up: 107 repository tests and 35 Solid tests pass with TypeScript and production build checks. Browser checks cover desktop/mobile scroll offsets of 100, 650, and 1500 pixels with animations on and off, unchanged heading/capture positions through both sleep-toggle directions, and four-, five-, and six-week months.
 
 Tasks use a compact heading with inline counts, narrower outer margins, closer controls and sections, and shorter rows. Notes remain visible by default; Compact mode additionally hides notes, tags, and attachment previews. Desktop and mobile browser checks cover scrolling through sleep changes, navigation, and widths from 320 to 1280 pixels.
+
+## Prototype 1: task details beside the list
+
+Published at `guymichaely.com/calendar/prototype1/`. At 1180 pixels and wider, the tasks view keeps the list on the left and the selected task's editor on the right, following the Branch prototype. The selection is part of the address (`#tasks/<id>`), so reload, back, and forward keep it; subtasks and the parent path navigate the same way. The editor saves before another task opens and when it is replaced, reloads when the task changes elsewhere while idle, and adds subtasks inline. Narrower screens and the calendar keep the drawer. Editors now record their initial values as soon as they open, so an edit made before the first animation frame is saved rather than absorbed into the baseline.

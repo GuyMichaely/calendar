@@ -121,6 +121,7 @@ type TasksViewProps = {
   onHorizonModeChange: (value: HorizonMode) => void;
   onAddSubtask: (task: Task) => void;
   onEdit: (task: Task) => void;
+  selectedId?: string | null;
   onComplete: (task: Task) => Promise<void>;
   onWake: (task: Task) => Promise<void>;
   onSleepTomorrow: (task: Task) => Promise<void>;
@@ -234,6 +235,7 @@ export function TasksView(props: TasksViewProps) {
       respectSleep={props.sleepMode === "respect"}
       shortcuts={props.shortcuts}
       onEdit={props.onEdit}
+      selectedId={props.selectedId}
       onComplete={props.onComplete}
       onWake={props.onWake}
       onSleepTomorrow={props.onSleepTomorrow}
@@ -346,6 +348,7 @@ function TaskCard(props: {
   shortcuts: Shortcuts;
   onAddSubtask: (task: Task) => void;
   onEdit: (task: Task) => void;
+  selectedId?: string | null;
   onComplete: (task: Task) => Promise<void>;
   onWake: (task: Task) => Promise<void>;
   onSleepTomorrow: (task: Task) => Promise<void>;
@@ -405,7 +408,8 @@ function TaskCard(props: {
 
   return (
     <article
-      class={`task-card ${sleep().sleeping ? "sleeping-task" : ""}`}
+      class={`task-card ${sleep().sleeping ? "sleeping-task" : ""} ${props.selectedId === props.row.task.id ? "selected-task" : ""}`}
+      aria-current={props.selectedId === props.row.task.id ? "true" : undefined}
       data-sleep-ignored={sleep().sleeping && !props.respectSleep || undefined}
       style={{ "margin-inline-start": `${Math.min(props.row.depth || 0, 5) * 12}px` }}
       data-parent={props.row.task.parentId || ""}

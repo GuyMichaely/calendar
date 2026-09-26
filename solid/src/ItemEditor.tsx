@@ -1,7 +1,8 @@
 import { Icon } from "./Icon";
-import { taskDescendants } from "../../site/task-tree.js";
-import { For, Show, createSignal, onMount, onCleanup } from "solid-js";
+import { taskAncestors, taskDescendants } from "../../site/task-tree.js";
+import { For, Show, createEffect, createSignal, onMount, onCleanup } from "solid-js";
 import {
+  actionability,
   formatDateTime,
   isoToLocalInput,
   localInputToIso,
@@ -23,6 +24,8 @@ export type EditorRequest = {
   parentId?: string;
   nonce: number;
 };
+
+let editorInstances = 0;
 
 function uuid() {
   return crypto.randomUUID();
@@ -50,7 +53,7 @@ function eventDefaults(request: EditorRequest) {
 
 function serializeForm(form: HTMLFormElement, files: File[], removed: Set<string>) {
   return JSON.stringify({
-    controls: [...form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select")].map((control, index) => ({
+    controls: [...form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input:not([data-editor-ignore]), textarea, select")].map((control, index) => ({
       key: control.name || control.id || String(index),
       type: control instanceof HTMLInputElement ? control.type : control.tagName.toLowerCase(),
       value: control instanceof HTMLInputElement && control.type === "file"
@@ -72,8 +75,14 @@ export function ItemEditor(props: {
   onDelete: (item: Item) => Promise<void>;
   onSave: (item: Item, created: boolean, baseline: Item | null) => Promise<Item>;
   onError?: (message: string) => void;
+  // Embedded editors sit beside the task list instead of in a modal drawer.
+  embedded?: boolean;
+  registerFlush?: (flush: () => Promise<boolean>) => () => void;
+  onStale?: () => void;
+  onQuickAddSubtask?: (parent: Task, title: string) => Promise<boolean>;
 }) {
   const existing = props.request.item;
+  const domId = `${++editorInstances}`;
   let currentItem = existing;
   const [hasSavedItem, setHasSavedItem] = createSignal(!!existing);
   const itemId = existing?.id || uuid();
@@ -105,8 +114,10 @@ export function ItemEditor(props: {
   const [dirty, setDirty] = createSignal(false);
   let formRef!: HTMLFormElement;
   let baseline = "";
+  let edited = false;
 
   const syncDirty = () => {
+    edited = true;
     queueMicrotask(() => {
       setDirty(!!baseline && serializeForm(formRef, pendingFiles(), removedAttachments()) !== baseline);
       clearTimeout(saveTimer);
@@ -115,7 +126,10 @@ export function ItemEditor(props: {
   };
 
   onMount(() => {
+    // Capture now so early edits count; refresh after the first frame if nothing was edited yet.
+    baseline = serializeForm(formRef, pendingFiles(), removedAttachments());
     requestAnimationFrame(() => {
+      if (edited) return;
       baseline = serializeForm(formRef, pendingFiles(), removedAttachments());
       setDirty(false);
     });
@@ -134,7 +148,27 @@ export function ItemEditor(props: {
     if (dirty() || saving()) { event.preventDefault(); event.returnValue = ""; }
   };
   onMount(() => window.addEventListener("beforeunload", beforeUnload));
-  onCleanup(() => { clearTimeout(saveTimer); window.removeEventListener("beforeunload", beforeUnload); });
+  onCleanup(() => {
+    clearTimeout(saveTimer); window.removeEventListener("beforeunload", beforeUnload);
+    // An embedded editor can be replaced without closing it; keep edits that were still waiting to save.
+    if (props.embedded && dirty() && !closing) void persist();
+  });
+  const flush = async () => {
+    clearTimeout(saveTimer);
+    if (inFlight) await inFlight;
+    while (dirty()) { if (!(await persist())) return false; }
+    return true;
+  };
+  onMount(() => { const unregister = props.registerFlush?.(flush); onCleanup(() => unregister?.()); });
+  // Reload when another view or device changes the item while this editor is idle.
+  createEffect(() => {
+    const stored = props.items.find(item => item.id === itemId);
+    if (!props.onStale || !stored || !currentItem || dirty() || saving()) return;
+    if (stored.updatedAt === currentItem.updatedAt) return;
+    const active = document.activeElement;
+    if (active && formRef?.contains(active) && active.matches("input, textarea, select")) return;
+    props.onStale();
+  });
 
   const addFiles = (files: File[]) => {
     setPendingFiles((current) => {
@@ -352,15 +386,35 @@ export function ItemEditor(props: {
     syncDirty();
   };
 
-  return (
-    <DialogShell labelledBy="editor-title" className="item-editor-dialog" onClose={close}>
+  const ancestors = () => (taskAncestors(props.items, itemId) as Task[]).reverse();
+  const status = () => {
+    const stored = props.items.find(item => item.id === itemId);
+    if (stored?.kind !== "task") return "";
+    if (stored.state === "completed") return "Completed";
+    const sleep = sleepInfo(stored, new Date());
+    if (sleep.sleeping) return sleep.indefinite ? "Sleeping indefinitely" : `Sleeping until ${formatDateTime(sleep.until)}`;
+    return actionability(stored, new Date()).reason;
+  };
+  const [subtaskDraft, setSubtaskDraft] = createSignal("");
+  const addSubtaskInline = async () => {
+    const title = subtaskDraft().trim();
+    if (!title || currentItem?.kind !== "task" || !props.onQuickAddSubtask) return;
+    if (await props.onQuickAddSubtask(currentItem, title)) setSubtaskDraft(value => value.trim() === title ? "" : value);
+  };
+  const completionButton = (compact: boolean) => <button type="button" class={compact ? `detail-complete ${taskState() === "completed" ? "done" : ""}` : taskState() === "open" ? "primary-button" : "secondary-button"} aria-label={compact ? (taskState() === "open" ? "Complete task" : "Reopen task") : undefined} title={compact && descendants().length && taskState() === "open" ? `Complete task and ${descendants().length} subtasks` : undefined} onClick={toggleCompleted}>{compact ? (taskState() === "completed" ? "✓" : "") : taskState() === "open" ? (descendants().length ? `✓ Complete task + ${descendants().length} subtasks` : "✓ Complete task") : "↶ Reopen task"}</button>;
+
+  const form = (
       <form ref={(element) => { formRef = element; }} onSubmit={(event) => { event.preventDefault(); void close(); }} onInput={syncDirty}>
-        <p class="editor-eyebrow">{existing ? "The details" : props.request.parentId ? "New subtask" : "Make a little space for it"}</p>
+        <Show when={props.embedded} fallback={<p class="editor-eyebrow">{existing ? "The details" : props.request.parentId ? "New subtask" : "Make a little space for it"}</p>}>
+          <nav class="detail-path" aria-label="Task path"><button type="button" class="text-button" onClick={close}>Tasks</button><For each={ancestors()}>{parent => <><span aria-hidden="true">›</span><button type="button" class="text-button" onClick={() => void navigateTask(parent)}>{parent.title || "Untitled task"}</button></>}</For></nav>
+        </Show>
         <div class="dialog-header">
-          <label class="editor-title-field"><span class="visually-hidden" id="editor-title">Item title</span><input class="editor-title-input" name="title" aria-label="Item title" required maxLength={240} placeholder="Untitled item" value={existing?.title || ""} data-dialog-autofocus={true} /><span class="title-edit-hint" aria-hidden="true">✎</span></label>
+          <Show when={props.embedded && kind() === "task"}>{completionButton(true)}</Show>
+          <label class="editor-title-field"><span class="visually-hidden" id={`editor-title-${domId}`}>Item title</span><input class="editor-title-input" name="title" aria-label="Item title" required maxLength={240} placeholder="Untitled item" value={existing?.title || ""} data-dialog-autofocus={true} /><span class="title-edit-hint" aria-hidden="true">✎</span></label>
           <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
         </div>
 
+        <Show when={props.embedded && status()}><p class="detail-status">{status()}</p></Show>
         <div class="segmented kind-switch">
           <label><input type="radio" name="kind" value="task" checked={kind() === "task"} onChange={() => { setKind("task"); syncDirty(); }} /><span>Task</span></label>
           <label><input type="radio" name="kind" value="event" checked={kind() === "event"} onChange={() => { setKind("event"); syncDirty(); }} /><span>Event</span></label>
@@ -374,7 +428,7 @@ export function ItemEditor(props: {
         }>
           <div>
             <div class="form-grid">
-              <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><button type="button" class={taskState() === "open" ? "primary-button" : "secondary-button"} onClick={toggleCompleted}>{taskState() === "open" ? (descendants().length ? `✓ Complete task + ${descendants().length} subtasks` : "✓ Complete task") : "↶ Reopen task"}</button></div>
+              <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><Show when={!props.embedded}>{completionButton(false)}</Show></div>
               <label class="field"><span>Can start</span><input name="availableFrom" type="datetime-local" value={isoToLocalInput(task?.availableFrom)} /></label>
               <label class="field"><span>Due</span><input name="deadline" type="datetime-local" value={deadlineInput()} onInput={event => setDeadlineInput(event.currentTarget.value)} /></label>
               <label class="field"><span>Latest start</span><input name="latestStart" type="datetime-local" value={isoToLocalInput(task?.latestStart)} /></label>
@@ -400,8 +454,8 @@ export function ItemEditor(props: {
         </Show>
 
         <section class="notes-editor" aria-label="Notes">
-          <div class="notes-toolbar"><label for="item-notes">Notes</label><button type="button" class="text-button" aria-pressed={previewNotes()} onClick={() => setPreviewNotes(value => !value)}>{previewNotes() ? "Write" : "Preview"}</button></div>
-          <textarea ref={notesRef} id="item-notes" name="notes" rows={5} hidden={previewNotes()} value={notes()} onInput={event => setNotes(event.currentTarget.value)} placeholder="Write notes… Markdown supported" />
+          <div class="notes-toolbar"><label for={`item-notes-${domId}`}>Notes</label><button type="button" class="text-button" aria-pressed={previewNotes()} onClick={() => setPreviewNotes(value => !value)}>{previewNotes() ? "Write" : "Preview"}</button></div>
+          <textarea ref={notesRef} id={`item-notes-${domId}`} name="notes" rows={5} hidden={previewNotes()} value={notes()} onInput={event => setNotes(event.currentTarget.value)} placeholder="Write notes… Markdown supported" />
           <Show when={previewNotes()}><MarkdownNotes text={notes() || "*No notes yet.*"} attachments={savedAttachments().filter(file => !removedAttachments().has(file.id))} onDownload={file => void download(file)} onError={props.onError} /></Show>
           <small class="field-hint">Markdown supported. Add download links using “Link in notes” below.</small>
         </section>
@@ -413,10 +467,12 @@ export function ItemEditor(props: {
 
 
           <Show when={kind() === "task"}>
-              <div class="subtask-editor full-span"><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button>}</For><small class="muted">Completed together. Each subtask can have its own dates and notes.</small></div>
+              <div class="subtask-editor full-span"><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" hidden={props.embedded} disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button>}</For>
+                <Show when={props.embedded && props.onQuickAddSubtask}><div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New subtask title" placeholder={hasSavedItem() ? "Add a next step…" : "Name this task first"} disabled={!hasSavedItem()} maxLength={240} value={subtaskDraft()} onInput={event => setSubtaskDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addSubtaskInline(); } }} /><button type="button" class="text-button" disabled={!subtaskDraft().trim()} onClick={() => void addSubtaskInline()}>Add</button></div></Show>
+                <small class="muted">Completed together. Each subtask can have its own dates and notes.</small></div>
           </Show>
-          <section class="attachments-section full-span" aria-labelledby="attachments-title">
-            <h3 id="attachments-title">Attachments</h3>
+          <section class="attachments-section full-span" aria-labelledby={`attachments-title-${domId}`}>
+            <h3 id={`attachments-title-${domId}`}>Attachments</h3>
             <div class={`attachment-drop-zone ${draggingAttachments() ? "dragging" : ""}`}
               onDragEnter={event => { event.preventDefault(); setDraggingAttachments(true); }}
               onDragOver={event => { event.preventDefault(); setDraggingAttachments(true); }}
@@ -442,8 +498,11 @@ export function ItemEditor(props: {
           <button type="submit" class="secondary-button">Close</button>
         </div>
       </form>
-    </DialogShell>
   );
+
+  return props.embedded
+    ? <section class="item-detail" aria-labelledby={`editor-title-${domId}`} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); void close(); } }}>{form}</section>
+    : <DialogShell labelledBy={`editor-title-${domId}`} className="item-editor-dialog" onClose={close}>{form}</DialogShell>;
 }
 
 export function SleepDialog(props: {
