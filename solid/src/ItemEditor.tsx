@@ -502,7 +502,7 @@ export function ItemEditor(props: {
 
   return props.embedded
     ? <section class="item-detail" aria-labelledby={`editor-title-${domId}`} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); void close(); } }}>{form}</section>
-    : <DialogShell labelledBy={`editor-title-${domId}`} className="item-editor-dialog" onClose={close}>{form}</DialogShell>;
+    : <DialogShell labelledBy={`editor-title-${domId}`} className="item-editor-dialog" initialFocus={existing && window.matchMedia("(pointer: coarse)").matches ? "dialog" : "content"} onClose={close}>{form}</DialogShell>;
 }
 
 export function SleepDialog(props: {

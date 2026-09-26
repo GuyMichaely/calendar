@@ -425,7 +425,7 @@ function TaskCard(props: {
         if (!title) focusCard(event.currentTarget, { scroll: false });
         props.onDrag(event);
       }}
-      onDblClick={(event) => { if (!isInteractiveTarget(event.target)) props.onEdit(props.row.task); }}
+      onClick={(event) => { if (!isInteractiveTarget(event.target)) props.onEdit(props.row.task); }}
       onKeyDown={onKeyDown}
     >
       <div class="task-main">
