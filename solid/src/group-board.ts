@@ -180,3 +180,39 @@ export function nestList(tasks: Task[], items: Item[]): TaskNode[] {
   }
   return roots;
 }
+
+// Groups: siblings share a parent (top-level groups share none) and are ordered by sortOrder.
+export function siblingGroups(items: Item[], parentId: string | null) {
+  const forest = groupForest(sortedGroups(items));
+  return parentId ? forest.children.get(parentId) || [] : forest.roots;
+}
+
+export function nextGroupOrder(items: Item[], parentId: string | null) {
+  return Math.max(-1, ...siblingGroups(items, parentId).map(group => group.sortOrder ?? -1)) + 1;
+}
+
+/** Where a group goes when it moves under a parent: last among its siblings. A group that becomes top level starts a new board column at the right. */
+export function groupPlacement(items: Item[], parentId: string | null, column = nextColumnKey(boardEntries(items))): Pick<Group, "parentId" | "sortOrder" | "boardColumn"> {
+  return parentId ? { parentId, sortOrder: nextGroupOrder(items, parentId) } : { parentId: null, boardColumn: column, sortOrder: 0 };
+}
+
+/** The sortOrder changes that move a group one place up or down among its siblings. */
+export function reorderPatches(items: Item[], group: Group, offset: -1 | 1) {
+  const siblings = [...siblingGroups(items, group.parentId && items.some(item => item.id === group.parentId) ? group.parentId : null)];
+  const from = siblings.findIndex(sibling => sibling.id === group.id), to = from + offset;
+  if (from < 0 || to < 0 || to >= siblings.length) return [];
+  [siblings[from], siblings[to]] = [siblings[to], siblings[from]];
+  return siblings.flatMap((sibling, sortOrder) => sibling.sortOrder === sortOrder ? [] : [{ group: sibling, patch: { sortOrder } }]);
+}
+
+/** Deleting a group keeps its contents: subgroups and tasks move up to its parent (or the top level). */
+export function ungroupPatches(items: Item[], group: Group) {
+  const parent = items.find((item): item is Group => item.kind === "group" && item.id === group.parentId) || null;
+  let order = nextGroupOrder(items, parent?.id || null), column = nextColumnKey(boardEntries(items));
+  const groups: { group: Group; patch: Partial<Group> }[] = [], tasks: { task: Task; patch: Partial<Task> }[] = [];
+  for (const item of items) {
+    if (item.kind === "group" && item.parentId === group.id) groups.push({ group: item, patch: parent ? { parentId: parent.id, sortOrder: order++ } : groupPlacement(items, null, column++) });
+    if (item.kind === "task" && item.groupId === group.id) tasks.push({ task: item, patch: { groupId: parent?.id || null } });
+  }
+  return { parent, groups, tasks };
+}

@@ -18,8 +18,8 @@ import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
 import { attachmentMarkdown } from "./markdown";
 import { DialogShell } from "./DialogShell";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
+import { eventFromDraft, taskFromDraft, type TaskDraft } from "./item-changes";
 import type { Attachment, CalendarEvent, Item, Task } from "./types";
-import type { RelativeDates } from "../../site/model";
 
 export type EditorRequest = {
   item: Task | CalendarEvent | null;
@@ -109,7 +109,6 @@ export function ItemEditor(props: {
   // A dependent task that hasn't started: its dates can be days after starting instead of fixed.
   const dormant = () => !!task?.dependentOf && props.items.some(item => item.id === task.dependentOf && item.kind === "task");
   const [dateModes, setDateModes] = createSignal(Object.fromEntries(RELATIVE_DATE_FIELDS.map(field => [field, task?.relativeDates?.[field] != null ? "after" : "date"])) as Record<RelativeDateField, "date" | "after">);
-  const storedEvent = existing?.kind === "event" ? existing : null;
   const initialSleep = task ? sleepInfo(task, new Date()) : null;
   const defaults = eventDefaults(props.request);
   const [kind, setKind] = createSignal<"task" | "event">(props.request.kind);
@@ -225,94 +224,42 @@ export function ItemEditor(props: {
     const submittedForm = serializeForm(formRef, pendingFiles(), removedAttachments());
     const submittedFiles = [...pendingFiles()];
     const submittedRemoved = new Set(removedAttachments());
-    const task = currentItem?.kind === "task" ? currentItem : null;
-    const storedEvent = currentItem?.kind === "event" ? currentItem : null;
     const data = new FormData(formRef);
     const title = String(data.get("title") || "").trim();
     if (!title) { setSaveError("Enter a title to save."); return false; }
-    const now = new Date().toISOString();
-    const attachments: Attachment[] = submittedFiles.map((file) => ({
-      id: uuid(),
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      blob: file,
-    }));
+    const shared = {
+      title,
+      notes: String(data.get("notes") || ""),
+      tags: parseTags(data.get("tags")),
+      attachments: [
+        ...(currentItem?.attachments || []).filter(file => !submittedRemoved.has(file.id)),
+        ...submittedFiles.map((file): Attachment => ({ id: uuid(), name: file.name, type: file.type, size: file.size, blob: file })),
+      ],
+    };
+    const context = { id: itemId, previous: currentItem, now: new Date() };
     let item: Item;
-
     if (kind() === "task") {
-      const nextState = taskState();
-      const closed = nextState === "completed";
-      let sleep = null;
-      if (!closed && sleepMode() === "indefinite") {
-        sleep = { until: null, startedAt: task?.sleep?.startedAt || now };
-      } else if (!closed && sleepMode() === "until") {
-        const until = localInputToIso(data.get("sleepUntil"));
-        if (until && toDate(until) > new Date()) sleep = { until, startedAt: task?.sleep?.startedAt || now };
-      }
-      const historyEntries = [...(task?.history || [{ at: now, type: "created" }])];
-      if (task && JSON.stringify(task.sleep || null) !== JSON.stringify(sleep)) {
-        historyEntries.push({ at: now, type: sleep ? "sleep-updated" : "woke", until: sleep?.until ?? null });
-      }
-      if (task && task.state !== nextState) historyEntries.push({ at: now, type: nextState === "completed" ? "completed" : "reopened" });
-      item = {
-        ...(task || {}),
-        id: itemId,
-        kind: "task",
-        title,
-        notes: String(data.get("notes") || ""),
-        state: nextState,
-        parentId: task?.parentId || props.request.parentId || null,
-        groupId: task?.parentId || props.request.parentId ? task?.groupId ?? null : String(data.get("groupId") || "") || null,
-        completedAt: nextState === "completed" ? task?.completedAt || now : null,
-        tags: parseTags(data.get("tags")),
-        attachments: [...(currentItem?.attachments || []).filter(file => !submittedRemoved.has(file.id)), ...attachments],
-        dependentOf: dormant() ? task!.dependentOf : null,
-        relativeDates: dormant() ? (() => {
-          const relative: RelativeDates = {};
-          for (const field of RELATIVE_DATE_FIELDS) if (dateModes()[field] === "after") relative[field] = Math.max(0, Number(data.get(`${field}After`)) || 0);
-          return Object.keys(relative).length ? relative : null;
-        })() : null,
+      const relativeDates: TaskDraft["relativeDates"] = {};
+      for (const field of RELATIVE_DATE_FIELDS) if (dateModes()[field] === "after") relativeDates[field] = Math.max(0, Number(data.get(`${field}After`)) || 0);
+      item = taskFromDraft({
+        ...shared,
+        state: taskState(),
+        sleep: sleepMode() === "until" ? { mode: "until", until: localInputToIso(data.get("sleepUntil")) } : { mode: sleepMode() as "awake" | "indefinite" },
+        groupId: String(data.get("groupId") || "") || null,
         availableFrom: localInputToIso(data.get("availableFrom")),
         deadline: localInputToIso(data.get("deadline")),
         latestStart: localInputToIso(data.get("latestStart")),
-        sleep,
-        availabilitySchedule: scheduleEnabled() ? {
+        schedule: scheduleEnabled() ? {
           enabled: true,
           days: data.getAll("scheduleDay").map(Number),
           start: String(data.get("scheduleStart") || "08:00"),
           end: String(data.get("scheduleEnd") || "17:00"),
         } : null,
-        createdAt: currentItem?.createdAt || now,
-        updatedAt: now,
-        history: historyEntries,
-      };
+        relativeDates,
+      }, { ...context, parentId: props.request.parentId, dormant: dormant() });
     } else {
       if (!eventStart() && !eventEnd()) { setSaveError("Choose when the event starts."); return false; }
-      let start = localInputToIso(eventStart());
-      let end = localInputToIso(eventEnd());
-      if (start && !end) {
-        const derived = toDate(start);
-        derived.setDate(derived.getDate() + 1);
-        end = derived.toISOString();
-      } else if (!start && end) {
-        const derived = toDate(end);
-        derived.setDate(derived.getDate() - 1);
-        start = derived.toISOString();
-      }
-      item = {
-        ...(storedEvent || {}),
-        id: itemId,
-        kind: "event",
-        title,
-        notes: String(data.get("notes") || ""),
-        tags: parseTags(data.get("tags")),
-        attachments: [...(currentItem?.attachments || []).filter(file => !submittedRemoved.has(file.id)), ...attachments],
-        start,
-        end,
-        createdAt: currentItem?.createdAt || now,
-        updatedAt: now,
-      };
+      item = eventFromDraft({ ...shared, start: localInputToIso(eventStart()), end: localInputToIso(eventEnd()) }, context);
     }
 
     const sleepError = sleepValidationMessage(item);

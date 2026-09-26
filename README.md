@@ -109,5 +109,6 @@ Server-only code lives under backend/. The sync/ directory holds the shared Auto
 - what's the "saved on this device" status for? 
 - decide what to do about displaying sleeping/waiting tasks as descendents of open tasks
 - decouple model and view
+- search matches differently in the two views: calendar search (`textMatches` in `site/domain.js`) matches title, notes, tags, and attachment names, but task board search (its own `textMatches` in `solid/src/GroupsView.tsx`) skips attachment names. Decide whether the board should also match attachment names, then have both views use one function
 1. sleeping and waiting dates don't display year. don't display year if it's the current year, otherwise display year
 2. 

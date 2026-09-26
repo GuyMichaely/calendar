@@ -8,3 +8,4 @@ site/solid/
 backend/.env
 *.log
 .codex
+.claude

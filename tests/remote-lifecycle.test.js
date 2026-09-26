@@ -4,16 +4,17 @@ import path from "node:path";
 import test from "node:test";
 
 const app = fs.readFileSync(path.resolve(import.meta.dirname, "../solid/src/App.tsx"), "utf8");
+const session = fs.readFileSync(path.resolve(import.meta.dirname, "../solid/src/remote-session.ts"), "utf8");
 const remoteSync = fs.readFileSync(path.resolve(import.meta.dirname, "../solid/src/remote-sync.ts"), "utf8");
 
 test("Solid refreshes authenticated remote state after reconnect and when the tab resumes", () => {
-  assert.match(app, /window\.addEventListener\("online", refreshRemoteOnResume\)/u);
-  assert.match(app, /document\.addEventListener\("visibilitychange", syncRemoteWhenVisible\)/u);
-  assert.match(app, /document\.visibilityState === "visible"/u);
-  assert.match(app, /if \(remoteSession\(\)\?\.authenticated\)/u);
-  assert.match(app, /else if \(remoteSession\(\) === null && remoteError\(\)\)/u);
-  assert.match(app, /window\.removeEventListener\("online", refreshRemoteOnResume\)/u);
-  assert.match(app, /document\.removeEventListener\("visibilitychange", syncRemoteWhenVisible\)/u);
+  assert.match(session, /window\.addEventListener\("online", refreshRemoteOnResume\)/u);
+  assert.match(session, /document\.addEventListener\("visibilitychange", syncRemoteWhenVisible\)/u);
+  assert.match(session, /document\.visibilityState === "visible"/u);
+  assert.match(session, /if \(remoteSession\(\)\?\.authenticated\)/u);
+  assert.match(session, /else if \(remoteSession\(\) === null && remoteError\(\)\)/u);
+  assert.match(session, /window\.removeEventListener\("online", refreshRemoteOnResume\)/u);
+  assert.match(session, /document\.removeEventListener\("visibilitychange", syncRemoteWhenVisible\)/u);
 });
 
 test("Solid lets the user configure the remote sync server from the hamburger menu", () => {

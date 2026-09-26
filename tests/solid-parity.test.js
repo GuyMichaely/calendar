@@ -37,20 +37,21 @@ test("Solid shell keeps calendar search and today navigation", () => {
 });
 
 test("Solid writes include the item snapshot they were based on", () => {
-  const app = source("solid/src/App.tsx");
-  assert.match(app, /await putItem\(next, task\);/);
-  assert.match(app, /await putItem\(item, baseline\);/);
+  const store = source("solid/src/calendar-store.ts");
+  assert.match(store, /putItem\(completedTask\(task, new Date\(\)\), task\)/);
+  assert.match(store, /putItem\(item, baseline\)/);
 });
 
 test("Solid remote integration uses the serialized storage boundary and server attachment routes", () => {
   const app = source("solid/src/App.tsx");
+  const session = source("solid/src/remote-session.ts");
   const remote = source("solid/src/remote-sync.ts");
   const editor = source("solid/src/ItemEditor.tsx");
-  assert.match(app, /storage: \{ readSnapshot: readSyncSnapshot, mergeSnapshot: mergeSyncSnapshot \}/);
-  assert.match(app, /createRemoteSyncQueue/);
+  assert.match(session, /storage: \{ readSnapshot: readSyncSnapshot, mergeSnapshot: mergeSyncSnapshot \}/);
+  assert.match(session, /createRemoteSyncQueue/);
   assert.match(app, /Sign in with Google/);
   assert.match(app, /Sync now/);
-  assert.match(app, /void requestRemoteSync\(\);/);
+  assert.match(app, /createCalendarStore\(\{ onChanged: \(\) => void remote\.request\(\) \}\)/);
   assert.match(remote, /attachments\/\$\{encodeURIComponent\(attachment\.id\)\}/);
   assert.match(remote, /method: "HEAD"/);
   assert.match(remote, /method: "PUT"/);
