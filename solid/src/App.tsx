@@ -148,9 +148,10 @@ export function App() {
   const addTask = (groupId: string | null, title: string) => attempt(() => store.addTask(groupId, title), "Could not add task.");
   const addDependent = (parent: Task, title: string) => attempt(() => store.addDependent(parent, title), "Could not add dependent task.");
   const completeTask = async (task: Task) => { await attempt(() => store.completeTask(task), "Could not complete task.", "Task completed"); };
-  const dropTask = (task: Task, drop: TaskDrop) => attempt(() => store.moveTask(task,
-    drop.kind === "inside" ? { parent: drop.parent } : drop.kind === "group" ? { groupId: drop.groupId } : { ref: drop.ref, before: drop.kind === "before" }
-  ), "Could not move task.");
+  const dropTask = (task: Task, drop: TaskDrop) => attempt(() =>
+    drop.kind === "dependent" ? store.makeDependent(task, drop.owner)
+      : store.moveTask(task, drop.kind === "inside" ? { parent: drop.parent } : drop.kind === "group" ? { groupId: drop.groupId } : { ref: drop.ref, before: drop.kind === "before" }),
+    "Could not move task.");
   const startDependent = async (task: Task, completeParent: boolean) => {
     try {
       const { completed } = await store.startDependent(task, completeParent);

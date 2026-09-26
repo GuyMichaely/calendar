@@ -586,6 +586,7 @@ main:has(.groups-panel) > .tasks-workspace:not(.split) { flex: 1; display: flex;
 .board-task.drop-after { box-shadow: 0 3px 0 -1px var(--accent); }
 .board-group.drop-group { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .task-ghost { pointer-events: none; box-shadow: var(--shadow); opacity: .92; background: var(--surface); }
+.subtask-editor.zone-target { outline: 2px dashed var(--accent); outline-offset: 3px; border-radius: 8px; }
 .task-menu { position: relative; margin-left: auto; flex: 0 0 auto; }
 .task-menu-button { width: 22px; height: 22px; color: var(--muted); font-size: 15px; line-height: 1; opacity: .55; }
 .board-task:hover .task-menu-button, .task-menu-button[aria-expanded="true"], .task-menu-button:focus-visible { opacity: 1; }

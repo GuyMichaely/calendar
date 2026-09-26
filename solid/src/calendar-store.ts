@@ -98,6 +98,10 @@ export function createCalendarStore(options: { onChanged: () => void }) {
       const patches = reorderPatches(items(), group, offset);
       if (patches.length) await batch("Reorder groups", async () => { for (const { group, patch } of patches) await patchGroup(group, patch); });
     },
+    /** Turn a task into a dormant dependent of another task (un-nests it if it was a subtask). */
+    makeDependent: (task: Task, owner: Task) => batch("Make dependent", () =>
+      putItem(patchedItem(task, { parentId: null, dependentOf: owner.id, groupId: dependentGroupId(items(), owner) }, new Date()), task)),
+
     /** Nest as a task's last subtask, or move between groups / onto the top level of one. */
     moveTask: (task: Task, target: { parent: Task } | { groupId: string | null } | { ref: Task; before: boolean }) => batch("Move task", async () => {
       let patches: { task: Task; patch: Partial<Task> }[];

@@ -11,7 +11,8 @@ import type { Group, Item, Task } from "./types";
 export type TaskDrop =
   | { kind: "inside"; parent: Task }
   | { kind: "before" | "after"; ref: Task }
-  | { kind: "group"; groupId: string | null };
+  | { kind: "group"; groupId: string | null }
+  | { kind: "dependent"; owner: Task };
 
 export type GroupsViewProps = {
   items: Item[];
@@ -176,7 +177,7 @@ export function GroupsView(props: GroupsViewProps) {
   // Task dragging: a grip on each card undocks it; dropping onto another card nests
   // it as a subtask (middle), orders as a sibling (top/bottom edge), or re-groups it.
   const [taskDragId, setTaskDragId] = createSignal<string | null>(null);
-  const [taskDrop, setTaskDrop] = createSignal<{ kind: "before" | "after" | "inside" | "group"; id: string | null } | null>(null);
+  const [taskDrop, setTaskDrop] = createSignal<{ kind: "before" | "after" | "inside" | "group" | "dependent"; id: string | null } | null>(null);
   const taskDropId = () => taskDrop()?.id;
   const startTaskDrag = (id: string, event: PointerEvent) => {
     if (event.button !== 0) return;
@@ -210,7 +211,7 @@ export function GroupsView(props: GroupsViewProps) {
       if (lastY > innerHeight - 48) window.scrollBy(0, Math.min(24, 4 + (lastY - (innerHeight - 48)) * 0.3));
       else if (lastY < 104) window.scrollBy(0, -Math.min(24, 4 + (104 - lastY) * 0.3));
       const hit = document.elementFromPoint(lastX, lastY);
-      let drop: { kind: "before" | "after" | "inside" | "group"; id: string | null } | null = null;
+      let drop: { kind: "before" | "after" | "inside" | "group" | "dependent"; id: string | null } | null = null;
       const hostCard = hit?.closest<HTMLElement>("[data-task-card]");
       if (hostCard && !excluded.has(hostCard.dataset.id || "")) {
         if (!hostCard.classList.contains("dormant")) {
@@ -219,10 +220,23 @@ export function GroupsView(props: GroupsViewProps) {
           drop = { kind: relY < 0.28 ? "before" : relY > 0.72 ? "after" : "inside", id: hostCard.dataset.id || null };
         }
       } else if (!hostCard) {
-        const section = hit?.closest<HTMLElement>(".board-group");
-        if (section?.classList.contains("smart-group")) {
-          if (section.dataset.builtin === "ungrouped") drop = { kind: "group", id: null };
-        } else if (section?.dataset.groupId) drop = { kind: "group", id: section.dataset.groupId };
+        // The open editor's Subtasks/Dependent-tasks areas accept drops onto the
+        // edited task itself (never its rows, which aren't task cards here).
+        const zone = hit?.closest<HTMLElement>("[data-task-drop-zone]");
+        const zoneTask = zone?.dataset.taskId || "";
+        if (zone && zoneTask && !excluded.has(zoneTask) && byId.has(zoneTask)) {
+          drop = { kind: zone.dataset.taskDropZone === "dependents" ? "dependent" : "inside", id: zoneTask };
+        } else {
+          const section = hit?.closest<HTMLElement>(".board-group");
+          if (section?.classList.contains("smart-group")) {
+            if (section.dataset.builtin === "ungrouped") drop = { kind: "group", id: null };
+          } else if (section?.dataset.groupId) drop = { kind: "group", id: section.dataset.groupId };
+        }
+      }
+      // Highlight the editor zone under the pointer, if any.
+      document.querySelectorAll(".zone-target").forEach(element => element.classList.remove("zone-target"));
+      if (drop?.kind === "dependent" || (drop?.kind === "inside" && hit?.closest("[data-task-drop-zone]"))) {
+        hit?.closest("[data-task-drop-zone]")?.classList.add("zone-target");
       }
       setTaskDrop(drop);
       frame = requestAnimationFrame(update);
@@ -231,6 +245,7 @@ export function GroupsView(props: GroupsViewProps) {
     const end = (dropIt: boolean) => () => {
       cancelAnimationFrame(frame);
       ghost?.remove();
+      document.querySelectorAll(".zone-target").forEach(element => element.classList.remove("zone-target"));
       handle.removeEventListener("pointermove", move);
       const drop = taskDrop();
       setTaskDragId(null); setTaskDrop(null);
@@ -239,7 +254,9 @@ export function GroupsView(props: GroupsViewProps) {
       else {
         const ref = byId.get(drop.id || "") as Task | undefined;
         if (!ref) return;
-        void props.onDropTask(dragged, drop.kind === "inside" ? { kind: "inside", parent: ref } : { kind: drop.kind, ref });
+        void props.onDropTask(dragged, drop.kind === "inside" ? { kind: "inside", parent: ref }
+          : drop.kind === "dependent" ? { kind: "dependent", owner: ref }
+          : { kind: drop.kind, ref });
       }
     };
     frame = requestAnimationFrame(update);
@@ -402,11 +419,19 @@ export function GroupsView(props: GroupsViewProps) {
     });
     const act = (run: () => unknown) => () => { setOpen(false); void run(); };
     const sleeping = () => sleepInfo(menuProps.task, props.now).sleeping;
+    // A subtask (one with a task parent) can become a dependent task of that parent.
+    const subtaskParent = () => {
+      const parent = itemsById().get(menuProps.task.parentId || "");
+      return parent?.kind === "task" ? parent as Task : null;
+    };
     return <span class="task-menu" ref={root}>
       <button class="icon-button task-menu-button" aria-label={`Actions for ${menuProps.task.title || "Untitled task"}`} aria-haspopup="menu" aria-expanded={open()} onClick={() => setOpen(value => !value)}>⋮</button>
       <Show when={open()}>
         <div class="task-menu-list" role="menu">
           <button role="menuitem" onClick={act(() => { openedCard = root.closest(".board-task"); props.onEdit(menuProps.task); })}>Open details</button>
+          <Show when={!menuProps.dormant && subtaskParent()}>
+            <button role="menuitem" onClick={act(() => props.onDropTask(menuProps.task, { kind: "dependent", owner: subtaskParent()! }))}>Make dependent of “{subtaskParent()?.title}”</button>
+          </Show>
           <Show when={menuProps.dormant}>
             <button role="menuitem" onClick={act(() => props.onStartDependent(menuProps.task, false))}>Start</button>
             <Show when={menuProps.parent && menuProps.parent.state !== "completed"}><button role="menuitem" onClick={act(() => props.onStartDependent(menuProps.task, true))}>Start & complete “{menuProps.parent?.title}”</button></Show>
