@@ -85,24 +85,34 @@ export function GroupsView(props: GroupsViewProps) {
     const handle = event.currentTarget as HTMLElement;
     handle.setPointerCapture(event.pointerId);
     setDragId(id);
-    const move = (next: PointerEvent) => {
+    // A rAF loop drives the drag: pointermove events stop when a held finger is
+    // stationary, so edge scrolling and drop-target tracking run every frame.
+    let lastX = event.clientX, lastY = event.clientY, frame = 0;
+    const update = () => {
       const edge = boardRef.getBoundingClientRect();
-      if (next.clientX > edge.right - 40) boardRef.scrollLeft += 16; else if (next.clientX < edge.left + 40) boardRef.scrollLeft -= 16;
-      const hit = document.elementFromPoint(next.clientX, next.clientY);
+      const EDGE = 56;
+      const leftDepth = edge.left + EDGE - lastX, rightDepth = lastX - (edge.right - EDGE);
+      if (rightDepth > 0) boardRef.scrollLeft += Math.min(28, 4 + rightDepth * 0.4);
+      else if (leftDepth > 0) boardRef.scrollLeft -= Math.min(28, 4 + leftDepth * 0.4);
+      const hit = document.elementFromPoint(lastX, lastY);
       const well = hit?.closest<HTMLElement>("[data-drop]")?.dataset.drop;
       // Over another group, its left or right half means a new column on that side.
       const entry = well ? null : hit?.closest<HTMLElement>("[data-board-entry]");
       if (entry && entry.dataset.boardEntry !== id) {
         const box = entry.getBoundingClientRect(), column = Number(entry.dataset.column);
-        setDropKey(`new-${next.clientX < box.left + box.width / 2 ? column : column + 1}`);
+        setDropKey(`new-${lastX < box.left + box.width / 2 ? column : column + 1}`);
       } else setDropKey(well || "");
+      frame = requestAnimationFrame(update);
     };
+    const move = (next: PointerEvent) => { lastX = next.clientX; lastY = next.clientY; };
     const end = (drop: boolean) => () => {
+      cancelAnimationFrame(frame);
       handle.removeEventListener("pointermove", move);
       const key = dropKey(), target = targets.get(key);
       setDragId(null); setDropKey("");
       if (drop && key && target) void props.onPlaceGroup(id, target());
     };
+    frame = requestAnimationFrame(update);
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", end(true), { once: true });
     handle.addEventListener("pointercancel", end(false), { once: true });
