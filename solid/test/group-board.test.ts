@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildBoard, groupOptions } from "../src/group-board";
+import { boardColumns, buildBoard, groupOptions, layoutPatches, nextColumnKey, placeGroup } from "../src/group-board";
 import type { Group, Item, Task } from "../src/types";
 
 const at = "2026-09-26T00:00:00.000Z";
@@ -38,4 +38,21 @@ test("group options list the tree in order and can exclude a subtree", () => {
   const items = [group("a", null, 1), group("a1", "a"), group("b", null, 2)];
   expect(groupOptions(items).map(option => [option.group.id, option.depth])).toEqual([["a", 0], ["a1", 1], ["b", 0]]);
   expect(groupOptions(items, new Set(["a"])).map(option => option.group.id)).toEqual(["b"]);
+});
+
+test("top-level groups stack in columns; older groups get a column each", () => {
+  const stacked = [{ ...group("a", null, 0), boardColumn: 0 }, { ...group("b", null, 1), boardColumn: 0 }, { ...group("c", null, 0), boardColumn: 3 }];
+  expect(boardColumns(stacked)).toEqual([["a", "b"], ["c"]]);
+  expect(boardColumns([group("x", null, 0), group("y", null, 1)])).toEqual([["x"], ["y"]]);
+  expect(nextColumnKey(stacked)).toBe(4);
+});
+
+test("placing a group moves it between columns, into new columns, and drops empty ones", () => {
+  const columns = [["a", "b"], ["c"]];
+  expect(placeGroup(columns, "c", { column: 0, index: 1 })).toEqual([["a", "c", "b"]]);
+  expect(placeGroup(columns, "a", { column: 0, index: 2 })).toEqual([["b", "a"], ["c"]]);
+  expect(placeGroup(columns, "b", { newColumn: 0 })).toEqual([["b"], ["a"], ["c"]]);
+  expect(placeGroup(columns, "a", { newColumn: 2 })).toEqual([["b"], ["c"], ["a"]]);
+  const groups = [group("a", null, 0), group("b", null, 1), group("c", null, 2)];
+  expect(layoutPatches([["b", "a"], ["c"]], groups).map(({ group, patch }) => [group.id, patch])).toEqual([["b", { boardColumn: 0, sortOrder: 0 }], ["a", { boardColumn: 0, sortOrder: 1 }], ["c", { boardColumn: 1, sortOrder: 0 }]]);
 });

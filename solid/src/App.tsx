@@ -39,7 +39,7 @@ import {
 } from "./remote-sync";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
 import { GroupsView } from "./GroupsView";
-import { groupForest, sortedGroups } from "./group-board";
+import { boardColumns, groupForest, layoutPatches, nextColumnKey, placeGroup as placeInLayout, sortedGroups, type BoardTarget } from "./group-board";
 import { ToastStack, type ToastMessage } from "./ToastStack";
 import { loadPollSeconds, animationsEnabled } from "./settings";
 import type { CalendarEvent, CalendarSleepMode, Group, HorizonMode, Item, Task, View } from "./types";
@@ -246,6 +246,8 @@ export function App() {
   };
   // Groups: siblings share a parent (top-level groups share none) and are ordered by sortOrder.
   const siblingGroups = (parentId: string | null) => { const forest = groupForest(sortedGroups(items())); return parentId ? forest.children.get(parentId) || [] : forest.roots; };
+  // A group that becomes top level starts a new board column at the right.
+  const placement = (parentId: string | null, column = nextColumnKey(siblingGroups(null))) => parentId ? { parentId, sortOrder: nextGroupOrder(parentId) } : { parentId: null, boardColumn: column, sortOrder: 0 };
   const nextGroupOrder = (parentId: string | null) => Math.max(-1, ...siblingGroups(parentId).map(group => group.sortOrder ?? -1)) + 1;
   const saveGroups = async (label: string, run: () => Promise<unknown>) => {
     try { await historyBatch(label, run); } catch (error) { showToast(errorMessage(error, "Could not update groups.")); }
@@ -254,12 +256,18 @@ export function App() {
   const patchGroup = (group: Group, patch: Partial<Group>) => putItem({ ...group, ...patch, updatedAt: new Date().toISOString() }, group);
   const createGroup = async (parentId: string | null) => {
     const now = new Date().toISOString(), id = crypto.randomUUID();
-    try { await putItem({ id, kind: "group", title: "New group", parentId, sortOrder: nextGroupOrder(parentId), createdAt: now, updatedAt: now }); }
+    try { await putItem({ id, kind: "group", title: "New group", ...placement(parentId), createdAt: now, updatedAt: now }); }
     catch (error) { showToast(errorMessage(error, "Could not create group.")); return null; }
     await refresh(); void requestRemoteSync(); return id;
   };
   const renameGroup = (group: Group, title: string) => saveGroups("Rename group", () => patchGroup(group, { title }));
-  const moveGroup = (group: Group, parentId: string | null) => saveGroups("Move group", () => patchGroup(group, { parentId, sortOrder: nextGroupOrder(parentId) }));
+  const moveGroup = (group: Group, parentId: string | null) => saveGroups("Move group", () => patchGroup(group, placement(parentId)));
+  const placeGroup = async (id: string, target: BoardTarget) => {
+    const roots = siblingGroups(null);
+    if (!roots.some(group => group.id === id)) return;
+    const patches = layoutPatches(placeInLayout(boardColumns(roots), id, target), roots);
+    if (patches.length) await saveGroups("Move group", async () => { for (const { group, patch } of patches) await patchGroup(group, patch); });
+  };
   const reorderGroup = async (group: Group, offset: -1 | 1) => {
     const siblings = [...(siblingGroups(group.parentId && items().some(item => item.id === group.parentId) ? group.parentId : null))];
     const from = siblings.findIndex(sibling => sibling.id === group.id), to = from + offset;
@@ -272,9 +280,9 @@ export function App() {
     const parent = items().find((item): item is Group => item.kind === "group" && item.id === group.parentId) || null;
     if (!window.confirm(`Delete “${group.title}”? Its tasks and subgroups move to ${parent ? `“${parent.title}”` : "the top level"}.`)) return;
     await saveGroups(`Delete group “${group.title}”`, async () => {
-      let order = nextGroupOrder(parent?.id || null);
+      let order = nextGroupOrder(parent?.id || null), column = nextColumnKey(siblingGroups(null));
       for (const item of items()) {
-        if (item.kind === "group" && item.parentId === group.id) await patchGroup(item, { parentId: parent?.id || null, sortOrder: order++ });
+        if (item.kind === "group" && item.parentId === group.id) await patchGroup(item, parent ? { parentId: parent.id, sortOrder: order++ } : placement(null, column++));
         if (item.kind === "task" && item.groupId === group.id) await putItem({ ...item, groupId: parent?.id || null, updatedAt: new Date().toISOString() }, item);
       }
       await deleteItem(group.id);
@@ -372,7 +380,7 @@ export function App() {
             <div class="tasks-workspace" classList={{ split: splitView() && !!detailRequest() }}>
             <GroupsView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null} showCompleted={showCompleted()} onShowCompletedChange={value => { setShowCompleted(value); localStorage.setItem("calendar.groups.showCompleted", value ? "1" : "0"); }}
               compact={compact()} onCompactChange={value => { setCompact(value); localStorage.setItem("calendar.compactTasks", value ? "1" : "0"); }} onPatchTask={patchTask}
-              onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={renameGroup} onMoveGroup={moveGroup} onReorderGroup={reorderGroup} onDeleteGroup={deleteGroup} />
+              onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={renameGroup} onMoveGroup={moveGroup} onReorderGroup={reorderGroup} onDeleteGroup={deleteGroup} onPlaceGroup={placeGroup} respectSleep={calendarSleepMode() === "respect"} />
             <Show when={splitView() && detailRequest()}>
               <aside class="task-detail-pane" aria-label="Task details">
                 <Show when={detailRequest()} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>

@@ -1,8 +1,9 @@
-import { For, Show, createEffect, createMemo, createSignal, onMount, type JSX } from "solid-js";
-import { formatDateTime, sleepInfo } from "../../site/domain.js";
+import { For, Index, Show, createEffect, createMemo, createSignal, onMount, type JSX } from "solid-js";
+import { formatDateTime, isSleeping, sleepInfo } from "../../site/domain.js";
 import { groupDescendants } from "../../site/task-tree.js";
 import { Icon } from "./Icon";
-import { buildBoard, flattenGroupNodes, groupOptions, type GroupNode, type TaskNode } from "./group-board";
+import { boardColumns, buildBoard, flattenGroupNodes, groupOptions, type BoardTarget, type GroupNode, type TaskNode } from "./group-board";
+import { planTasks } from "./task-planning";
 import type { Group, Item, Task } from "./types";
 
 export type GroupsViewProps = {
@@ -23,6 +24,8 @@ export type GroupsViewProps = {
   onMoveGroup: (group: Group, parentId: string | null) => Promise<void>;
   onReorderGroup: (group: Group, offset: -1 | 1) => Promise<void>;
   onDeleteGroup: (group: Group) => Promise<void>;
+  onPlaceGroup: (id: string, target: BoardTarget) => Promise<void>;
+  respectSleep: boolean;
 };
 
 function textMatches(task: Task, query: string) {
@@ -34,6 +37,49 @@ export function GroupsView(props: GroupsViewProps) {
   const board = createMemo(() => buildBoard(props.items, task => (props.showCompleted || task.state !== "completed") && textMatches(task, props.query)));
   // Components are keyed by id so inputs keep focus and drafts when the board is rebuilt.
   const groupsById = createMemo(() => flattenGroupNodes(board().groups));
+  const columns = createMemo(() => boardColumns(board().groups.map(node => node.group)));
+  // Built-in groups list tasks by availability, across every group.
+  const smart = createMemo(() => {
+    const tasks = props.items.filter((item): item is Task => item.kind === "task" && item.state !== "completed" && textMatches(item, props.query));
+    const plan = planTasks(tasks, props.now, props.respectSleep, "start", null);
+    const flat = (rows: { task: Task }[]) => rows.map(row => ({ task: row.task, children: [] }));
+    return {
+      available: flat(plan.now),
+      upcoming: flat(plan.upcoming.filter(row => !isSleeping(row.task, props.now))),
+      sleeping: flat(plan.upcoming.filter(row => isSleeping(row.task, props.now))),
+    };
+  });
+  // Dragging a top-level group shows where it can go: between groups in a column, or as a new column.
+  const [dragId, setDragId] = createSignal<string | null>(null);
+  const [dropKey, setDropKey] = createSignal("");
+  const targets = new Map<string, () => BoardTarget>();
+  let boardRef!: HTMLDivElement;
+  const dropTarget = (key: string, target: () => BoardTarget, class_: string) => {
+    targets.set(key, target);
+    return <div class={class_} data-drop={key} classList={{ active: !!dragId() && dropKey() === key }} />;
+  };
+  // Pointer-based so it works with touch as well as a mouse.
+  const startGroupDrag = (id: string) => (event: PointerEvent) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture(event.pointerId);
+    setDragId(id);
+    const move = (next: PointerEvent) => {
+      const edge = boardRef.getBoundingClientRect();
+      if (next.clientX > edge.right - 40) boardRef.scrollLeft += 16; else if (next.clientX < edge.left + 40) boardRef.scrollLeft -= 16;
+      setDropKey(document.elementFromPoint(next.clientX, next.clientY)?.closest<HTMLElement>("[data-drop]")?.dataset.drop || "");
+    };
+    const end = (drop: boolean) => () => {
+      handle.removeEventListener("pointermove", move);
+      const key = dropKey(), target = targets.get(key);
+      setDragId(null); setDropKey("");
+      if (drop && key && target) void props.onPlaceGroup(id, target());
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end(true), { once: true });
+    handle.addEventListener("pointercancel", end(false), { once: true });
+  };
   const focusGroupTitle = (id: string | null) => {
     if (id) setTimeout(() => { const input = document.querySelector<HTMLInputElement>(`[data-group-title="${CSS.escape(id)}"]`); input?.focus(); input?.select(); });
   };
@@ -135,7 +181,6 @@ export function GroupsView(props: GroupsViewProps) {
     const [collapsed, setCollapsed] = createSignal(false);
     const [tools, setTools] = createSignal(false);
     const index = () => sectionProps.siblings.indexOf(sectionProps.id);
-    const earlier = sectionProps.depth ? "↑" : "←", later = sectionProps.depth ? "↓" : "→";
     const parentChoices = createMemo(() => groupOptions(props.items, new Set([group().id, ...groupDescendants(props.items, group().id).map((child: Group) => child.id)])));
     const parentLabel = (id: string) => { const option = parentChoices().find(choice => choice.group.id === id); return option ? `${"— ".repeat(option.depth)}${option.group.title}` : ""; };
     const rename = (input: HTMLInputElement) => {
@@ -143,13 +188,15 @@ export function GroupsView(props: GroupsViewProps) {
       if (!title) { input.value = group().title; return; }
       if (title !== group().title) void props.onRenameGroup(group(), title);
     };
-    return <section class="board-group" classList={{ nested: sectionProps.depth > 0 }}>
+    return <section class="board-group" classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id }}>
       <header class="board-group-header">
         <button class="icon-button board-collapse" aria-label={collapsed() ? "Expand group" : "Collapse group"} aria-expanded={!collapsed()} onClick={() => setCollapsed(value => !value)}>{collapsed() ? "›" : "⌄"}</button>
         <input ref={titleInput} class="board-group-title" data-group-title={group().id} aria-label="Group name"
           onChange={event => rename(event.currentTarget)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.currentTarget.value = group().title; event.currentTarget.blur(); } }} />
-        <button class="icon-button" aria-label="Move earlier" title="Move earlier" disabled={index() <= 0} onClick={() => void props.onReorderGroup(group(), -1)}>{earlier}</button>
-        <button class="icon-button" aria-label="Move later" title="Move later" disabled={index() >= sectionProps.siblings.length - 1} onClick={() => void props.onReorderGroup(group(), 1)}>{later}</button>
+        <Show when={sectionProps.depth} fallback={<span class="board-drag-handle" title="Drag to move" aria-hidden="true" onPointerDown={startGroupDrag(group().id)}>⠿</span>}>
+          <button class="icon-button" aria-label="Move up" title="Move up" disabled={index() <= 0} onClick={() => void props.onReorderGroup(group(), -1)}>↑</button>
+          <button class="icon-button" aria-label="Move down" title="Move down" disabled={index() >= sectionProps.siblings.length - 1} onClick={() => void props.onReorderGroup(group(), 1)}>↓</button>
+        </Show>
         <button class="icon-button" aria-label="Group options" aria-expanded={tools()} onClick={() => setTools(value => !value)}>⋯</button>
       </header>
       <Show when={tools()}>
@@ -175,6 +222,12 @@ export function GroupsView(props: GroupsViewProps) {
     return <For each={ids()}>{id => <Show when={groupsById().has(id)}><GroupSection id={id} depth={listProps.depth} siblings={ids()} /></Show>}</For>;
   };
 
+  const SmartGroup = (smartProps: { title: string; nodes: TaskNode[]; empty: string }) =>
+    <section class="board-group smart-group">
+      <header class="board-group-header"><h2>{smartProps.title}</h2><span class="board-count">{smartProps.nodes.length}</span></header>
+      <Show when={smartProps.nodes.length} fallback={<p class="board-empty">{smartProps.empty}</p>}><TaskList nodes={smartProps.nodes} depth={0} /></Show>
+    </section>;
+
   return <section class="panel groups-panel">
     <div class="groups-toolbar">
       <h1>Groups</h1>
@@ -182,7 +235,12 @@ export function GroupsView(props: GroupsViewProps) {
       <label class="check-row"><input type="checkbox" checked={props.showCompleted} onChange={event => props.onShowCompletedChange(event.currentTarget.checked)} />Show completed</label>
       <button class="secondary-button" onClick={async () => focusGroupTitle(await props.onCreateGroup(null))}><Icon name="plus" size={15} />New group</button>
     </div>
-    <div class="board" classList={{ compact: props.compact }}>
+    <div ref={boardRef} class="board" classList={{ compact: props.compact, "drag-active": !!dragId() }}>
+      <div class="board-column">
+        <SmartGroup title="Available" nodes={smart().available} empty="Nothing is available right now." />
+        <SmartGroup title="Upcoming" nodes={smart().upcoming} empty="Nothing is waiting to start." />
+        <SmartGroup title="Sleeping" nodes={smart().sleeping} empty="No sleeping tasks." />
+      </div>
       <div class="board-column">
         <section class="board-group">
           <header class="board-group-header"><h2>No group</h2></header>
@@ -190,9 +248,17 @@ export function GroupsView(props: GroupsViewProps) {
           <AddTask groupId={null} />
         </section>
       </div>
-      <For each={board().groups.map(node => node.group.id)}>{id =>
-        <div class="board-column"><Show when={groupsById().has(id)}><GroupSection id={id} depth={0} siblings={board().groups.map(node => node.group.id)} /></Show></div>}
-      </For>
+      {dropTarget("new-0", () => ({ newColumn: 0 }), "board-drop-column")}
+      <Index each={columns()}>{(column, columnIndex) => <>
+        <div class="board-column">
+          {dropTarget(`in-${columnIndex}-0`, () => ({ column: columnIndex, index: 0 }), "board-drop-slot")}
+          <For each={column()}>{(id, position) => <>
+            <Show when={groupsById().has(id)}><GroupSection id={id} depth={0} siblings={column()} /></Show>
+            {dropTarget(`in-${columnIndex}-${id}`, () => ({ column: columnIndex, index: position() + 1 }), "board-drop-slot")}
+          </>}</For>
+        </div>
+        {dropTarget(`new-${columnIndex + 1}`, () => ({ newColumn: columnIndex + 1 }), "board-drop-column")}
+      </>}</Index>
     </div>
   </section>;
 }

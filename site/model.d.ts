@@ -63,7 +63,10 @@ export type CalendarEvent = BaseItem & {
 export type Group = BaseItem & {
   kind: "group";
   parentId?: string | null;
+  // Among siblings; for top-level groups, the position within their board column.
   sortOrder?: number;
+  // Top-level groups only: which board column the group is stacked in.
+  boardColumn?: number;
 };
 
 export type Item = Task | CalendarEvent | Group;

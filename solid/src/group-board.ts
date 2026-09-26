@@ -88,3 +88,36 @@ export function groupOptions(items: Item[], exclude = new Set<string>()) {
   roots.forEach(group => walk(group, 0));
   return options;
 }
+
+// Top-level groups are stacked in board columns. A group without a stored
+// column (created before columns existed) gets a column of its own.
+const columnKey = (group: Group) => group.boardColumn ?? group.sortOrder ?? 0;
+
+export function boardColumns(roots: Group[]): string[][] {
+  const columns = new Map<number, Group[]>();
+  for (const group of roots) columns.set(columnKey(group), [...(columns.get(columnKey(group)) || []), group]);
+  return [...columns.entries()].sort(([a], [b]) => a - b).map(([, groups]) => groups.map(group => group.id));
+}
+
+export function nextColumnKey(roots: Group[]) {
+  return Math.max(-1, ...roots.map(columnKey)) + 1;
+}
+
+export type BoardTarget = { column: number; index: number } | { newColumn: number };
+
+/** Move a top-level group within the column layout; empty columns disappear. */
+export function placeGroup(columns: string[][], id: string, target: BoardTarget): string[][] {
+  const next: (string | null)[][] = columns.map(column => column.map(entry => entry === id ? null : entry));
+  if ("newColumn" in target) next.splice(target.newColumn, 0, [id]);
+  else next[target.column]?.splice(target.index, 0, id);
+  return next.map(column => column.filter((entry): entry is string => entry !== null)).filter(column => column.length);
+}
+
+/** The column and position each group needs to match a layout. */
+export function layoutPatches(columns: string[][], groups: Group[]) {
+  const byId = new Map(groups.map(group => [group.id, group]));
+  return columns.flatMap((column, boardColumn) => column.flatMap((id, sortOrder) => {
+    const group = byId.get(id);
+    return group && (group.boardColumn !== boardColumn || group.sortOrder !== sortOrder) ? [{ group, patch: { boardColumn, sortOrder } }] : [];
+  }));
+}

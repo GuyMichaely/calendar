@@ -446,8 +446,22 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .groups-toolbar .secondary-button { margin-left: auto; }
 .check-row { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
 .check-row input { accent-color: var(--accent); }
-.board { display: flex; align-items: flex-start; gap: 12px; overflow-x: auto; padding-bottom: 12px; }
-.board-column { flex: 0 0 290px; min-width: 0; }
+.board { display: flex; align-items: stretch; overflow-x: auto; padding-bottom: 12px; }
+.board-column { flex: 0 0 290px; min-width: 0; display: flex; flex-direction: column; }
+.board-column + .board-column { margin-left: 12px; }
+.smart-group + .smart-group { margin-top: 10px; }
+.board-count { margin-left: auto; padding-right: 6px; color: var(--muted); font-size: 11px; }
+.board-empty { margin: 2px 6px 6px; color: var(--muted); font-size: 11px; }
+.board-drag-handle { padding: 0 3px; color: var(--muted); cursor: grab; user-select: none; touch-action: none; }
+.board.drag-active, .board.drag-active * { cursor: grabbing; user-select: none; }
+.board-group.dragging { opacity: .45; }
+/* Drop targets double as spacing: slots between stacked groups, strips between columns. */
+.board-drop-slot { flex: 0 0 10px; border-radius: 8px; }
+.board-column > .board-drop-slot:last-child { flex: 1 0 10px; }
+.board-drop-column { flex: 0 0 12px; border-radius: 8px; }
+.board.drag-active .board-drop-slot, .board.drag-active .board-drop-column { outline: 1px dashed var(--line); outline-offset: -2px; }
+.board-drop-slot.active, .board-drop-column.active { background: var(--accent-soft); outline-color: var(--accent) !important; }
+.board.drag-active .board-drop-slot.active { flex-basis: 40px; }
 .board-group { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 6px 6px 8px; }
 .board-group.nested { margin: 10px 0 0 4px; border-radius: 8px; background: var(--surface-3); }
 .board-group-header { display: flex; align-items: center; gap: 2px; min-height: 32px; margin-bottom: 4px; }
@@ -472,8 +486,9 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .board.compact div.board-task-notes { -webkit-line-clamp: 2; }
 .board-task-title, .board-task-notes { cursor: pointer; }
 .board-text { cursor: text; }
+.board-text:hover { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--muted); }
 .board-edit { display: grid; gap: 8px; padding: 3px 0; }
-.board-inline { display: block; width: calc(100% + 10px); resize: none; overflow: hidden; margin: -3px -5px; padding: 2px 4px; border: 1px solid var(--accent); border-radius: 4px; background: var(--surface-3); font-family: inherit; }
+.board-inline { display: block; width: calc(100% + 10px); resize: none; overflow: hidden; margin: -3px -5px; padding: 2px 4px; border: 0; border-radius: 4px; background: var(--surface-2); font-family: inherit; }
 .board-inline:focus { outline: none; }
 .board-task-copy small { color: var(--muted); font-size: 10px; }
 .board-add { display: flex; align-items: center; gap: 8px; padding: 4px 6px; color: var(--muted); }
@@ -482,4 +497,5 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 @media (max-width: 760px) {
   .board { flex-direction: column; overflow-x: visible; }
   .board-column { flex: none; width: 100%; }
+  .board-column + .board-column { margin-left: 0; margin-top: 12px; }
 }
