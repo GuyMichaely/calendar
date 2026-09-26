@@ -19,6 +19,10 @@
   },
   "dependencies": {
     "@automerge/automerge": "3.4.1",
+    "@tiptap/core": "3.31.3",
+    "@tiptap/extension-table": "3.31.3",
+    "@tiptap/markdown": "3.31.3",
+    "@tiptap/starter-kit": "3.31.3",
     "markdown-it": "15.0.1",
     "openid-client": "6.8.7"
   },

@@ -2,6 +2,7 @@ import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, on
 import { formatDateTime, isSleeping, sleepInfo } from "../../site/domain.js";
 import { groupDescendants } from "../../site/task-tree.js";
 import { Icon } from "./Icon";
+import { renderNotes } from "./markdown";
 import { BUILTIN_GROUPS, boardColumns, boardEntries, buildBoard, nestList, flattenGroupNodes, groupOptions, type BoardTarget, type GroupNode, type TaskNode } from "./group-board";
 import { planTasks } from "./task-planning";
 import { RELATIVE_DATE_FIELDS, isDormant } from "./dependencies";
@@ -189,7 +190,15 @@ export function GroupsView(props: GroupsViewProps) {
         <span class="board-task-copy">
           <Show when={editing()} fallback={<>
             <div class="board-task-title"><span class="board-text" onClick={edit("title")}>{task().title || "Untitled task"}</span></div>
-            <Show when={task().notes}><div class="board-task-notes"><span class="board-text" onClick={edit("notes")}>{task().notes}</span></div></Show>
+            <Show when={task().notes}>{notes => <div class="board-task-notes markdown-notes"><span class="board-text" innerHTML={renderNotes(notes())} onClick={event => {
+              const link = event.target instanceof Element ? event.target.closest("a") : null;
+              if (link) {
+                // Attachment links have no real URL; opening the task shows its attachments.
+                if (link.dataset.attachmentId) { event.preventDefault(); props.onEdit(task()); }
+                return;
+              }
+              edit("notes")(event);
+            }} /></div>}</Show>
           </>}>
             <div class="board-edit" onFocusOut={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) finish(true); }}>
               <InlineText class="board-task-title" label="Task title" multiline={false} value={task().title} autofocus={editing() === "title"} caret={caret} ref={element => { titleField = element; }} onFinish={finish} />

@@ -236,7 +236,7 @@ body.task-dragging .task-card { user-select: none; cursor: grabbing; }
 .full-span { grid-column: 1 / -1; }
 .field { display: grid; gap: 6px; margin-bottom: 8px; }
 .field > span, .solid-menu-remote label > span { color: var(--muted); font-size: 10px; font-weight: 550; }
-.field input, .field textarea, .field select, .notes-editor textarea, .solid-menu-remote input, .shortcut-key-input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 9px; background: var(--surface-3); color: var(--text); font-size: 12px; }
+.field input, .field textarea, .field select, .solid-menu-remote input, .shortcut-key-input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 9px; background: var(--surface-3); color: var(--text); font-size: 12px; }
 .field input:disabled, .field select:disabled { opacity: .4; }
 .task-completion { margin: 0 0 10px; }
 .task-completion .primary-button { background: var(--ready-bg); color: var(--ready); border-color: #4a6349; box-shadow: none; font-size: 11px; padding: 8px 13px; }
@@ -257,9 +257,33 @@ body.task-dragging .task-card { user-select: none; cursor: grabbing; }
 .notes-editor { margin: 17px 0 20px; }
 .notes-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 12px; font-weight: 600; }
 .notes-toolbar .text-button { font-size: 10px; }
-.notes-editor textarea { min-height: 135px; resize: vertical; line-height: 1.6; padding: 12px; }
+.notes-richedit { border: 1px solid var(--line); border-radius: 6px; background: var(--surface-3); overflow: hidden; }
+.notes-richedit:focus-within { border-color: var(--control-border); }
+.notes-formatbar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.notes-format-button { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; padding: 0 5px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; line-height: 1; }
+.notes-format-button:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.notes-format-button[aria-pressed="true"] { background: var(--accent-soft); border-color: #815740; color: var(--accent-strong); }
+.notes-format-sep { width: 1px; height: 16px; margin: 0 4px; background: var(--line); }
+.notes-richedit-body { overflow-y: auto; }
+.notes-richtext { min-height: 135px; padding: 12px; font-size: 13px; line-height: 1.6; outline: none; overflow-wrap: anywhere; }
+.notes-richtext > :first-child { margin-top: 0; }.notes-richtext > :last-child { margin-bottom: 0; }
+.notes-richtext p { margin: 0 0 .5em; }
+.notes-richtext p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
+.notes-richtext ul, .notes-richtext ol { margin: 0 0 .5em; padding-left: 22px; }
+.notes-richtext li p { margin: 0; }
+.notes-richtext ul[data-type="taskList"] { list-style: none; padding-left: 20px; }
+.notes-richtext ul[data-type="taskList"] li { display: flex; gap: 6px; align-items: baseline; }
+.notes-richtext ul[data-type="taskList"] li > label { margin: 0 2px 0 0; }
+.notes-richtext blockquote { margin: 0 0 .5em; padding-left: 12px; border-left: 2px solid var(--line); }
+.notes-richtext pre { white-space: pre-wrap; background: var(--surface-2); border-radius: 5px; padding: 10px; margin: 0 0 .5em; }
+.notes-richtext a { color: var(--accent-strong); cursor: text; text-decoration: underline; }
+.notes-richtext hr { border: 0; border-top: 1px solid var(--line); margin: 1em 0; }
+.notes-richtext table { border-collapse: collapse; margin: 0 0 .5em; }
+.notes-richtext td, .notes-richtext th { border: 1px solid var(--line); padding: 5px 8px; min-width: 1.5em; vertical-align: top; }
+.notes-richtext .selectedCell { background: #ffffff14; }
+.notes-richtext .column-resize-handle { background: var(--accent); bottom: -2px; position: absolute; right: -2px; top: 0; width: 4px; }
+.notes-image-ref { display: inline-block; padding: 0 6px; border: 1px dashed var(--line); border-radius: 5px; color: var(--muted); user-select: none; }
 .notes-editor > .field-hint { margin-top: 6px; font-size: 10px; }
-.notes-editor > .markdown-notes { min-height: 135px; padding: 12px; background: var(--surface-3); border: 1px solid var(--line); border-radius: 6px; }
 .markdown-notes { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .markdown-notes > :first-child { margin-top: 0; }.markdown-notes > :last-child { margin-bottom: 0; }
 .markdown-notes a { color: var(--accent-strong); }
@@ -333,7 +357,7 @@ body.task-dragging .task-card { user-select: none; cursor: grabbing; }
   .calendar-panel h1 { font-size: 23px; }.month-controls { gap: 3px; }.month-controls .icon-button { width: 25px; height: 29px; font-size: 20px; border: 0; }.month-controls .secondary-button { padding: 6px 8px; font-size: 10px; }
   .calendar-layout { grid-template-columns: 1fr; gap: 22px; }.calendar-day { min-height: 54px; padding: 4px; }.day-number { width: 23px; height: 23px; margin-inline: auto; margin-bottom: 4px; font-size: 10px; }.calendar-cell-entries { display: none; }.calendar-day-dots { display: flex; justify-content: center; gap: 3px; }.calendar-day-dots .legend-dot { width: 4px; height: 4px; }.weekday { font-size: 8px; padding: 8px 0; }.calendar-footnotes { gap: 8px; }.calendar-legend { gap: 9px; font-size: 8px; }
   .day-agenda { padding: 14px; }.agenda-date h2 { font-size: 21px; }.agenda-empty { padding-block: 20px; }.agenda-entry strong { font-size: 13px; }.agenda-add { font-size: 11px; }
-  .solid-dialog-backdrop { padding: 10px; }.editor-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); }.item-editor-dialog { width: 100vw; max-height: 100dvh; }.item-editor-dialog form { padding: 23px 20px 25px; }.editor-title-input { font-size: 23px; }.item-editor-dialog .dialog-actions { bottom: -25px; margin-inline: -20px; margin-bottom: -25px; padding: 17px 20px calc(17px + env(safe-area-inset-bottom)); }.field input, .field select, .notes-editor textarea, .solid-menu-remote input { font-size: 16px; }.field input[type="datetime-local"] { font-size: 12px; min-height: 40px; }.form-grid, .time-pair { gap: 10px; }.field > span { font-size: 10px; }.notes-editor { margin-top: 16px; }.notes-editor textarea { font-size: 14px; }.attachment-actions { gap: 0; }.dialog-actions { gap: 9px; }.dialog-actions > [role="status"] { font-size: 9px; }
+  .solid-dialog-backdrop { padding: 10px; }.editor-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); }.item-editor-dialog { width: 100vw; max-height: 100dvh; }.item-editor-dialog form { padding: 23px 20px 25px; }.editor-title-input { font-size: 23px; }.item-editor-dialog .dialog-actions { bottom: -25px; margin-inline: -20px; margin-bottom: -25px; padding: 17px 20px calc(17px + env(safe-area-inset-bottom)); }.field input, .field select, .notes-editor textarea, .solid-menu-remote input { font-size: 16px; }.field input[type="datetime-local"] { font-size: 12px; min-height: 40px; }.form-grid, .time-pair { gap: 10px; }.field > span { font-size: 10px; }.notes-editor { margin-top: 16px; }.notes-richtext { font-size: 14px; }.attachment-actions { gap: 0; }.dialog-actions { gap: 9px; }.dialog-actions > [role="status"] { font-size: 9px; }
   .settings-content { padding: 16px 14px; }.settings-tabs { gap: 20px; }.keyboard-settings-tab { display: none; }.toast-stack { right: 16px; bottom: 85px; width: calc(100vw - 32px); }.queued-toast { justify-self: stretch; }
 }
 
@@ -428,7 +452,7 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .item-detail .shared-item-fields { grid-template-columns: minmax(0, 1fr); }
 .item-detail .subtask-editor { order: 2; margin: 16px 0 6px; }
 .item-detail .notes-editor { order: 3; margin: 16px 0 12px; }
-.item-detail .notes-editor textarea, .item-detail .notes-editor > .markdown-notes { min-height: 260px; }
+.item-detail .notes-richtext { min-height: 260px; }
 .item-detail .shared-item-fields { order: 4; }
 .item-detail .attachments-section { order: 5; }
 .item-detail .dialog-actions { order: 6; position: sticky; bottom: 0; margin: auto -30px 0; padding: 14px 30px; background: var(--surface); z-index: 1; }

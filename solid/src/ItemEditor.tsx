@@ -11,7 +11,7 @@ import {
   toDate,
   tomorrowMidnight,
 } from "../../site/domain.js";
-import { MarkdownNotes } from "./MarkdownNotes";
+import { NotesEditor, type NotesEditorApi } from "./NotesEditor";
 import { DateTimeField } from "./DateTimeField";
 import { groupOptions } from "./group-board";
 import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
@@ -96,10 +96,9 @@ export function ItemEditor(props: {
   const [hasSavedItem, setHasSavedItem] = createSignal(!!existing);
   const itemId = existing?.id || uuid();
   const [removedAttachments, setRemovedAttachments] = createSignal(new Set<string>());
-  const [notes, setNotes] = createSignal(existing?.notes || "");
-  const [previewNotes, setPreviewNotes] = createSignal(false);
   const [taskState, setTaskState] = createSignal<Task["state"]>(existing?.kind === "task" ? existing.state : "open");
   let notesRef!: HTMLTextAreaElement;
+  let notesApi: NotesEditorApi | null = null;
   const [saving, setSaving] = createSignal(false);
   const [saveError, setSaveError] = createSignal("");
   const [savedAttachments, setSavedAttachments] = createSignal(existing?.attachments || []);
@@ -185,7 +184,7 @@ export function ItemEditor(props: {
     if (!props.onStale || !stored || !currentItem || dirty() || saving()) return;
     if (stored.updatedAt === currentItem.updatedAt) return;
     const active = document.activeElement;
-    if (active && formRef?.contains(active) && active.matches("input, textarea, select")) return;
+    if (active && formRef?.contains(active) && active.matches("input, textarea, select, [contenteditable]")) return;
     props.onStale();
   });
 
@@ -401,13 +400,13 @@ export function ItemEditor(props: {
     setRemovedAttachments(current => new Set([...current, attachment.id]));
     syncDirty();
   };
+  const onNotesChange = (markdown: string) => {
+    notesRef.value = markdown;
+    syncDirty();
+  };
   const insertAttachmentLink = (attachment: Attachment) => {
-    const start = notesRef.selectionStart ?? notes().length;
-    const end = notesRef.selectionEnd ?? start;
-    const link = attachmentMarkdown(attachment.id, attachment.name);
-    setNotes(value => value.slice(0, start) + link + value.slice(end));
-    setPreviewNotes(false);
-    queueMicrotask(() => { notesRef.focus(); notesRef.setSelectionRange(start + link.length, start + link.length); syncDirty(); });
+    // The editor syncs the hidden notes field and dirty state via onNotesChange.
+    notesApi?.insertMarkdown(attachmentMarkdown(attachment.id, attachment.name));
   };
   const toggleCompleted = () => {
     setTaskState(state => state === "open" ? "completed" : "open");
@@ -520,10 +519,9 @@ export function ItemEditor(props: {
         </Show>
 
         <section class="notes-editor" aria-label="Notes">
-          <div class="notes-toolbar"><label for={`item-notes-${domId}`}>Notes</label><button type="button" class="text-button" aria-pressed={previewNotes()} onClick={() => setPreviewNotes(value => !value)}>{previewNotes() ? "Write" : "Preview"}</button></div>
-          <textarea ref={notesRef} id={`item-notes-${domId}`} name="notes" rows={5} hidden={previewNotes()} value={notes()} onInput={event => setNotes(event.currentTarget.value)} placeholder="Write notes… Markdown supported" />
-          <Show when={previewNotes()}><MarkdownNotes text={notes() || "*No notes yet.*"} attachments={savedAttachments().filter(file => !removedAttachments().has(file.id))} onDownload={file => void download(file)} onError={props.onError} /></Show>
-          <small class="field-hint">Markdown supported. Add download links using “Link in notes” below.</small>
+          <div class="notes-toolbar"><span>Notes</span></div>
+          <NotesEditor ariaLabel="Notes" placeholder="Write notes…" initialMarkdown={existing?.notes || ""} onChange={onNotesChange} onEditor={api => { notesApi = api; }} />
+          <textarea ref={notesRef} id={`item-notes-${domId}`} name="notes" hidden value={existing?.notes || ""} />
         </section>
 
         <div class="form-grid shared-item-fields">
@@ -535,12 +533,11 @@ export function ItemEditor(props: {
           <Show when={kind() === "task"}>
               <div class="subtask-editor full-span"><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" hidden={props.embedded} disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button>}</For>
                 <Show when={props.embedded && props.onQuickAddSubtask}><div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New subtask title" placeholder={hasSavedItem() ? "Add a next step…" : "Name this task first"} disabled={!hasSavedItem()} maxLength={240} value={subtaskDraft()} onInput={event => setSubtaskDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addSubtaskInline(); } }} /><button type="button" class="text-button" disabled={!subtaskDraft().trim()} onClick={() => void addSubtaskInline()}>Add</button></div></Show>
-                <small class="muted">Completed together. Each subtask can have its own dates and notes.</small></div>
+                </div>
                 <Show when={hasSavedItem() && props.onAddDependent}>
                   <div class="subtask-editor dependents-editor full-span"><div class="subtask-heading"><strong>Dependent tasks</strong></div>
                     <For each={dependents()}>{dependent => <div class="dependent-row"><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(dependent)}><span aria-hidden="true">◌</span> {dependent.title || "Untitled task"}</button>{startButtons(dependent, currentItem?.kind === "task" ? currentItem : undefined)}</div>}</For>
                     <div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New dependent task title" placeholder="Add a dependent task…" maxLength={240} value={dependentDraft()} onInput={event => setDependentDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addDependentInline(); } }} /><button type="button" class="text-button" disabled={!dependentDraft().trim()} onClick={() => void addDependentInline()}>Add</button></div>
-                    <small class="muted">Prepared next steps, hidden until you start one. Starting makes it a normal task with its dates set from that moment.</small>
                   </div>
                 </Show>
           </Show>
