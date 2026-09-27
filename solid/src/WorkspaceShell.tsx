@@ -13,7 +13,7 @@ export function WorkspaceShell(props: {
   onUndo: () => void; onRedo: () => void;
   // Shown at the start of the top bar (the Today view's layout switches).
   toolbar?: JSX.Element;
-  // Shown in the top bar while the app pretends it's another time.
+  // The clock that shows (and pretends) what the app treats as now.
   notice?: JSX.Element;
 }) {
   const [searchOpen, setSearchOpen] = createSignal(false);
