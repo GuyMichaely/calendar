@@ -67,8 +67,8 @@ export const SAMPLE_PREFIX = "sample-";
 
 /*
  * A small set, all in one group, for comparing the two ways subtasks show: "Spread out"
- * places each subtask by its own timing (with its ancestors as context rows); "Keep
- * together" shows each whole tree once, in its most urgent task's section. Every timing here holds at any time
+ * places each subtask by its own timing (under headers for its containers); "Keep
+ * together" shows each family once, in its most urgent task's section. Every timing here holds at any time
  * of day (the window is open all day), so the set can be added whenever.
  */
 export function sampleSubtaskItems(now = new Date()): Item[] {
@@ -85,7 +85,7 @@ export function sampleSubtaskItems(now = new Date()): Item[] {
     { id: group, kind: "group", title: "Sample: subtasks", parentId: null, sortOrder: 0, createdAt: at, updatedAt: at },
     { id: "sample-window", kind: "window", title: "Sample: open all day", days: [0, 1, 2, 3, 4, 5, 6], start: "00:00", end: "23:59", createdAt: at, updatedAt: at },
     // Same section throughout: both modes look the same.
-    task("dinner", "Plan birthday dinner", { groupId: group, notes: "All subtasks are available, so both settings nest them here." }),
+    task("dinner", "Plan birthday dinner", { groupId: group, notes: "All subtasks are available, so both settings nest them here. Finishing both finishes the dinner." }),
     task("restaurant", "Pick a restaurant", { parentId: parent("dinner") }),
     task("invites", "Send invites", { parentId: parent("dinner") }),
     // Siblings with three different timings.
@@ -94,15 +94,17 @@ export function sampleSubtaskItems(now = new Date()): Item[] {
     task("photos", "Get passport photos", { parentId: parent("passport"), windowId: "sample-window", takes: 20 }),
     task("mail", "Mail the application", { parentId: parent("passport"), availableFrom: days(2) }),
     // Three levels: the grandchild is due soon.
-    task("move", "Apartment move", { groupId: group, notes: "Spread out: the due grandchild shows under Firm with two context rows, and the move stays in Available. Keep together: the whole tree moves up to Firm." }),
+    task("move", "Apartment move", { groupId: group, notes: "Spread out: the due grandchild shows under Firm below its two containers. Keep together: the same, as one family." }),
     task("utilities", "Sort out utilities", { parentId: parent("move"), availableFrom: days(4) }),
     task("internet", "Cancel old internet plan", { parentId: parent("utilities"), deadline: hours(10) }),
-    // A parent that can't start yet, with a subtask that can.
-    task("taxes", "File tax return", { groupId: group, availableFrom: days(3), notes: "Spread out: the W-2s show under Available now while the return waits in Upcoming. Keep together: the whole tree moves to Available." }),
+    // One step can be done now, the other can't start yet.
+    task("taxes", "File tax return", { groupId: group, notes: "Spread out: gathering the W-2s shows under Available, filing under Upcoming. Keep together: both show under Available, filing dimmed." }),
     task("w2", "Gather W-2s", { parentId: parent("taxes") }),
-    // An Anytime parent with a subtask that has no such flag.
-    task("spanish", "Learn Spanish", { groupId: group, anytime: true, notes: "Spread out: the first step shows under Available while the goal stays in Anytime. Keep together: the whole tree moves to Available." }),
-    task("app", "Download a language app", { parentId: parent("spanish") }),
+    task("file", "File the return", { parentId: parent("taxes"), availableFrom: days(3) }),
+    // A container's due date passes down to its subtasks.
+    task("house", "Clean the house", { groupId: group, deadline: hours(18), notes: "Due tomorrow, so both rooms are due then too: they show under Firm in either setting. Checking this off takes both rooms off your list." }),
+    task("room", "Clean my room", { parentId: parent("house") }),
+    task("kitchen", "Clean the kitchen", { parentId: parent("house") }),
     // Tasks without subtasks, for comparison.
     task("plants", "Water the plants", { groupId: group }),
     task("phone", "Pay phone bill", { groupId: group, deadline: hours(20) }),

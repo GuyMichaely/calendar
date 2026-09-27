@@ -1,5 +1,5 @@
 import { sleepValidationMessage } from "./domain.js";
-import { taskDescendants, taskAncestors, validateTaskParent, validateGroupParent, validateTaskGroup, validateDependentOf, dependentTasks, taskMoveUpdates } from "./task-tree.js";
+import { taskAncestors, validateTaskParent, validateGroupParent, validateTaskGroup, validateDependentOf, dependentTasks, taskMoveUpdates } from "./task-tree.js";
 import * as Automerge from "@automerge/automerge";
 import {
   addAttachmentMetadata,
@@ -37,7 +37,7 @@ const COMMON_ITEM_FIELDS = new Set([
 const TASK_ITEM_FIELDS = new Set([
   ...COMMON_ITEM_FIELDS, "state", "parentId", "sortOrder", "availableFrom", "deadline", "latestStart", "sleep",
   "availabilitySchedule", "completedAt", "history", "groupId", "dependentOf", "relativeDates",
-  "pushedDown", "windowId", "warnAt", "takes", "anytime",
+  "pushedDown", "windowId", "warnAt", "takes", "anytime", "completedSubtasks",
 ]);
 const GROUP_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "parentId", "sortOrder", "boardColumn", "builtin"]);
 const EVENT_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end"]);
@@ -440,7 +440,7 @@ export async function getLocalItem(id) {
   return hydrateItem(materializeItem(doc, id), Automerge.getHeads(doc));
 }
 
-export function putLocalItem(item, baseline = null) {
+export function putLocalItem(item, baseline = null, { cascade = true } = {}) {
   const baselineHeads = baseline?.[ITEM_HEADS] || null;
   return writeState((doc) => {
     const currentHeads = Automerge.getHeads(doc);
@@ -455,19 +455,29 @@ export function putLocalItem(item, baseline = null) {
     const savedTask = materializeItem(nextDoc, item.id);
     const sleepError = sleepValidationMessage(savedTask);
     if (sleepError) throw new Error(sleepError);
-    if (savedTask?.kind === "task") {
-      const tasks = materializeItems(nextDoc);
-      const completing = savedTask.state === "completed" && before?.state !== "completed";
-      const related = completing ? taskDescendants(tasks, item.id) : savedTask.state === "open" ? taskAncestors(tasks, item.id) : [];
-      const desiredState = completing ? "completed" : "open";
+    // A task with subtasks is a container. Finishing it leaves its subtasks' own states
+    // alone (they count as done through it); finishing its last open subtask finishes it,
+    // and so on up. New work under a finished container reopens it: a subtask that is
+    // created, reopened, or moved there (not ordinary edits to one). Imports don't cascade.
+    if (savedTask?.kind === "task" && cascade) {
+      let tasks = materializeItems(nextDoc);
       const at = item.updatedAt || new Date().toISOString();
-      for (const target of related) {
-        if (target.state === desiredState) continue;
+      const setState = (target, state) => {
         const relatedBefore = hydrateItem(materializeItem(nextDoc, target.id), Automerge.getHeads(nextDoc));
-        nextDoc = patchItem(nextDoc, target.id, { state: desiredState, completedAt: completing ? at : null, updatedAt: at, ...(completing ? { sleep: null } : {}) });
-        nextDoc = addHistoryEntry(nextDoc, target.id, { at, type: completing ? "completed" : "reopened", viaTaskId: item.id });
+        nextDoc = patchItem(nextDoc, target.id, { state, completedAt: state === "completed" ? at : null, updatedAt: at, ...(state === "completed" ? { sleep: null, pushedDown: null } : {}) });
+        nextDoc = addHistoryEntry(nextDoc, target.id, { at, type: state === "completed" ? "completed" : "reopened", viaTaskId: item.id });
         relatedChanges.push({ id: target.id, before: relatedBefore, after: hydrateItem(materializeItem(nextDoc, target.id), Automerge.getHeads(nextDoc)) });
+        tasks = materializeItems(nextDoc);
+      };
+      const parentOf = (task) => tasks.find(candidate => candidate.kind === "task" && candidate.id === task.parentId);
+      if (savedTask.state === "completed" && before?.state !== "completed") {
+        for (let parent = parentOf(savedTask); parent && parent.state !== "completed"; parent = parentOf(parent)) {
+          if (tasks.some(candidate => candidate.kind === "task" && candidate.parentId === parent.id && candidate.state !== "completed")) break;
+          setState(parent, "completed");
+        }
       }
+      const newWork = savedTask.state === "open" && (!before || before.state === "completed" || (before.parentId || null) !== (savedTask.parentId || null));
+      if (newWork) for (const ancestor of taskAncestors(tasks, item.id)) if (ancestor.state === "completed") setState(ancestor, "open");
     }
     const after = hydrateItem(materializeItem(nextDoc, item.id), Automerge.getHeads(nextDoc));
     // Keep an editor on its own branch between autosaves. Using merged heads

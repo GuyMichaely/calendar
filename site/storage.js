@@ -221,6 +221,9 @@ export async function listItemsSnapshot() {
   return (await listLocalItems()).map(withoutAttachmentBytes);
 }
 
+// While importing, items are stored as they are: no completion cascades between them.
+let importing = false;
+
 export async function putItem(item, baseline = null) {
   const sleepError = sleepValidationMessage(item);
   if (sleepError) throw new Error(sleepError);
@@ -228,7 +231,7 @@ export async function putItem(item, baseline = null) {
   await uploadAttachmentsBeforePersist(uploads);
   const cleanItem = withoutAttachmentBytes(item);
   const cleanBaseline = withoutAttachmentBytes(baseline);
-  const { before, after, editBaseline, relatedChanges } = await putLocalItem(cleanItem, cleanBaseline);
+  const { before, after, editBaseline, relatedChanges } = await putLocalItem(cleanItem, cleanBaseline, { cascade: !importing });
   const cleanBefore = withoutAttachmentBytes(before);
   const cleanAfter = withoutAttachmentBytes(after);
   syncLiveItem(item.id, cleanAfter);
@@ -368,12 +371,14 @@ export async function importData(text) {
   }
   await beginBatch("Import backup");
   let imported = 0;
+  importing = true;
   try {
     for (const raw of items) {
       await putItem(withoutAttachmentBytes(raw));
       imported += 1;
     }
   } finally {
+    importing = false;
     await endBatch();
   }
   return imported;

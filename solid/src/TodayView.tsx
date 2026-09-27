@@ -29,6 +29,9 @@ export type TodayViewProps = {
   onPushDown: (task: Task, until: Date | null) => Promise<void>;
   onLift: (task: Task) => Promise<void>;
   onDeleteTask: (task: Task) => Promise<void>;
+  onReopen: (task: Task) => Promise<void>;
+  // Whether a task's finished subtasks show dimmed ("show") or fold into "+N completed" (null).
+  onCompletedSubtasks: (task: Task, value: Task["completedSubtasks"]) => Promise<void>;
   onStartDependent: (task: Task, completeParent: boolean) => Promise<void>;
 };
 
@@ -102,9 +105,17 @@ export function TodayView(props: TodayViewProps) {
   const chips = (node: TreeNode): Chip[] => {
     const task = node.task, placement: Placement | undefined = node.placement, now = props.now;
     const result: Chip[] = [];
-    if (!placement || task.state === "completed") return result;
-    const schedule = taskSchedule(task, windows());
-    const windowName = task.windowId ? windows().get(task.windowId)?.title : schedule ? "Custom hours" : undefined;
+    // A container header shows only its own due date and push; its subtasks carry the rest.
+    if (node.container) {
+      if (task.deadline) result.push({ label: `Due ${when(new Date(task.deadline), now)}` });
+      const own = pushedDownInfo(task, now);
+      if (own.pushed) result.push({ label: own.until ? `Pushed down until ${when(own.until, now)}` : "Pushed down" });
+      return result;
+    }
+    if (!placement || placement.section === "completed") return result;
+    // Its window may come from a container.
+    const windowed = !!placement.closes;
+    const windowName = task.windowId ? windows().get(task.windowId)?.title : taskSchedule(task, windows()) ? "Custom hours" : undefined;
     if (placement.section === "firm" && placement.due) result.push(placement.overdue ? { label: `Overdue · was due ${when(placement.due, now)}`, kind: "danger" } : { label: `Due ${when(placement.due, now)} · in ${duration(placement.due.getTime() - now.getTime())}`, kind: "danger" });
     else if (placement.due) result.push({ label: `Due ${when(placement.due, now)}` });
     if (placement.section === "closing" && placement.closes) {
@@ -113,10 +124,11 @@ export function TodayView(props: TodayViewProps) {
       result.push({ label: `Closes ${clock(placement.closes)} · ${duration(left)} left`, kind: short ? "warn" : "calm", title: windowName });
       if (task.takes != null && task.takes * 60_000 > left) result.push({ label: `Takes ~${duration(task.takes * 60_000)}: won't fit`, kind: "danger" });
     } else if (placement.section === "later" && placement.opens) result.push({ label: `Opens ${clock(placement.opens)}`, title: windowName });
-    else if (placement.section === "upcoming") result.push({ label: placement.next ? `${schedule ? "Opens" : "Starts"} ${when(placement.next, now)}` : "No opening in the next two weeks", title: windowName });
+    else if (placement.section === "upcoming") result.push({ label: placement.next ? `${windowed ? "Opens" : "Starts"} ${when(placement.next, now)}` : "No opening in the next two weeks", title: windowName });
     if (task.takes != null && !(placement.section === "closing" && placement.closes && task.takes * 60_000 > placement.closes.getTime() - now.getTime())) result.push({ label: `~${duration(task.takes * 60_000)}` });
     const pushed = pushedDownInfo(task, now);
     if (pushed.pushed) result.push({ label: pushed.until ? `Pushed down until ${when(pushed.until, now)}` : "Pushed down" });
+    else if (placement.pushed) result.push({ label: "Pushed down with its parent" });
     return result;
   };
 
@@ -128,29 +140,37 @@ export function TodayView(props: TodayViewProps) {
 
   const Row = (rowProps: { node: TreeNode; depth: number; label: boolean }): JSX.Element => {
     const task = () => rowProps.node.task;
-    const pushed = () => !rowProps.node.context && !!rowProps.node.placement?.pushed;
+    const pushed = () => !!rowProps.node.placement?.pushed && rowProps.node.placement.section !== "completed";
+    // Finished itself or through a container: listed under Completed, no checkbox.
+    const done = () => rowProps.node.placement?.section === "completed";
     const label = () => rowProps.label && props.groupLayout === "labels" ? groupTitle(taskGroupId(task(), byId())) : "";
     return <>
-      <div class="today-row" title={rowProps.node.muted ? "Its own timing is less urgent; shown here with its subtasks" : undefined} classList={{ context: rowProps.node.context, muted: !!rowProps.node.muted, pushed: pushed(), done: task().state === "completed", selected: props.selectedId === task().id }}
+      <div class="today-row" title={rowProps.node.muted ? "Its own timing is less urgent; shown here with its family" : rowProps.node.container ? "Holds these subtasks; checking it off finishes all of them" : undefined} classList={{ container: rowProps.node.container, muted: !!rowProps.node.muted, pushed: pushed(), selected: props.selectedId === task().id }}
         style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
         onClick={event => { if (!(event.target as Element).closest("button, .task-menu")) props.onEdit(task()); }}>
-        <Show when={!rowProps.node.context} fallback={<span class="context-mark" title={task().state === "completed" ? "Completed; shown for its subtasks" : "Shown for its subtasks"} aria-hidden="true">{task().state === "completed" ? "✓" : "↳"}</span>}>
-          <Show when={task().state !== "completed"} fallback={<span class="complete-indicator" aria-hidden="true">✓</span>}>
-            <button class="complete-button" aria-label={`Complete ${task().title}`} onClick={() => void complete(task())} />
-          </Show>
+        <Show when={!done()} fallback={<span class="complete-spacer" aria-hidden="true" />}>
+          <button class="complete-button" aria-label={`Complete ${task().title}`} onClick={() => void complete(task())} />
         </Show>
         <span class="today-copy">
           <span class="today-title">{props.liveEdits().get(task().id)?.title ?? task().title ?? ""}<Show when={!(props.liveEdits().get(task().id)?.title ?? task().title)}>Untitled task</Show></span>
-          <span class="today-chips"><For each={rowProps.node.context ? [] : chips(rowProps.node)}>{chip => <span class={`today-chip ${chip.kind || ""}`} title={chip.title}>{chip.label}</span>}</For></span>
+          <span class="today-chips"><For each={chips(rowProps.node)}>{chip => <span class={`today-chip ${chip.kind || ""}`} title={chip.title}>{chip.label}</span>}</For></span>
         </span>
         <Show when={label()}><span class="today-group">{label()}</span></Show>
-        <Show when={!rowProps.node.context}><RowMenu task={task()} /></Show>
+        <RowMenu task={task()} done={done()} finished={rowProps.node.finished?.length ? rowProps.node.showFinished ? "show" : "fold" : null} />
       </div>
-      <For each={rowProps.node.children}>{child => <Row node={child} depth={rowProps.depth + 1} label={false} />}</For>
+      <Rows nodes={rowProps.node.children} depth={rowProps.depth + 1} label={false} />
+      <Show when={rowProps.node.finished?.length}>
+        <Show when={rowProps.node.showFinished} fallback={
+          <button type="button" class="today-fold" style={{ "padding-left": `${39 + rowProps.depth * 20}px` }} title="Show them dimmed here (remembered for this task)" onClick={() => void props.onCompletedSubtasks(task(), "show")}>+{rowProps.node.finished!.length} completed</button>}>
+          <Rows nodes={rowProps.node.finished!} depth={rowProps.depth + 1} label={false} />
+        </Show>
+      </Show>
     </>;
   };
+  const Rows = (rowsProps: { nodes: TreeNode[]; depth: number; label: boolean }) =>
+    <For each={rowsProps.nodes.map(node => node.task.id)}>{id => <Show when={rowsProps.nodes.find(node => node.task.id === id)}>{node => <Row node={node()} depth={rowsProps.depth} label={rowsProps.label} />}</Show>}</For>;
 
-  const RowMenu = (menuProps: { task: Task }) => {
+  const RowMenu = (menuProps: { task: Task; done: boolean; finished: "show" | "fold" | null }) => {
     const [open, setOpen] = createSignal(false);
     let root!: HTMLSpanElement;
     createEffect(() => {
@@ -168,13 +188,19 @@ export function TodayView(props: TodayViewProps) {
       <Show when={open()}>
         <div class="task-menu-list" role="menu">
           <button role="menuitem" onClick={act(() => props.onEdit(menuProps.task))}>Open details</button>
-          <Show when={menuProps.task.state !== "completed"}>
+          <Show when={menuProps.task.state === "completed"}>
+            <button role="menuitem" onClick={act(() => props.onReopen(menuProps.task))}>Reopen</button>
+          </Show>
+          <Show when={!menuProps.done}>
             <Show when={pushed()} fallback={<>
               <button role="menuitem" onClick={act(() => props.onPushDown(menuProps.task, null))}>Push down</button>
               <button role="menuitem" onClick={act(() => props.onPushDown(menuProps.task, tomorrow()))}>Push down until tomorrow</button>
             </>}>
               <button role="menuitem" onClick={act(() => props.onLift(menuProps.task))}>Lift back up</button>
             </Show>
+          </Show>
+          <Show when={menuProps.finished}>
+            <button role="menuitem" onClick={act(() => props.onCompletedSubtasks(menuProps.task, menuProps.finished === "show" ? null : "show"))}>{menuProps.finished === "show" ? "Fold completed subtasks" : "Show completed subtasks"}</button>
           </Show>
           <button role="menuitem" class="danger-text" onClick={act(() => props.onDeleteTask(menuProps.task))}>Delete</button>
         </div>
@@ -240,23 +266,25 @@ export function TodayView(props: TodayViewProps) {
       <input placeholder={props.scope === "anytime" ? "Add an anytime task" : "Add a task"} aria-label="Add a task" value={draft()} onInput={event => setDraft(event.currentTarget.value)} />
     </form>
     <Show when={sections().length} fallback={<p class="today-empty">{props.query ? "No tasks match your search." : props.scope === "today" ? "Nothing needs you right now." : "Nothing here."}</p>}>
-      <For each={sections()}>{section =>
-        <section class="today-section" data-section={section.id}>
+      {/* Everything is keyed by id, so a change re-renders only the rows it touches
+          (rebuilding every row on each change could jump the page's scroll). */}
+      <For each={sections().map(entry => entry.id)}>{sectionId => <Show when={sections().find(entry => entry.id === sectionId)}>{current => { const section = current();
+        return <section class="today-section" data-section={section.id}>
           <button class="today-section-heading" aria-expanded={!isCollapsed(section.id)} disabled={props.scope !== "today"} onClick={() => toggleSection(section.id)}>
             <Show when={props.scope === "today"}><span class="section-chevron" aria-hidden="true">›</span></Show>
             <strong>{SECTION_LABELS[section.id].title}</strong>
-            <span class="section-count">{section.count}</span>
+            <span class="section-count">{current().count}</span>
             <Show when={SECTION_LABELS[section.id].hint}><span class="today-hint">{SECTION_LABELS[section.id].hint}</span></Show>
           </button>
           <Show when={!isCollapsed(section.id)}>
             <div class="today-rows">
-              <For each={grouped(section)}>{bucket => <>
-                <Show when={bucket.title}><div class="today-group-heading">{bucket.title}</div></Show>
-                <For each={bucket.trees}>{tree => <Row node={tree} depth={0} label />}</For>
-              </>}</For>
+              <For each={grouped(current()).map(bucket => bucket.id)}>{bucketId => <Show when={grouped(current()).find(bucket => bucket.id === bucketId)}>{bucket => <>
+                <Show when={bucket().title}><div class="today-group-heading">{bucket().title}</div></Show>
+                <Rows nodes={bucket().trees} depth={0} label />
+              </>}</Show>}</For>
             </div>
           </Show>
-        </section>}
+        </section>; }}</Show>}
       </For>
     </Show>
   </section>;

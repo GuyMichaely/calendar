@@ -15,6 +15,7 @@ import { type TaskDrop } from "./GroupsView";
 import { DesignToggles, TodayView, when, type TaskScope } from "./TodayView";
 import { GroupSettings, WindowSettings } from "./SettingsPanels";
 import { windowsById } from "./windows";
+import { effectivelyDone, openWork } from "./today";
 import { SAMPLE_PREFIX, demoItems, sampleSubtaskItems } from "./demo-data";
 import { isDormant, projectDependents } from "./dependencies";
 import { dependentTasks } from "../../site/task-tree.js";
@@ -64,9 +65,12 @@ export function App() {
   // The calendar reads a task's named window as the working hours it already understands.
   const calendarItems = createMemo(() => {
     const windows = windowsById(items());
+    const byId = new Map(items().map(item => [item.id, item]));
     return items().filter(item => item.kind !== "window").map(item => {
-      const window = item.kind === "task" && item.windowId ? windows.get(item.windowId) : undefined;
-      return window && item.kind === "task" ? { ...item, availabilitySchedule: { enabled: true, days: window.days, start: window.start, end: window.end } } : item;
+      if (item.kind !== "task") return item;
+      const window = item.windowId ? windows.get(item.windowId) : undefined;
+      // Subtasks of a finished task are done too.
+      return { ...item, ...(window ? { availabilitySchedule: { enabled: true, days: window.days, start: window.start, end: window.end } } : {}), ...(item.state !== "completed" && effectivelyDone(item, byId) ? { state: "completed" as const } : {}) };
     });
   });
   const calendarView = createMemo(() => {
@@ -75,7 +79,7 @@ export function App() {
     const projected = projectDependents(calendarItems(), clock());
     return { items: calendarItems().map(item => projected.get(item.id) || item), ghostIds: new Set(projected.keys()) };
   });
-  const openCount = createMemo(() => { const byId = new Map(items().map(item => [item.id, item])); return items().filter(item => item.kind === "task" && item.state !== "completed" && !isDormant(item, byId)).length; });
+  const openCount = createMemo(() => openWork(items()).length);
   const [calendarMonth, setCalendarMonth] = createSignal(new Date(nowAtStart.getFullYear(), nowAtStart.getMonth(), 1));
   const [editor, setEditor] = createSignal<EditorRequest | null>(null);
   // Wide screens keep the task list beside an embedded editor for the selected task.
@@ -189,6 +193,8 @@ export function App() {
   const quickAddSubtask = (parent: Task, title: string) => attempt(() => store.addSubtask(parent, title), "Could not add subtask.");
   const addTask = (groupId: string | null, title: string, extra: Partial<Task> = {}) => attempt(() => store.addTask(groupId, title, extra), "Could not add task.");
   const addDependent = (parent: Task, title: string) => attempt(() => store.addDependent(parent, title), "Could not add dependent task.");
+  const setCompletedSubtasks = async (task: Task, value: Task["completedSubtasks"]) => { await attempt(() => store.patchTask(task, { completedSubtasks: value }), "Could not change how its completed subtasks show."); };
+  const reopenTask = async (task: Task) => { await attempt(() => store.reopenTask(task), "Could not reopen the task.", "Reopened"); };
   const completeTask = async (task: Task) => { await attempt(() => store.completeTask(task), "Could not complete task.", "Task completed"); };
   const dropTask = (task: Task, drop: TaskDrop) => attempt(() =>
     drop.kind === "dependent" ? store.makeDependent(task, drop.owner)
@@ -311,7 +317,7 @@ export function App() {
             <TodayView items={items()} query={query()} now={clock()} scope={activeScope()} selectedId={splitView() ? selectedTaskId() : null}
               showCompleted={prefs.showCompleted()} onShowCompletedChange={prefs.setShowCompleted}
               groupLayout={prefs.groupLayout()} laterPlacement={prefs.laterPlacement()} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
-              liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onDeleteTask={deleteTask} onStartDependent={startDependent} />
+              liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} />
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
                 <Show when={detailRequest() || lastRequest} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>

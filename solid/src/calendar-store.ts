@@ -19,7 +19,7 @@ import {
 } from "../../site/storage.js";
 import { startedTask } from "./dependencies";
 import { boardColumns, boardEntries, groupPlacement, layoutPatches, placeGroups as placeInLayout, reorderPatches, taskPlacePatches, taskSiblings, ungroupPatches, type BoardTarget } from "./group-board";
-import { completedTask, dependentGroupId, liftedTask, newGroup, newTask, newWindow, patchedItem, pushedTask } from "./item-changes";
+import { completedTask, dependentGroupId, liftedTask, reopenedTask, newGroup, newTask, newWindow, patchedItem, pushedTask } from "./item-changes";
 import type { Group, Item, Task, TimeWindow } from "./types";
 
 export type HistoryState = { canUndo: boolean; canRedo: boolean; undoLabel: string; redoLabel: string };
@@ -74,6 +74,7 @@ export function createCalendarStore(options: { onChanged: () => void }) {
     addDependent: (parent: Task, title: string) => change(() => putItem(newTask({ title, dependentOf: parent.id, groupId: dependentGroupId(items(), parent) }, new Date()))),
     patchTask: (task: Task, patch: Partial<Task>) => change(() => putItem(patchedItem(task, patch, new Date()), task)),
     completeTask: (task: Task) => change(() => putItem(completedTask(task, new Date()), task)),
+    reopenTask: (task: Task) => change(() => putItem(reopenedTask(task, new Date()), task)),
     pushDown: (task: Task, until: Date | null) => change(() => putItem(pushedTask(task, until, new Date()), task)),
     lift: (task: Task) => change(() => putItem(liftedTask(task, new Date()), task)),
 

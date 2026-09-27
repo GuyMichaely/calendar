@@ -27,6 +27,11 @@ export function completedTask(task: Task, now: Date): Task {
   return { ...task, state: "completed", completedAt: at, sleep: null, pushedDown: null, updatedAt: at, history: withEntry(task, { at, type: "completed" }) };
 }
 
+export function reopenedTask(task: Task, now: Date): Task {
+  const at = now.toISOString();
+  return { ...task, state: "open", completedAt: null, updatedAt: at, history: withEntry(task, { at, type: "reopened" }) };
+}
+
 /** Moved to the bottom of its section until a time, or until lifted (null). Replaces legacy sleep. */
 export function pushedTask(task: Task, until: Date | null, now: Date): Task {
   const at = now.toISOString(), to = until?.toISOString() ?? null;

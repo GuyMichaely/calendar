@@ -230,20 +230,39 @@ test("attachment replacement and undo operate on whole entries", async () => {
   assert.equal((await storage.getItem(baseline.id)).attachments[0].name, "after.txt");
 });
 
-test("completing a parent closes descendants atomically and one undo restores their states", async () => {
-  for (const [id, parentId] of [['tree-parent', null], ['tree-child', 'tree-parent'], ['tree-grandchild', 'tree-child'], ['tree-unrelated', null]]) await storage.putItem(task({id, parentId}));
+test("a parent is a container: finishing it leaves subtasks alone, finishing its last subtask finishes it", async () => {
+  for (const [id, parentId] of [['tree-parent', null], ['tree-child', 'tree-parent'], ['tree-grandchild', 'tree-child'], ['tree-sibling', 'tree-parent'], ['tree-unrelated', null]]) await storage.putItem(task({id, parentId}));
+  const state = async (id) => (await storage.getItem(id)).state;
+  // Finishing the parent doesn't mark its subtasks; they count as done through it.
   const parent = await storage.getItem('tree-parent');
   await storage.putItem({...parent, state: 'completed', completedAt: '2026-09-08T12:00:00Z'}, parent);
-  for (const id of ['tree-parent', 'tree-child', 'tree-grandchild']) assert.equal((await storage.getItem(id)).state, 'completed');
-  assert.equal((await storage.getItem('tree-unrelated')).state, 'open');
+  assert.deepEqual([await state('tree-parent'), await state('tree-child'), await state('tree-grandchild')], ['completed', 'open', 'open']);
+  // Editing a subtask under a finished parent doesn't reopen it.
+  const grand = await storage.getItem('tree-grandchild');
+  await storage.putItem({...grand, notes: 'still open'}, grand);
+  assert.equal(await state('tree-parent'), 'completed');
+  await storage.undo(); await storage.undo();
+  assert.equal(await state('tree-parent'), 'open');
+  // Finishing the last open subtask finishes its container, and so on up in one undo step.
+  const sibling = await storage.getItem('tree-sibling');
+  await storage.putItem({...sibling, state: 'completed', completedAt: '2026-09-08T12:00:00Z'}, sibling);
+  assert.equal(await state('tree-parent'), 'open');
+  const grandchild = await storage.getItem('tree-grandchild');
+  await storage.putItem({...grandchild, state: 'completed', completedAt: '2026-09-08T12:00:00Z'}, grandchild);
+  assert.deepEqual([await state('tree-child'), await state('tree-parent'), await state('tree-unrelated')], ['completed', 'completed', 'open']);
   await storage.undo();
-  for (const id of ['tree-parent', 'tree-child', 'tree-grandchild']) assert.equal((await storage.getItem(id)).state, 'open');
+  assert.deepEqual([await state('tree-grandchild'), await state('tree-child'), await state('tree-parent')], ['open', 'open', 'open']);
   await storage.redo();
-  const child = await storage.getItem('tree-grandchild');
-  await storage.putItem({...child, state: 'open', completedAt: null}, child);
-  for (const id of ['tree-parent', 'tree-child', 'tree-grandchild']) assert.equal((await storage.getItem(id)).state, 'open');
+  // Reopening a subtask, or adding one, reopens its finished containers.
+  const done = await storage.getItem('tree-grandchild');
+  await storage.putItem({...done, state: 'open', completedAt: null}, done);
+  assert.deepEqual([await state('tree-child'), await state('tree-parent')], ['open', 'open']);
   await storage.undo();
-  for (const id of ['tree-parent', 'tree-child', 'tree-grandchild']) assert.equal((await storage.getItem(id)).state, 'completed');
+  assert.equal(await state('tree-parent'), 'completed');
+  await storage.putItem(task({id: 'tree-new', parentId: 'tree-parent'}));
+  assert.equal(await state('tree-parent'), 'open');
+  await storage.undo();
+  assert.equal(await storage.getItem('tree-new'), null);
   const root = await storage.getItem('tree-parent');
   await assert.rejects(storage.putItem({...root, parentId: 'tree-grandchild'}, root), /own ancestor/);
   assert.equal((await storage.getItem('tree-parent')).parentId, null);
@@ -340,4 +359,11 @@ test("the loaded document is reused until another tab writes, and appended saves
   await storage.putItem({ ...(await storage.getItem("task-cache")), title: "back here" }, await storage.getItem("task-cache"));
   assert.equal(materializeItem(loadCalendarDocument(await storage.readSyncSnapshot()), "task-cache").title, "back here");
   await storage.deleteItem("task-cache");
+});
+
+test("imports store tasks as they are, without completion cascades", async () => {
+  await storage.importData(JSON.stringify({ items: [task({ id: "import-parent", state: "completed", completedAt: "2026-09-08T12:00:00Z" }), task({ id: "import-child", parentId: "import-parent" })] }));
+  assert.equal((await storage.getItem("import-parent")).state, "completed");
+  assert.equal((await storage.getItem("import-child")).state, "open");
+  await storage.deleteItem("import-parent");
 });

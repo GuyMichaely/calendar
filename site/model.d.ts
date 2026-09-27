@@ -58,6 +58,8 @@ export type Task = BaseItem & {
   takes?: number | null;
   // No timing: listed under Anytime instead of Today.
   anytime?: boolean | null;
+  // How its finished subtasks show while it's open: dimmed ("show") or folded into "+N completed" (default).
+  completedSubtasks?: "show" | null;
   completedAt?: string | null;
   history?: HistoryEntry[];
   // Only top-level tasks use this; subtasks appear wherever their parent task is.
