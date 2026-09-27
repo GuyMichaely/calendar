@@ -210,6 +210,7 @@ export function App() {
     await attempt(() => store.deleteItem(task.id), "Could not delete task.", `Deleted “${title}” (Ctrl+Z to undo)`);
   };
   const pushDown = async (task: Task, until: Date | null) => { await attempt(() => store.pushDown(task, until), "Could not push the task down.", until ? `Pushed down until ${when(until, new Date())}` : "Pushed down"); };
+  const setSubtaskLayout = async (task: Task, layout: Task["subtaskLayout"]) => { await attempt(() => store.patchTask(task, { subtaskLayout: layout }), "Could not change how its subtasks show.", layout === "together" ? "Keeping its subtasks together" : layout === "spread" ? "Spreading its subtasks out" : "Its subtasks follow the view setting again"); };
   const lift = async (task: Task) => { await attempt(() => store.lift(task), "Could not lift the task.", "Lifted back up"); };
   const windowChange = async (run: () => Promise<unknown>) => { await attempt(run, "Could not update windows."); };
   const groupChange = async (run: () => Promise<unknown>) => { await attempt(run, "Could not update groups."); };
@@ -296,8 +297,7 @@ export function App() {
       <div class="app-shell">
         <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = ""; }} />
         <WorkspaceShell notice={<TimeControl now={clock()} pretending={!!prefs.timeOffset()} onSet={pretend} onStep={ms => pretend(new Date(appNow().getTime() + ms))} onReset={() => pretend(null)} />} toolbar={view() === "tasks" ? <DesignToggles groupLayout={prefs.groupLayout()} onGroupLayoutChange={prefs.setGroupLayout}
-            laterPlacement={prefs.laterPlacement()} onLaterPlacementChange={value => { prefs.setLaterPlacement(value); if (value === "below") navigate("tasks", "today"); }}
-            subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode} /> : undefined}
+            laterPlacement={prefs.laterPlacement()} onLaterPlacementChange={value => { prefs.setLaterPlacement(value); if (value === "below") navigate("tasks", "today"); }} /> : undefined}
           view={view()} scope={activeScope()} separateScopes={prefs.laterPlacement() === "separate"} openCount={openCount()} query={query()} onQuery={setQuery}
           onNavigate={(next, nextScope) => { navigate(next, nextScope); window.scrollTo({top: 0, behavior: "instant"}); }}
           onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
@@ -311,8 +311,8 @@ export function App() {
             <div class="tasks-workspace" classList={{ split: paneOpen() }} data-animations={animations() ? "on" : "off"}>
             <TodayView items={items()} query={query()} now={clock()} scope={activeScope()} selectedId={splitView() ? selectedTaskId() : null}
               showCompleted={prefs.showCompleted()} onShowCompletedChange={prefs.setShowCompleted}
-              groupLayout={prefs.groupLayout()} laterPlacement={prefs.laterPlacement()} subtaskMode={prefs.subtaskMode()}
-              liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onDeleteTask={deleteTask} onStartDependent={startDependent} />
+              groupLayout={prefs.groupLayout()} laterPlacement={prefs.laterPlacement()} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
+              liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onDeleteTask={deleteTask} onStartDependent={startDependent} onSubtaskLayout={setSubtaskLayout} />
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
                 <Show when={detailRequest() || lastRequest} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
@@ -357,7 +357,7 @@ export function App() {
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>
                 <div class="solid-menu-divider" />
                 <h3>Sample tasks</h3>
-                <p class="field-hint">Adds a “Sample: subtasks” group whose tasks show how the Subtasks switch (Own section / Under parent) differs. Filter Today to that group to see only them. Removing deletes every sample item; both can be undone.</p>
+                <p class="field-hint">Adds a “Sample: subtasks” group whose tasks show how the Subtasks setting (Keep together / Spread out) differs. Filter Today to that group to see only them. Removing deletes every sample item; both can be undone.</p>
                 <button class="text-button" onClick={() => void attempt(() => store.importBackup(JSON.stringify({ items: sampleSubtaskItems() })), "Could not add the samples.", "Added the sample tasks")}>Add sample subtasks</button>
                 <button class="text-button" disabled={!items().some(item => item.id.startsWith(SAMPLE_PREFIX))} onClick={() => void attempt(() => store.removeByPrefix(SAMPLE_PREFIX, "Remove samples"), "Could not remove the samples.", "Removed the sample tasks")}>Remove sample tasks</button>
                 <div class="solid-menu-divider" />

@@ -52,11 +52,10 @@ test("windows describe themselves and find their next opening", () => {
   expect(nextOpening(business, new Date(2026, 9, 9, 18))?.opens).toEqual(new Date(local(12, 9)));
 });
 
-// "(x)" is a context row, "~x" a muted one, and "+2" the subtasks folded under a row.
+// "(x)" is a context row and "~x" a muted one.
 const shape = (sections: Section[]) => Object.fromEntries(sections.map(entry => [entry.id, entry.trees.map(function show(node): unknown {
   const label = node.context ? `(${node.task.id})` : node.muted ? `~${node.task.id}` : node.task.id;
-  const below = [...node.children.map(show), ...(node.hidden ? [`+${node.hidden.length}`] : [])];
-  return below.length ? [label, below] : label;
+  return node.children.length ? [label, node.children.map(show)] : label;
 })]));
 
 test("subtasks show in their own section with their ancestors as context, or nest under their parent", () => {
@@ -75,10 +74,14 @@ test("subtasks show in their own section with their ancestors as context, or nes
   });
   expect(context.find(entry => entry.id === "closing")!.count).toBe(1);
   const nested = buildSections(items, now, { mode: "nested", showCompleted: false, include: () => true });
-  // The tree goes to its most urgent section (the grandchild's Firm); the subtask that
-  // doesn't lead there is folded away.
-  expect(shape(nested)).toEqual({ firm: [["~parent", [["~child-window", ["grand-child"]], "+1"]]], available: ["solo"] });
+  // The tree goes to its most urgent section (the grandchild's Firm); the rest of it is dimmed.
+  expect(shape(nested)).toEqual({ firm: [["~parent", ["~child-now", ["~child-window", ["grand-child"]]]]], available: ["solo"] });
   expect(nested.find(entry => entry.id === "firm")!.count).toBe(1);
+  // A top task's own choice beats the view setting, in either direction.
+  const together = items.map(item => item.id === "parent" ? { ...item, subtaskLayout: "together" as const } : item);
+  expect(shape(buildSections(together, now, { mode: "context", showCompleted: false, include: () => true }))).toEqual(shape(nested));
+  const spread = items.map(item => item.id === "parent" ? { ...item, subtaskLayout: "spread" as const } : item);
+  expect(shape(buildSections(spread, now, { mode: "nested", showCompleted: false, include: () => true }))).toEqual(shape(context));
 });
 
 test("a completed parent stays as context for its open subtasks", () => {
@@ -92,7 +95,7 @@ test("the subtask samples differ between the two modes as their notes describe",
   const items = sampleSubtaskItems(now);
   const titles = (sections: Section[]) => Object.fromEntries(sections.map(entry => [entry.id, entry.trees.map(function flat(node): string[] {
     const label = node.context ? `(${node.task.title})` : node.muted ? `~${node.task.title}` : node.task.title;
-    return [label, ...node.children.flatMap(flat), ...(node.hidden ? [`+${node.hidden.length}`] : [])];
+    return [label, ...node.children.flatMap(flat)];
   }).flat()]));
   const own = titles(buildSections(items, now, { mode: "context", showCompleted: false, include: () => true }));
   expect(own.firm).toEqual(["(Apartment move)", "(Sort out utilities)", "Cancel old internet plan", "Pay phone bill"]);
@@ -104,7 +107,7 @@ test("the subtask samples differ between the two modes as their notes describe",
   // Each tree shows once, in its most urgent section.
   expect(nested).toEqual({
     firm: ["~Apartment move", "~Sort out utilities", "Cancel old internet plan", "Pay phone bill"],
-    closing: ["~Renew passport", "Get passport photos", "+2"],
+    closing: ["~Renew passport", "~Fill out form DS-82", "Get passport photos", "~Mail the application"],
     available: ["Plan birthday dinner", "Pick a restaurant", "Send invites", "~File tax return", "Gather W-2s", "~Learn Spanish", "Download a language app", "Water the plants"],
   });
 });

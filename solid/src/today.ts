@@ -83,13 +83,21 @@ function compareTasks(a: { task: Task; placement: Placement }, b: { task: Task; 
 
 // A section is a forest. Context rows are ancestors shown only to explain where a
 // subtask belongs: dimmed, openable, not checkable here.
-// In "Under parent" mode a tree sits in its most urgent section: tasks that don't
-// belong there are muted (dimmed, still checkable) when they lead to one that does,
-// and otherwise folded into their parent's `hidden` list ("+2 subtasks").
-export type TreeNode = { task: Task; context: boolean; muted?: boolean; placement?: Placement; children: TreeNode[]; hidden?: TreeNode[] };
+//
+// Subtasks are shown one of two ways, set for the view and overridable per top task:
+// "context" (Spread out) places every task by its own timing, with its ancestors as
+// context rows; "nested" (Keep together) shows each family once, in the most urgent
+// section any of its open tasks belongs to, dimming (but not hiding) the tasks whose
+// own timing is less urgent.
+export type TreeNode = { task: Task; context: boolean; muted?: boolean; placement?: Placement; children: TreeNode[] };
 export type SubtaskMode = "context" | "nested";
 
 export type Section = { id: SectionId; trees: TreeNode[]; count: number };
+
+/** How a family's subtasks are shown: its top task's own choice, else the view's. */
+export function familyMode(top: Task, fallback: SubtaskMode): SubtaskMode {
+  return top.subtaskLayout === "together" ? "nested" : top.subtaskLayout === "spread" ? "context" : fallback;
+}
 
 function taskParent(task: Task, byId: Map<string, Item>) {
   const parent = task.parentId ? byId.get(task.parentId) : undefined;
@@ -113,62 +121,59 @@ export function buildSections(items: Item[], now: Date, options: { mode: Subtask
   const placementOf = new Map(placed.map(entry => [entry.task.id, entry.placement]));
   const shown = new Set(placed.map(entry => entry.task.id));
   const count = (nodes: TreeNode[]): number => nodes.reduce((total, node) => total + (node.context || node.muted ? 0 : 1) + count(node.children), 0);
-  const sections: Section[] = [];
+  // Every tree remembers the task that decides its place in the section order.
+  const bySection = new Map<SectionId, { tree: TreeNode; lead: { task: Task; placement: Placement } }[]>();
+  const add = (section: SectionId, tree: TreeNode, lead: { task: Task; placement: Placement }) => bySection.set(section, [...(bySection.get(section) || []), { tree, lead }]);
+  const top = (task: Task) => ancestors(task, byId)[0] || task;
+  const spread = placed.filter(entry => familyMode(top(entry.task), options.mode) === "context");
+  const together = placed.filter(entry => familyMode(top(entry.task), options.mode) === "nested");
 
-  if (options.mode === "context") {
-    const bySection = new Map<SectionId, typeof placed>();
-    for (const entry of placed) bySection.set(entry.placement.section, [...(bySection.get(entry.placement.section) || []), entry]);
-    for (const id of SECTION_ORDER) {
-      const entries = (bySection.get(id) || []).sort(compareTasks);
-      if (!entries.length) continue;
-      const trees: TreeNode[] = [], nodes = new Map<string, TreeNode>();
-      const inSection = new Set(entries.map(entry => entry.task.id));
-      for (const { task, placement } of entries) {
-        let siblings = trees;
-        for (const ancestor of ancestors(task, byId)) {
-          let node = nodes.get(ancestor.id);
-          if (!node) { node = { task: ancestor, context: !inSection.has(ancestor.id), placement: inSection.has(ancestor.id) ? placementOf.get(ancestor.id) : undefined, children: [] }; nodes.set(ancestor.id, node); siblings.push(node); }
-          siblings = node.children;
+  // Spread out: each task in its own section, under context rows for ancestors that aren't.
+  for (const id of SECTION_ORDER) {
+    const entries = spread.filter(entry => entry.placement.section === id).sort(compareTasks);
+    const inSection = new Set(entries.map(entry => entry.task.id));
+    const nodes = new Map<string, TreeNode>();
+    for (const entry of entries) {
+      let siblings: TreeNode[] | null = null;
+      for (const ancestor of ancestors(entry.task, byId)) {
+        let node = nodes.get(ancestor.id);
+        if (!node) {
+          node = { task: ancestor, context: !inSection.has(ancestor.id), placement: inSection.has(ancestor.id) ? placementOf.get(ancestor.id) : undefined, children: [] };
+          nodes.set(ancestor.id, node);
+          if (siblings) siblings.push(node); else add(id, node, entry);
         }
-        const existing = nodes.get(task.id);
-        if (existing) { existing.context = false; existing.placement = placement; continue; }
-        const node: TreeNode = { task, context: false, placement, children: [] };
-        nodes.set(task.id, node);
-        siblings.push(node);
+        siblings = node.children;
       }
-      sections.push({ id, trees, count: count(trees) });
+      const existing = nodes.get(entry.task.id);
+      if (existing) { existing.context = false; existing.placement = entry.placement; continue; }
+      const node: TreeNode = { task: entry.task, context: false, placement: entry.placement, children: [] };
+      nodes.set(entry.task.id, node);
+      if (siblings) siblings.push(node); else add(id, node, entry);
     }
-    return sections;
   }
 
-  // Under parent: each top task's whole tree goes to the most urgent section any of its
-  // tasks belongs to (open tasks only, unless all are completed).
+  // Keep together: each family once, in its most urgent section.
   const childrenOf = new Map<string, Task[]>();
-  for (const { task } of placed) { const parent = taskParent(task, byId); if (parent && shown.has(parent.id)) childrenOf.set(parent.id, [...(childrenOf.get(parent.id) || []), task]); }
+  for (const { task } of together) { const parent = taskParent(task, byId); if (parent && shown.has(parent.id)) childrenOf.set(parent.id, [...(childrenOf.get(parent.id) || []), task]); }
   // Subtasks keep their manual order under their parent.
   const kids = (task: Task, path: Set<string>) => (childrenOf.get(task.id) || []).filter(child => !path.has(child.id))
     .sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity) || a.createdAt.localeCompare(b.createdAt));
   const members = (task: Task, path = new Set([task.id])): Task[] => [task, ...kids(task, path).flatMap(child => members(child, new Set(path).add(child.id)))];
-  const plain = (task: Task, path: Set<string>): TreeNode => ({ task, context: false, placement: placementOf.get(task.id), children: kids(task, path).map(child => plain(child, new Set(path).add(child.id))) });
   const rank = (id: SectionId) => SECTION_ORDER.indexOf(id);
-  const bySection = new Map<SectionId, { tree: TreeNode; lead: { task: Task; placement: Placement } }[]>();
-  for (const root of placed.filter(entry => { const parent = taskParent(entry.task, byId); return !parent || !shown.has(parent.id); })) {
+  for (const root of together.filter(entry => { const parent = taskParent(entry.task, byId); return !parent || !shown.has(parent.id); })) {
     const all = members(root.task).map(task => ({ task, placement: placementOf.get(task.id)! }));
     const open = all.filter(entry => entry.placement.section !== "completed");
     const pool = open.length ? open : all;
     const section = pool.reduce((best, entry) => rank(entry.placement.section) < rank(best) ? entry.placement.section : best, pool[0].placement.section);
     const lead = pool.filter(entry => entry.placement.section === section).sort(compareTasks)[0];
-    const build = (task: Task, path: Set<string>): { node: TreeNode; relevant: boolean } => {
-      const built = kids(task, path).map(child => ({ child, ...build(child, new Set(path).add(child.id)) }));
-      const belongs = placementOf.get(task.id)!.section === section;
-      const hidden = built.filter(entry => !entry.relevant).map(entry => plain(entry.child, new Set(path).add(entry.child.id)));
-      return {
-        relevant: belongs || built.some(entry => entry.relevant),
-        node: { task, context: false, muted: !belongs, placement: placementOf.get(task.id), children: built.filter(entry => entry.relevant).map(entry => entry.node), ...(hidden.length ? { hidden } : {}) },
-      };
-    };
-    bySection.set(section, [...(bySection.get(section) || []), { tree: build(root.task, new Set([root.task.id])).node, lead }]);
+    const grow = (task: Task, path: Set<string>): TreeNode => ({
+      task, context: false, muted: placementOf.get(task.id)!.section !== section, placement: placementOf.get(task.id),
+      children: kids(task, path).map(child => grow(child, new Set(path).add(child.id))),
+    });
+    add(section, grow(root.task, new Set([root.task.id])), lead);
   }
+
+  const sections: Section[] = [];
   for (const id of SECTION_ORDER) {
     const entries = (bySection.get(id) || []).sort((a, b) => compareTasks(a.lead, b.lead));
     if (entries.length) sections.push({ id, trees: entries.map(entry => entry.tree), count: count(entries.map(entry => entry.tree)) });

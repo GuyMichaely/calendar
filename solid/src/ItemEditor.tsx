@@ -318,6 +318,7 @@ export function ItemEditor(props: {
         schedule: choice === "custom" ? task?.availabilitySchedule ?? null : null,
         takes: Number(data.get("takes")) || null,
         anytime: data.get("anytime") === "on",
+        ...(data.has("subtaskLayout") ? { subtaskLayout: (String(data.get("subtaskLayout")) || null) as Task["subtaskLayout"] } : {}),
         relativeDates,
       }, { ...context, parentId: props.request.parentId, dormant: dormant() });
     } else {
@@ -573,6 +574,7 @@ export function ItemEditor(props: {
               <label class="field"><span>Takes</span><select name="takes" value={String(task?.takes ?? "")}><option value="">Not estimated</option><For each={takesOptions}>{([minutes, label]) => <option value={minutes}>{label}</option>}</For></select></label>
               <label class="field"><span>Push down</span><select name="pushMode" value={pushMode()} onChange={event => { setPushMode(event.currentTarget.value as ReturnType<typeof pushMode>); syncDirty(); }}><option value="normal">No</option><option value="until">Until a date</option><option value="indefinite">Until I lift it</option></select></label>
               <div class="field" hidden={pushMode() !== "until"}><span>Pushed down until</span><DateTimeField name="pushUntil" label="Pushed down until" value={pushUntil} disabled={pushMode() !== "until"} onChange={syncDirty} /></div>
+              <Show when={!task?.parentId && children().length}><label class="field"><span>Subtasks in Today</span><select name="subtaskLayout" value={task?.subtaskLayout || ""} onChange={syncDirty}><option value="">Follow the view setting</option><option value="together">Keep together</option><option value="spread">Spread out</option></select></label></Show>
               <label class="toggle-row full-span"><input type="checkbox" name="anytime" checked={!!task?.anytime} /><span><strong>Anytime</strong><small>No timing: listed under Anytime instead of Today.</small></span></label>
             </div>
           </div>

@@ -66,6 +66,8 @@ export type TaskDraft = {
   schedule: AvailabilitySchedule | null;
   takes: number | null;
   anytime: boolean;
+  // Only a top task with subtasks sets this; undefined keeps whatever it had.
+  subtaskLayout?: Task["subtaskLayout"];
   // Days after starting, for the fields a dormant dependent task measures that way.
   relativeDates: Partial<Record<RelativeDateField, number>>;
 };
@@ -129,6 +131,7 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
     availabilitySchedule: draft.windowId ? null : draft.schedule,
     takes: draft.takes,
     anytime: draft.anytime || null,
+    ...(draft.subtaskLayout !== undefined ? { subtaskLayout: draft.subtaskLayout } : {}),
     createdAt: previous?.createdAt || at,
     updatedAt: at,
     history,

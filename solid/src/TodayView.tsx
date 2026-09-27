@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js";
 import { Icon } from "./Icon";
 import { groupOptions } from "./group-board";
-import { buildSections, pushedDownInfo, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
+import { ancestors, buildSections, familyMode, pushedDownInfo, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
 import { taskSchedule, windowsById } from "./windows";
 import type { Group, Item, Task } from "./types";
 
@@ -20,6 +20,7 @@ export type TodayViewProps = {
   groupLayout: GroupLayout;
   laterPlacement: LaterPlacement;
   subtaskMode: SubtaskMode;
+  onSubtaskModeChange: (value: SubtaskMode) => void;
   // Unsaved editor text shows on the row as it's typed.
   liveEdits: () => Map<string, Partial<Task>>;
   onEdit: (task: Task) => void;
@@ -29,6 +30,8 @@ export type TodayViewProps = {
   onLift: (task: Task) => Promise<void>;
   onDeleteTask: (task: Task) => Promise<void>;
   onStartDependent: (task: Task, completeParent: boolean) => Promise<void>;
+  // A top task's own choice of how its subtasks show (null: follow the view setting).
+  onSubtaskLayout: (task: Task, layout: Task["subtaskLayout"]) => Promise<void>;
 };
 
 const SECTION_LABELS: Record<SectionId, { title: string; hint?: string }> = {
@@ -125,10 +128,6 @@ export function TodayView(props: TodayViewProps) {
     return option?.group.title || "";
   };
 
-  // Rows whose "+N subtasks" are unfolded (Under parent mode).
-  const [unfolded, setUnfolded] = createSignal(new Set<string>());
-  const toggleFold = (id: string) => setUnfolded(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-
   const Row = (rowProps: { node: TreeNode; depth: number; label: boolean }): JSX.Element => {
     const task = () => rowProps.node.task;
     const pushed = () => !rowProps.node.context && !!rowProps.node.placement?.pushed;
@@ -150,15 +149,11 @@ export function TodayView(props: TodayViewProps) {
         <Show when={!rowProps.node.context}><RowMenu task={task()} /></Show>
       </div>
       <For each={rowProps.node.children}>{child => <Row node={child} depth={rowProps.depth + 1} label={false} />}</For>
-      <Show when={rowProps.node.hidden?.length}>
-        <Show when={unfolded().has(task().id)} fallback={
-          <button type="button" class="today-fold" style={{ "padding-left": `${38 + rowProps.depth * 20}px` }} onClick={() => toggleFold(task().id)}>+{rowProps.node.hidden!.length} subtask{rowProps.node.hidden!.length === 1 ? "" : "s"}</button>}>
-          <For each={rowProps.node.hidden}>{child => <Row node={child} depth={rowProps.depth + 1} label={false} />}</For>
-          <button type="button" class="today-fold" style={{ "padding-left": `${38 + rowProps.depth * 20}px` }} onClick={() => toggleFold(task().id)}>Fold {rowProps.node.hidden!.length === 1 ? "it" : "them"} away</button>
-        </Show>
-      </Show>
     </>;
   };
+
+  // Only top tasks with subtasks choose how those show.
+  const hasSubtasks = (task: Task) => !ancestors(task, byId()).length && props.items.some(item => item.kind === "task" && item.parentId === task.id);
 
   const RowMenu = (menuProps: { task: Task }) => {
     const [open, setOpen] = createSignal(false);
@@ -184,6 +179,11 @@ export function TodayView(props: TodayViewProps) {
               <button role="menuitem" onClick={act(() => props.onPushDown(menuProps.task, tomorrow()))}>Push down until tomorrow</button>
             </>}>
               <button role="menuitem" onClick={act(() => props.onLift(menuProps.task))}>Lift back up</button>
+            </Show>
+          </Show>
+          <Show when={hasSubtasks(menuProps.task)}>
+            <Show when={familyMode(menuProps.task, props.subtaskMode) === "context"} fallback={<button role="menuitem" onClick={act(() => props.onSubtaskLayout(menuProps.task, props.subtaskMode === "context" ? null : "spread"))}>Spread subtasks out</button>}>
+              <button role="menuitem" onClick={act(() => props.onSubtaskLayout(menuProps.task, props.subtaskMode === "nested" ? null : "together"))}>Keep subtasks together</button>
             </Show>
           </Show>
           <button role="menuitem" class="danger-text" onClick={act(() => props.onDeleteTask(menuProps.task))}>Delete</button>
@@ -229,6 +229,13 @@ export function TodayView(props: TodayViewProps) {
       <h1>{heading()}</h1>
       <span class="today-date">{props.now.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · {clock(props.now)}</span>
       <span class="spacer" />
+      <label class="today-subtasks" title={"Keep together: each task with subtasks shows once, in the section of its most urgent subtask, with the rest dimmed.\nSpread out: every subtask shows in its own section, under a dimmed row for its parent.\nA task's ⋮ menu can choose differently for its own subtasks."}>
+        <span>Subtasks</span>
+        <select aria-label="How subtasks show" value={props.subtaskMode} onChange={event => props.onSubtaskModeChange(event.currentTarget.value as SubtaskMode)}>
+          <option value="nested">Keep together</option>
+          <option value="context">Spread out</option>
+        </select>
+      </label>
       <label class="check-row"><input type="checkbox" checked={props.showCompleted} onChange={event => props.onShowCompletedChange(event.currentTarget.checked)} />Show completed</label>
       <label class="today-filter"><span class="visually-hidden">Group</span>
         <select value={groupFilter()} onChange={event => setGroupFilter(event.currentTarget.value)}>
@@ -274,11 +281,9 @@ const Segmented = <T extends string>(props: { label: string; value: T; options: 
 export function DesignToggles(props: {
   groupLayout: GroupLayout; onGroupLayoutChange: (value: GroupLayout) => void;
   laterPlacement: LaterPlacement; onLaterPlacementChange: (value: LaterPlacement) => void;
-  subtaskMode: SubtaskMode; onSubtaskModeChange: (value: SubtaskMode) => void;
 }) {
   return <div class="design-toggles" aria-label="Layout options">
     <Segmented label="Groups" value={props.groupLayout} options={[["labels", "Labels"], ["headings", "Headings"]]} onChange={props.onGroupLayoutChange} />
     <Segmented label="Upcoming/Anytime" value={props.laterPlacement} options={[["below", "Below Today"], ["separate", "Separate"]]} onChange={props.onLaterPlacementChange} />
-    <Segmented label="Subtasks" value={props.subtaskMode} options={[["context", "Own section"], ["nested", "Under parent"]]} onChange={props.onSubtaskModeChange} />
   </div>;
 }
