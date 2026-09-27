@@ -181,12 +181,13 @@ export function ItemEditor(props: {
   // Closing saves first. If the edits can't be saved, say why and offer to revert to the last saved version.
   const [closeBlocked, setCloseBlocked] = createSignal(false);
   const close = async () => {
+    // Closing twice while the "can't save" notice is up discards and reverts.
+    if (closeBlocked()) { revertAndClose(); return; }
     closing = true;
     clearTimeout(saveTimer);
     if (inFlight) await inFlight;
     while (dirty()) {
-      // Invalid content can't be saved: a close request reverts to the last saved state.
-      if (invalid()) { revertAndClose(); return; }
+      if (invalid()) { closing = false; setCloseBlocked(true); return; }
       if (!(await persist())) { closing = false; setCloseBlocked(true); return; }
     }
     props.onClose();
@@ -501,10 +502,10 @@ export function ItemEditor(props: {
   const form = (
       <form ref={(element) => { formRef = element; }} onSubmit={(event) => { event.preventDefault(); void close(); }} onInput={syncDirty}>
         <div class="editor-close-bar"><button type="button" class="icon-button editor-close" classList={{ invalid: dirty() && !!(saveError() || invalid()) }} aria-label={dirty() && (saveError() || invalid()) ? "Close (reverts the unsaved changes)" : "Close"} title={dirty() && (saveError() || invalid()) ? `Can't save: ${saveError() || invalid()} — closing reverts` : "Close (Esc)"} onClick={() => void close()}>×</button></div>
-        <Show when={closeBlocked() && dirty() && saveError()}>
+        <Show when={closeBlocked() && dirty() && (saveError() || invalid())}>
           <div class="close-blocked" role="alert">
-            <p><strong>Can't save this {kind()}:</strong> {saveError()}</p>
-            <p>Closing now reverts it to the last saved version. Typing continues editing.</p>
+            <p><strong>Can't save this {kind()}:</strong> {saveError() || invalid()}</p>
+            <p>Escape or close again reverts to the last saved version. Typing continues editing.</p>
             <div><button type="button" class="danger-button" onClick={revertAndClose}>Revert & close</button></div>
           </div>
         </Show>
