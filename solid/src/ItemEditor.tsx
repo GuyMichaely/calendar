@@ -95,6 +95,8 @@ export function ItemEditor(props: {
   // board edits flow back into this editor through the same map.
   liveEdits?: () => Map<string, Partial<Task>>;
   onLiveEdit?: (taskId: string, patch: Partial<Task> | null) => void;
+  // Reopens the editor on the given saved item (null: a fresh editor for the same request).
+  onRevert?: (saved: Item | null) => void;
 }) {
   const existing = props.request.item;
   const domId = `${++editorInstances}`;
@@ -195,6 +197,16 @@ export function ItemEditor(props: {
   // Reverting skips the save that closing would otherwise require (the app flushes before switching tasks).
   let reverting = false;
   const revertAndClose = () => { reverting = closing = true; clearTimeout(saveTimer); props.onClose(); };
+  // Reverting reopens the editor on the last saved version. Autosave waits for an
+  // 800ms pause, so that is the last valid state that stood still, not whatever
+  // briefly passed through the fields while typing.
+  const revert = async () => {
+    reverting = closing = true;
+    clearTimeout(saveTimer);
+    if (inFlight) await inFlight;
+    props.onLiveEdit?.(itemId, null);
+    if (props.onRevert) props.onRevert(currentItem); else props.onClose();
+  };
   onMount(() => { const unregister = props.registerClose?.(() => void close()); onCleanup(() => unregister?.()); });
   const beforeUnload = (event: BeforeUnloadEvent) => {
     if (dirty() || saving()) { event.preventDefault(); event.returnValue = ""; }
@@ -505,8 +517,8 @@ export function ItemEditor(props: {
         <Show when={closeBlocked() && dirty() && (saveError() || invalid())}>
           <div class="close-blocked" role="alert">
             <p><strong>Can't save this {kind()}:</strong> {saveError() || invalid()}</p>
-            <p>Escape or close again reverts to the last saved version. Typing continues editing.</p>
-            <div><button type="button" class="danger-button" onClick={revertAndClose}>Revert & close</button></div>
+            <p>Revert goes back to the last saved version. Closing again reverts and closes; typing continues editing.</p>
+            <div><button type="button" class="danger-button" onClick={() => void revert()}>Revert</button></div>
           </div>
         </Show>
         <Show when={props.embedded} fallback={<p class="editor-eyebrow">{existing ? "The details" : props.request.parentId ? "New subtask" : "Make a little space for it"}</p>}>

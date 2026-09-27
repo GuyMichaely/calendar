@@ -121,38 +121,38 @@ export function GroupsView(props: GroupsViewProps) {
   });
   // Pointer-based so it works with touch as well as a mouse. The dragged group follows
   // the pointer as a fixed ghost while wells expand to preview where it would land.
-  const startGroupDrag = (id: string) => (event: PointerEvent) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    const handle = event.currentTarget as HTMLElement;
+  const [dragSet, setDragSet] = createSignal<string[]>([]);
+  const beginGroupDrag = (id: string, ids: string[], event: PointerEvent, handle: HTMLElement) => {
     handle.setPointerCapture(event.pointerId);
     setDragId(id);
-    if (groupsById().has(id)) setSelection({ type: "group", id });
-    // Dragging a group whose column is selected moves all of them, in board order.
-    const pick = columnPick();
-    const onBoard = new Set(columns().flat());
-    const ids = pick && pick.includes(id) ? pick.filter(entry => onBoard.has(entry)) : [id];
+    setDragSet(ids);
+    if (groupsById().has(id) && ids.length === 1) setSelection({ type: "group", id });
     const multi = ids.length > 1, moving = new Set(ids);
     const node = groupsById().get(id);
+    const canNest = !multi && !!node;
     // What the board looked like at drag start; targets reproducing it are no-ops and
     // don't highlight (the wells straddling the dragged column, an only-group's own
-    // column slots, re-nesting at the same spot, …).
+    // column slots, re-nesting at the same spot, …). A subgroup isn't on the board
+    // yet, so any board spot moves it.
     const startLayout = boardColumns(boardEntries(props.items));
+    const onBoard = new Set(startLayout.flat());
     const targetIsNoop = (key: string) => {
       const resolve = targets.get(key);
-      return !!resolve && sameLayout(placeGroups(startLayout, ids, resolve()), startLayout);
+      return !!resolve && ids.every(entry => onBoard.has(entry)) && sameLayout(placeGroups(startLayout, ids, resolve()), startLayout);
     };
-    // A fixed clone tracks the pointer; the original stays ghosted in place.
-    const section = handle.closest<HTMLElement>(".board-group");
+    // A fixed clone tracks the pointer (the whole column when dragging several);
+    // the originals stay ghosted in place.
+    const section = multi || !handle.closest(".board-group") ? handle.closest<HTMLElement>(".board-column") : handle.closest<HTMLElement>(".board-group");
     const ghost = section ? (section.cloneNode(true) as HTMLElement) : null;
     const startX = event.clientX, startY = event.clientY;
     if (section && ghost) {
       const rect = section.getBoundingClientRect();
+      ghost.querySelectorAll(".dragging").forEach(element => element.classList.remove("dragging"));
       ghost.classList.remove("dragging");
       ghost.classList.add("board-group-ghost");
       Object.assign(ghost.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, maxHeight: "60vh", overflow: "hidden", margin: "0", zIndex: "60" });
       document.body.appendChild(ghost);
-      boardRef.style.setProperty("--drop-h", `${rect.height}px`);
+      boardRef.style.setProperty("--drop-h", `${Math.min(rect.height, innerHeight * 0.6)}px`);
       boardRef.style.setProperty("--drop-w", `${rect.width}px`);
     }
     // A group can't be dropped into itself or its (or a dragged sibling's) subgroups.
@@ -161,78 +161,114 @@ export function GroupsView(props: GroupsViewProps) {
       return entryNode ? [entry, ...flattenGroupNodes(entryNode.groups).keys()] : [entry];
     }));
     // A rAF loop drives the drag: pointermove events stop when a held finger is
-    // stationary, so edge scrolling runs every frame. Three stabilizers: the drop
-    // target only re-aims when the pointer actually moves or the board scrolls,
-    // the content point under the pointer is pinned while a target is engaged
-    // (opening wells shift OTHER elements, not your target), and hovering a spot
-    // that would leave the group exactly where it is highlights its own home.
+    // stationary, so edge scrolling runs every frame. The target only re-aims when
+    // the pointer moves or the board shifts under it.
     let lastX = startX, lastY = startY, aimX = Infinity, aimY = Infinity, frame = 0;
-    // While a target is engaged, the content point that was under the pointer at
-    // engagement stays at that viewport spot: expanding wells shift other content
-    // (mostly scrolling it left / the page up) instead of your target. Deliberate
-    // edge-scrolling wins; the pin re-anchors whenever the engaged target changes.
-    let pin: { contentX: number; viewportX: number; contentY: number; viewportY: number } | null = null;
-    let lastEngaged = "";
+    // Engaged targets stay put. Opening and closing wells moves things, so the element
+    // that defines the current target (the well, or the group under the pointer) is
+    // held at the screen spot where it engaged by translating the board's children:
+    // sideways all together, vertically just the anchor's own column. Sideways shift
+    // is traded for scrolling whenever the board has room; the rest eases back once
+    // nothing is anchored in that column (or anywhere, for sideways), and on drop.
+    let anchor: { element: HTMLElement; key: string; x: number; y: number; column: HTMLElement | null } | null = null;
+    let shiftX = 0;
+    const shiftY = new Map<HTMLElement, number>();
+    const applyShift = () => {
+      for (const child of boardRef.children as HTMLCollectionOf<HTMLElement>) {
+        const y = shiftY.get(child) || 0;
+        child.style.transform = shiftX || y ? `translate(${shiftX}px, ${y}px)` : "";
+      }
+    };
+    const holdAnchor = () => {
+      let moved = false;
+      if (anchor?.element.isConnected) {
+        const box = anchor.element.getBoundingClientRect();
+        const dx = anchor.x - box.left, dy = anchor.y - box.top;
+        if (Math.abs(dx) > 0.5) { shiftX += dx; moved = true; }
+        if (Math.abs(dy) > 0.5 && anchor.column) { shiftY.set(anchor.column, (shiftY.get(anchor.column) || 0) + dy); moved = true; }
+      }
+      const ease = (value: number) => Math.abs(value) < 1 ? 0 : value * 0.8;
+      for (const [column, y] of shiftY) if (column !== anchor?.column && y) { shiftY.set(column, ease(y)); moved = true; }
+      if (!anchor && shiftX) { shiftX = ease(shiftX); moved = true; }
+      // Scrolling by the same amount keeps everything where it is on screen.
+      if (shiftX) {
+        const before = boardRef.scrollLeft;
+        boardRef.scrollLeft = before - shiftX;
+        shiftX -= before - boardRef.scrollLeft;
+        if (Math.abs(shiftX) < 0.5) shiftX = 0;
+      }
+      applyShift();
+      return moved;
+    };
     const update = () => {
       const edge = boardRef.getBoundingClientRect();
       const EDGE = 56;
-      const preScrollX = boardRef.scrollLeft, preScrollY = window.scrollY;
+      const preScrollX = boardRef.scrollLeft;
       const leftDepth = edge.left + EDGE - lastX, rightDepth = lastX - (edge.right - EDGE);
       if (rightDepth > 0) boardRef.scrollLeft += Math.min(28, 4 + rightDepth * 0.4);
       else if (leftDepth > 0) boardRef.scrollLeft -= Math.min(28, 4 + leftDepth * 0.4);
-      const scrolled = boardRef.scrollLeft !== preScrollX || window.scrollY !== preScrollY;
-      if (!scrolled && pin) {
-        const wantX = pin.contentX - pin.viewportX, wantY = pin.contentY - pin.viewportY;
-        if (Math.abs(boardRef.scrollLeft - wantX) > 1) boardRef.scrollLeft = wantX;
-        if (Math.abs(window.scrollY - wantY) > 1) window.scrollTo({ top: wantY });
-      }
+      // Deliberate edge scrolling carries the anchor along with the content.
+      const scrolled = boardRef.scrollLeft - preScrollX;
+      if (anchor) anchor.x -= scrolled;
+      const shifted = holdAnchor();
       if (ghost) ghost.style.transform = `translate(${lastX - startX}px, ${lastY - startY}px)`;
-      if (Math.abs(lastX - aimX) + Math.abs(lastY - aimY) <= 5 && !scrolled) { frame = requestAnimationFrame(update); return; }
+      if (Math.abs(lastX - aimX) + Math.abs(lastY - aimY) <= 5 && !scrolled && !shifted) { frame = requestAnimationFrame(update); return; }
       aimX = lastX; aimY = lastY;
       const hit = document.elementFromPoint(lastX, lastY);
-      const well = hit?.closest<HTMLElement>("[data-drop]")?.dataset.drop;
+      const wellElement = hit?.closest<HTMLElement>("[data-drop]");
+      const well = wellElement?.dataset.drop;
       let key = well || "", nest = "", home = false;
+      let anchorElement: HTMLElement | null = wellElement || null;
       if (!well) {
-        const host = hit?.closest<HTMLElement>(".board-group:not(.smart-group)");
+        const host = hit?.closest<HTMLElement>(".board-group:not(.smart-group)") || hit?.closest<HTMLElement>(".board-group") || null;
         const hostId = host?.dataset.groupId || "";
-        if (host && !excluded.has(hostId)) {
+        const entry = hit?.closest<HTMLElement>("[data-board-entry]") || null;
+        anchorElement = host || entry;
+        const builtin = !!host?.classList.contains("smart-group");
+        if (host && !builtin && !excluded.has(hostId)) {
           const top = !host.parentElement?.closest(".board-group");
-          const entry = top ? host.closest<HTMLElement>("[data-board-entry]") : null;
-          if (entry) {
+          if (top && entry) {
             const box = host.getBoundingClientRect();
             const relX = (lastX - box.left) / box.width;
             const column = Number(entry.dataset.column);
             // Over a top-level group's outer sixths it becomes a new column on that
             // side; the middle nests inside it (single drags only). Built-in sections
             // can't nest, so only the halves-to-columns rule applies to them.
-            const edgeShare = node ? 1 / 6 : 0.5;
+            const edgeShare = canNest ? 1 / 6 : 0.5;
             if (relX < edgeShare) key = `new-${column}`;
             else if (relX > 1 - edgeShare) key = `new-${column + 1}`;
-            else if (!multi) nest = hostId;
-          } else if (!multi) nest = hostId; // Nested hosts: dropping nests inside.
-        } else if (host && hostId === id) home = true; // Over the dragged group itself.
-        else if (!host) {
-          // Over an entry's margin or its own spot: dropping changes nothing → home.
-          const entry = hit?.closest<HTMLElement>("[data-board-entry]");
-          if (entry && moving.has(entry.dataset.boardEntry || "")) home = true;
-          else if (entry) {
-            const box = entry.getBoundingClientRect(), column = Number(entry.dataset.column);
-            key = `new-${lastX < box.left + box.width / 2 ? column : column + 1}`;
-          }
+            else nest = hostId;
+          } else if (canNest) nest = hostId; // Nested hosts: dropping nests inside.
+        } else if (host && excluded.has(hostId)) {
+          // Over the dragged group's own spot. Its top-level group's outer sixths still
+          // open new columns, so a subgroup (whose spot fills most of its parent) can
+          // leave sideways; anywhere else here drops it where it is.
+          const top = entry?.querySelector<HTMLElement>(":scope > .board-group");
+          const box = top?.getBoundingClientRect(), column = Number(entry?.dataset.column);
+          const relX = box ? (lastX - box.left) / box.width : 0.5;
+          if (relX < 1 / 6) key = `new-${column}`;
+          else if (relX > 5 / 6) key = `new-${column + 1}`;
+          else home = true;
+          if (key) anchorElement = top || anchorElement;
+        }
+        else if (entry && moving.has(entry.dataset.boardEntry || "")) home = true; // Over its own spot.
+        else if (entry) {
+          // Built-in sections can't nest: their halves pick the column side.
+          const box = entry.getBoundingClientRect(), column = Number(entry.dataset.column);
+          key = `new-${lastX < box.left + box.width / 2 ? column : column + 1}`;
         }
       }
       // Dropping onto the current parent when already last in it changes nothing.
-      if (nest && node?.group.parentId === nest && groupsById().get(nest)?.groups.at(-1)?.group.id === id) nest = "";
+      if (nest && node?.group.parentId === nest && groupsById().get(nest)?.groups.at(-1)?.group.id === id) { nest = ""; home = true; }
       if (targetIsNoop(key)) { key = ""; home = true; }
-      // (Re)anchor the pinned content point only when the engaged target changes.
-      // "Home" doesn't expand anything, so it isn't pinned.
-      const engaged = key || nest;
-      if (!engaged) { pin = null; lastEngaged = ""; }
-      else if (engaged !== lastEngaged) {
-        lastEngaged = engaged;
-        pin = { contentX: lastX + boardRef.scrollLeft, viewportX: lastX, contentY: lastY + window.scrollY, viewportY: lastY };
+      const engaged = key ? `key:${key}` : nest ? `nest:${nest}` : home ? "home" : "";
+      if (!engaged || !anchorElement) anchor = null;
+      else if (engaged !== anchor?.key) {
+        const box = anchorElement.getBoundingClientRect();
+        anchor = { element: anchorElement, key: engaged, x: box.left, y: box.top, column: anchorElement.closest<HTMLElement>(".board-column") };
       }
       setDropKey(key); setNestId(nest); setDropHome(home);
+      holdAnchor();
       frame = requestAnimationFrame(update);
     };
     const move = (next: PointerEvent) => { lastX = next.clientX; lastY = next.clientY; };
@@ -249,12 +285,20 @@ export function GroupsView(props: GroupsViewProps) {
       handle.removeEventListener("pointercancel", cancel);
       document.removeEventListener("keydown", escape, true);
       const key = dropKey(), nest = nestId(), target = targets.get(key);
-      setDragId(null); setDropKey(""); setNestId(""); setDropHome(false);
+      setDragId(null); setDragSet([]); setDropKey(""); setNestId(""); setDropHome(false);
+      // Whatever was shifted to hold a target in place slides back.
+      const children = [...boardRef.children] as HTMLElement[];
+      if (boardRef.closest('[data-animations="on"]') && children.some(child => child.style.transform)) {
+        for (const child of children) child.style.transition = "transform .2s ease";
+        requestAnimationFrame(() => { for (const child of children) child.style.transform = ""; });
+        setTimeout(() => { for (const child of children) child.style.transition = ""; }, 260);
+      } else for (const child of children) child.style.transform = "";
       if (!drop) return;
       const dragged = groupsById().get(id)?.group;
       if (nest) { if (dragged) void props.onMoveGroup(dragged, nest); }
       else if (key && target) {
-        if (multi) { setColumnPick(null); void props.onPlaceGroups(ids, target()); }
+        if (columnPick()?.includes(id)) setColumnPick(null);
+        if (multi) void props.onPlaceGroups(ids, target());
         else void props.onPlaceGroup(id, target());
       }
     };
@@ -266,6 +310,37 @@ export function GroupsView(props: GroupsViewProps) {
     handle.addEventListener("pointerup", up, { once: true });
     handle.addEventListener("pointercancel", cancel, { once: true });
     document.addEventListener("keydown", escape, true);
+  };
+  // Dragging a group whose column is selected moves all of them, in board order.
+  const startGroupDrag = (id: string) => (event: PointerEvent) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const pick = columnPick();
+    const ids = pick && pick.includes(id) ? columns().flat().filter(entry => pick.includes(entry)) : [id];
+    beginGroupDrag(id, ids, event, event.currentTarget as HTMLElement);
+  };
+  // The bar atop a column: click selects its groups, dragging it moves the whole column.
+  let suppressPickClick = false;
+  const pressColumnBar = (ids: string[]) => (event: PointerEvent) => {
+    suppressPickClick = false;
+    if (event.button !== 0 || !ids.length) return;
+    const bar = event.currentTarget as HTMLElement;
+    const x0 = event.clientX, y0 = event.clientY;
+    const arm = (next: PointerEvent) => {
+      if (Math.abs(next.clientX - x0) + Math.abs(next.clientY - y0) <= 6) return;
+      disarm();
+      suppressPickClick = true;
+      beginGroupDrag(ids[0], ids, next, bar);
+    };
+    const disarm = () => {
+      bar.removeEventListener("pointermove", arm);
+      bar.removeEventListener("pointerup", disarm);
+      bar.removeEventListener("pointercancel", disarm);
+    };
+    bar.setPointerCapture(event.pointerId);
+    bar.addEventListener("pointermove", arm);
+    bar.addEventListener("pointerup", disarm, { once: true });
+    bar.addEventListener("pointercancel", disarm, { once: true });
   };
 
   // Task dragging: a grip on each card undocks it, and the whole row starts a drag
@@ -631,7 +706,7 @@ export function GroupsView(props: GroupsViewProps) {
       if (!title) { input.value = group().title; setShownTitle(group().title); return; }
       if (title !== group().title) void props.onRenameGroup(group(), title);
     };
-    return <section class="board-group" data-group-id={group().id} classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id, "nest-target": !!dragId() && nestId() === sectionProps.id, "drop-home": dropHome() && dragId() === sectionProps.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === sectionProps.id, "col-picked": !!columnPick()?.includes(sectionProps.id), selected: selection()?.type === "group" && selection()?.id === sectionProps.id }}
+    return <section class="board-group" data-group-id={group().id} classList={{ nested: sectionProps.depth > 0, dragging: dragSet().includes(sectionProps.id), "nest-target": !!dragId() && nestId() === sectionProps.id, "drop-home": dropHome() && dragId() === sectionProps.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === sectionProps.id, "col-picked": !!columnPick()?.includes(sectionProps.id), selected: selection()?.type === "group" && selection()?.id === sectionProps.id }}
       onClick={event => {
         // Clicking a group's own background selects it (controls and tasks inside don't).
         if ((event.target as Element).closest("button, input, select, a, .board-task, .task-menu")) return;
@@ -678,7 +753,7 @@ export function GroupsView(props: GroupsViewProps) {
     const spec = BUILTIN_GROUPS.find(entry => entry.id === sectionProps.id)!;
     const empty = { available: "Nothing is available right now.", upcoming: "Nothing is waiting to start.", sleeping: "No sleeping tasks.", ungrouped: "" }[spec.builtin];
     const nodes = () => spec.builtin === "ungrouped" ? board().ungrouped : smart()[spec.builtin];
-    return <section class="board-group smart-group" data-builtin={spec.builtin} classList={{ dragging: dragId() === spec.id, "drop-home": dropHome() && dragId() === spec.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === null && spec.builtin === "ungrouped", "col-picked": !!columnPick()?.includes(spec.id) }}>
+    return <section class="board-group smart-group" data-builtin={spec.builtin} classList={{ dragging: dragSet().includes(spec.id), "drop-home": dropHome() && dragId() === spec.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === null && spec.builtin === "ungrouped", "col-picked": !!columnPick()?.includes(spec.id) }}>
       <DragGrip id={spec.id} />
       <header class="board-group-header"><h2>{spec.title}</h2><span class="board-count">{countTasks(nodes())}</span></header>
       <Show when={nodes().length || !empty} fallback={<p class="board-empty">{empty}</p>}><TaskList nodes={nodes()} depth={0} /></Show>
@@ -707,7 +782,7 @@ export function GroupsView(props: GroupsViewProps) {
       {dropTarget("new-0", () => ({ newColumn: 0 }), "board-drop-column")}
       <Index each={columns()}>{(column, columnIndex) => <>
         <div class="board-column">
-          <button class="column-pick" aria-pressed={pickedColumn(column())} aria-label={`Select all groups in column ${columnIndex + 1}`} title="Select all groups in this column to drag them together (Escape clears)" onClick={() => toggleColumnPick(column())} />
+          <button class="column-pick" aria-pressed={pickedColumn(column())} aria-label={`Select all groups in column ${columnIndex + 1}`} title="Click to select all groups in this column, or drag to move the whole column (Escape clears)" onPointerDown={pressColumnBar(column())} onClick={() => { if (suppressPickClick) { suppressPickClick = false; return; } toggleColumnPick(column()); }} />
           {dropTarget(`in-${columnIndex}-0`, () => ({ column: columnIndex, index: 0 }), "board-drop-slot")}
           <For each={column()}>{(id, position) => <>
             <div class="board-entry" data-board-entry={id} data-column={columnIndex}>

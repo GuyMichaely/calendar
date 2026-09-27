@@ -26,6 +26,8 @@ type RemoteAttachment = {
 type RemoteStorage = {
   readSnapshot: () => Promise<Uint8Array>;
   mergeSnapshot: (bytes: Uint8Array) => Promise<unknown>;
+  readDocument?: () => Promise<unknown>;
+  receiveMessage?: (syncState: unknown, message: Uint8Array) => Promise<{ result: unknown; syncState: unknown }>;
 };
 
 type RemoteClientOptions = {

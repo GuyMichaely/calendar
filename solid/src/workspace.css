@@ -540,6 +540,12 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
    block so its own box stops at the content, not the container. */
 .board-task-notes .board-text { display: block; width: fit-content; max-width: 100%; }
 .board-task-notes .board-text :is(p, ul, ol, blockquote) { width: fit-content; max-width: 100%; }
+/* Blank lines in a description start new paragraphs; on a card they shouldn't
+   open up gaps (in compact mode each would eat into the three-line clamp). */
+.board-task-notes .board-text > * { margin: 0 0 .35em; }
+.board-task-notes .board-text > :last-child { margin-bottom: 0; }
+.board-task-notes .board-text :is(ul, ol) { padding-left: 1.3em; }
+.board.compact .board-task-notes .board-text > * { margin: 0; }
 .board-text:hover { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--muted); }
 .board-edit { display: grid; gap: 8px; padding: 3px 0; }
 .board-inline { display: block; width: calc(100% + 10px); resize: none; overflow: hidden; margin: -3px -5px; padding: 2px 4px; border: 0; border-radius: 4px; background: var(--surface-2); font-family: inherit; }

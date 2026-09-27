@@ -1,5 +1,5 @@
 import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js";
-import { mergeSyncSnapshot, readSyncSnapshot } from "../../site/storage.js";
+import { mergeSyncSnapshot, readSyncDocument, readSyncSnapshot, receiveSyncMessage } from "../../site/storage.js";
 import { createRemoteCalendarClient, createRemoteSyncQueue, type RemoteSession } from "./remote-sync";
 
 function errorMessage(error: unknown, fallback: string) { return error instanceof Error && error.message ? error.message : fallback; }
@@ -9,7 +9,7 @@ function errorMessage(error: unknown, fallback: string) { return error instanceo
  * page is visible, and when the page becomes visible or the browser comes back online.
  */
 export function createRemoteSync(options: { backendUrl: string; pollSeconds: Accessor<number>; onSynced: () => Promise<void> }) {
-  const remote = options.backendUrl ? createRemoteCalendarClient({ backendUrl: options.backendUrl, storage: { readSnapshot: readSyncSnapshot, mergeSnapshot: mergeSyncSnapshot } }) : null;
+  const remote = options.backendUrl ? createRemoteCalendarClient({ backendUrl: options.backendUrl, storage: { readSnapshot: readSyncSnapshot, mergeSnapshot: mergeSyncSnapshot, readDocument: readSyncDocument, receiveMessage: receiveSyncMessage } }) : null;
   const [remoteSession, setRemoteSession] = createSignal<RemoteSession | null>(null);
   const [remoteBusy, setRemoteBusy] = createSignal(false);
   const [remoteError, setRemoteError] = createSignal("");

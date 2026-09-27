@@ -14,7 +14,14 @@ export class CalendarSyncError extends Error {
 
 // Peer state is connection-local, not calendar data. A failed exchange discards
 // it; the native protocol rediscovers shared history on the next connection.
-export function createCalendarSyncClient({ readSnapshot, mergeSnapshot }, {
+// Storage may also offer readDocument/receiveMessage, which work on its loaded
+// document instead of serializing and reloading the whole history every round.
+/**
+ * @param {{ readSnapshot: () => Promise<Uint8Array>, mergeSnapshot: (bytes: Uint8Array) => Promise<unknown>,
+ *   readDocument?: () => Promise<any>, receiveMessage?: (syncState: any, message: Uint8Array) => Promise<{ result: any, syncState: any }> }} storage
+ * @param {{ endpoint?: string, fetch?: typeof fetch, credentials?: RequestCredentials }} [options]
+ */
+export function createCalendarSyncClient({ readSnapshot, mergeSnapshot, readDocument, receiveMessage }, {
   endpoint = "", fetch: fetchImpl = globalThis.fetch, credentials = "include",
 } = {}) {
   if (!endpoint || typeof fetchImpl !== "function") throw new Error("Sync requires an endpoint and Fetch.");
@@ -28,7 +35,7 @@ export function createCalendarSyncClient({ readSnapshot, mergeSnapshot }, {
     let result;
     for (let round = 0; round < 100; round++) {
       signal?.throwIfAborted();
-      const current = loadCalendarDocument(await readSnapshot());
+      const current = readDocument ? await readDocument() : loadCalendarDocument(await readSnapshot());
       const [nextState, message] = Automerge.generateSyncMessage(current, state);
       state = nextState;
       // Even when locally unchanged, one empty poll asks the server to generate
@@ -50,11 +57,14 @@ export function createCalendarSyncClient({ readSnapshot, mergeSnapshot }, {
       }
       const reply = new Uint8Array(await response.arrayBuffer());
       if (reply.byteLength) {
-        // Read again after the request; edits made in flight must participate.
-        const latest = loadCalendarDocument(await readSnapshot());
-        const [updated, receivedState] = Automerge.receiveSyncMessage(latest, state, reply);
-        result = await mergeSnapshot(saveCalendarDocument(updated));
-        state = receivedState;
+        if (receiveMessage) ({ result, syncState: state } = await receiveMessage(state, reply));
+        else {
+          // Read again after the request; edits made in flight must participate.
+          const latest = loadCalendarDocument(await readSnapshot());
+          const [updated, receivedState] = Automerge.receiveSyncMessage(latest, state, reply);
+          result = await mergeSnapshot(saveCalendarDocument(updated));
+          state = receivedState;
+        }
       }
       sequence++;
     }

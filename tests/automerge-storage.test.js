@@ -319,3 +319,25 @@ test("groups form a strict tree, hold tasks, and round-trip through backups", as
   assert.notEqual(moved, "Reparent");
   assert.equal(storage.undoLabel(), "Reparent");
 });
+
+test("the loaded document is reused until another tab writes, and appended saves load", async () => {
+  const at = "2026-09-26T12:00:00.000Z";
+  await storage.putItem(task({ id: "task-cache", title: "one", createdAt: at, updatedAt: at }));
+  for (let index = 0; index < 5; index++) await storage.putItem({ ...(await storage.getItem("task-cache")), title: `edit ${index}` }, await storage.getItem("task-cache"));
+  // The stored bytes (a save plus appended incremental saves) load to the same state.
+  const stored = loadCalendarDocument(await storage.readSyncSnapshot());
+  assert.equal(materializeItem(stored, "task-cache").title, "edit 4");
+  // Another tab writes a new record directly; the next read must see it.
+  const other = patchItem(forkCalendarDocument(stored), "task-cache", { title: "from another tab" });
+  const db = await new Promise((resolve, reject) => { const request = indexedDB.open("calendar-automerge-2", 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("documents", "readwrite");
+    tx.objectStore("documents").put({ id: "primary", bytes: saveCalendarDocument(other), version: "other-tab" });
+    tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+  assert.equal((await storage.getItem("task-cache")).title, "from another tab");
+  await storage.putItem({ ...(await storage.getItem("task-cache")), title: "back here" }, await storage.getItem("task-cache"));
+  assert.equal(materializeItem(loadCalendarDocument(await storage.readSyncSnapshot()), "task-cache").title, "back here");
+  await storage.deleteItem("task-cache");
+});

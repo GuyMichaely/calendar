@@ -79,6 +79,13 @@ test("placeGroups moves a whole column as a unit, keeping its order", () => {
   expect(sameLayout(placeGroups(columns, ["b", "c"], { newColumn: 1 }), columns)).toBe(true);
 });
 
+test("a subgroup dragged onto the board gets a place there", () => {
+  const columns = [["a"], ["b"]];
+  expect(placeGroup(columns, "sub", { newColumn: 1 })).toEqual([["a"], ["sub"], ["b"]]);
+  expect(placeGroup(columns, "sub", { column: 1, index: 0 })).toEqual([["a"], ["sub", "b"]]);
+  expect(sameLayout(placeGroup(columns, "sub", { newColumn: 2 }), columns)).toBe(false);
+});
+
 test("built-in sections start leftmost, are created when first moved, and never count as user groups", () => {
   const items: Item[] = [{ ...group("work", null, 0), boardColumn: 0 }];
   expect(boardColumns(boardEntries(items))).toEqual([["builtin-available", "builtin-upcoming", "builtin-sleeping"], ["builtin-ungrouped"], ["work"]]);

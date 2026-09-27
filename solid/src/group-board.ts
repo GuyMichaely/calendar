@@ -139,18 +139,14 @@ export function placeGroup(columns: string[][], id: string, target: BoardTarget)
   return placeGroups(columns, [id], target);
 }
 
-/** Move several groups (kept in their current relative order) into one board position. */
+/**
+ * Move several groups (in the given order) into one board position. Groups not on
+ * the board yet (a subgroup dragged out of its parent) are placed there too.
+ */
 export function placeGroups(columns: string[][], ids: string[], target: BoardTarget): string[][] {
-  const moving = new Set(ids), rank = new Map(ids.map((entry, index) => [entry, index]));
-  const lifted: string[] = [];
+  const moving = new Set(ids), lifted = [...moving];
   // Null placeholders keep the target's column/slot indices aligned with the dragged layout.
-  const next: (string | null)[][] = columns.map(column => column.map(entry => {
-    if (!moving.has(entry)) return entry;
-    lifted.push(entry);
-    return null;
-  }));
-  // Keep the order the groups had on the board, not the order of the selection list.
-  lifted.sort((a, b) => rank.get(a)! - rank.get(b)!);
+  const next: (string | null)[][] = columns.map(column => column.map(entry => moving.has(entry) ? null : entry));
   if ("newColumn" in target) next.splice(target.newColumn, 0, lifted);
   else next[target.column]?.splice(target.index, 0, ...lifted);
   return next.map(column => column.filter((entry): entry is string => entry !== null)).filter(column => column.length);

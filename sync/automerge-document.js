@@ -61,6 +61,10 @@ export class CalendarDocumentError extends Error {
   }
 }
 
+export function assertCalendarDocument(doc) {
+  assertDocument(doc);
+}
+
 function assertDocument(doc) {
   if (!doc || doc.schemaVersion !== CALENDAR_SCHEMA_VERSION || !doc.items || typeof doc.items !== "object"
     || Object.keys(Automerge.getConflicts(doc, "schemaVersion") || {}).length > 1

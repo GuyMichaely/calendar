@@ -5,6 +5,7 @@ import {
   addAttachmentMetadata,
   addHistoryEntry,
   addTag,
+  assertCalendarDocument,
   createCalendarDocument,
   deleteItemField,
   getItemFieldConflicts,
@@ -43,8 +44,10 @@ const SPECIAL_DELTA_FIELDS = new Set([
   "id", "title", "notes", "tags", "attachments", "history", "deletedAt",
 ]);
 
+// One connection is reused; it closes when another tab upgrades the database.
+let connection = null;
 function openDb() {
-  return new Promise((resolve, reject) => {
+  connection ||= new Promise((resolve, reject) => {
     const request = indexedDB.open(CALENDAR_DATA_DB_NAME, CALENDAR_DATA_DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -52,9 +55,15 @@ function openDb() {
         db.createObjectStore(CALENDAR_DOCUMENT_STORE, { keyPath: "id" });
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => { db.close(); connection = null; };
+      db.onclose = () => { connection = null; };
+      resolve(db);
+    };
+    request.onerror = () => { connection = null; reject(request.error); };
   });
+  return connection;
 }
 
 function cloneValue(value) {
@@ -338,20 +347,51 @@ function applyHistoryDelta(doc, before, after, side) {
   return doc;
 }
 
-function readState() {
+// Loading a document replays its whole history, which takes hundreds of
+// milliseconds once it has a few thousand changes, so the loaded document stays
+// in memory. Every stored record carries a version; a record written by another
+// tab has a different one and is loaded again.
+let cached = null;
+const COMPACT_BYTES = 256 * 1024;
+
+function documentFor(record) {
+  if (record?.version && cached?.version === record.version) return cached.doc;
+  return record?.bytes ? loadCalendarDocument(record.bytes) : createCalendarDocument();
+}
+
+function readRecord() {
   return openDb().then((db) => new Promise((resolve, reject) => {
     const tx = db.transaction(CALENDAR_DOCUMENT_STORE, "readonly");
     const request = tx.objectStore(CALENDAR_DOCUMENT_STORE).get(CALENDAR_DOCUMENT_ID);
-    let documentRecord = null;
-    request.onsuccess = () => { documentRecord = request.result || null; };
+    let record = null;
+    request.onsuccess = () => { record = request.result || null; };
     request.onerror = () => reject(request.error);
-    tx.oncomplete = () => {
-      db.close();
-      resolve(documentRecord?.bytes ? loadCalendarDocument(documentRecord.bytes) : createCalendarDocument());
-    };
-    tx.onerror = () => { db.close(); reject(tx.error); };
-    tx.onabort = () => { db.close(); reject(tx.error || new Error("IndexedDB transaction aborted")); };
+    tx.oncomplete = () => resolve(record);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
   }));
+}
+
+async function readState() {
+  const record = await readRecord();
+  const doc = documentFor(record);
+  if (record?.version) cached = { doc, version: record.version };
+  return doc;
+}
+
+// Only the new changes are appended to the stored bytes (Automerge loads a full
+// save followed by incremental ones); a full save compacts them now and then.
+function nextRecord(record, previous, doc) {
+  const version = crypto.randomUUID();
+  const appended = (record?.appended || 0);
+  if (record?.bytes && appended < Math.max(COMPACT_BYTES, record.bytes.byteLength / 2)) {
+    const chunk = Automerge.saveSince(doc, Automerge.getHeads(previous));
+    const bytes = new Uint8Array(record.bytes.byteLength + chunk.byteLength);
+    bytes.set(record.bytes);
+    bytes.set(chunk, record.bytes.byteLength);
+    return { id: CALENDAR_DOCUMENT_ID, bytes, version, appended: appended + chunk.byteLength };
+  }
+  return { id: CALENDAR_DOCUMENT_ID, bytes: saveCalendarDocument(doc), version, appended: 0 };
 }
 
 function writeState(mutator) {
@@ -359,23 +399,31 @@ function writeState(mutator) {
     const tx = db.transaction(CALENDAR_DOCUMENT_STORE, "readwrite");
     const store = tx.objectStore(CALENDAR_DOCUMENT_STORE);
     const request = store.get(CALENDAR_DOCUMENT_ID);
-    let result;
+    let result, written = null;
+    // A mutation can leave the cached document outdated even when it fails.
+    const failed = (error) => { cached = null; reject(error); };
     request.onsuccess = () => {
       try {
-        const doc = request.result?.bytes ? loadCalendarDocument(request.result.bytes) : createCalendarDocument();
+        const record = request.result || null;
+        const doc = documentFor(record);
         const outcome = mutator(doc);
         if (!outcome?.doc) throw new Error("Automerge storage mutation must return a document.");
-        store.put({ id: CALENDAR_DOCUMENT_ID, bytes: saveCalendarDocument(outcome.doc) });
+        assertCalendarDocument(outcome.doc);
+        if (outcome.doc !== doc || !record?.version) {
+          const next = nextRecord(record, doc, outcome.doc);
+          store.put(next);
+          written = { doc: outcome.doc, version: next.version };
+        } else written = { doc, version: record.version };
         result = outcome.result;
       } catch (error) {
         try { tx.abort(); } catch {}
-        reject(error);
+        failed(error);
       }
     };
-    request.onerror = () => reject(request.error);
-    tx.oncomplete = () => { db.close(); resolve(result); };
-    tx.onerror = () => { db.close(); reject(tx.error); };
-    tx.onabort = () => { db.close(); reject(tx.error || new Error("IndexedDB transaction aborted")); };
+    request.onerror = () => failed(request.error);
+    tx.oncomplete = () => { cached = written; resolve(result); };
+    tx.onerror = () => failed(tx.error);
+    tx.onabort = () => failed(tx.error || new Error("IndexedDB transaction aborted"));
   }));
 }
 
@@ -422,7 +470,7 @@ export function putLocalItem(item, baseline = null) {
     // Keep an editor on its own branch between autosaves. Using merged heads
     // with still-unmerged form text would erase concurrent remote text next time.
     const editHeads = historicalEdit?.newHeads || Automerge.getHeads(nextDoc);
-    const editBaseline = hydrateItem(materializeItem(Automerge.clone(Automerge.view(nextDoc, editHeads)), item.id), editHeads);
+    const editBaseline = historicalEdit ? hydrateItem(materializeItem(Automerge.view(nextDoc, editHeads), item.id), editHeads) : after;
     return { doc: nextDoc, result: { before, after, editBaseline, relatedChanges } };
   });
 }
@@ -449,7 +497,22 @@ export function applyLocalHistoryChange(change, side) {
 }
 
 export async function readLocalSyncSnapshot() {
-  return saveCalendarDocument(await readState());
+  const record = await readRecord();
+  return record?.bytes || saveCalendarDocument(createCalendarDocument());
+}
+
+/** The current document, for reading only (sync messages are generated from it). */
+export function readLocalDocument() {
+  return readState();
+}
+
+/** Apply a sync message from the server; resolves to the merged items and the next sync state. */
+export function receiveLocalSyncMessage(syncState, message) {
+  return writeState((doc) => {
+    const [merged, nextSyncState] = Automerge.receiveSyncMessage(doc, syncState, message);
+    const items = hydrateItems(materializeItems(merged), Automerge.getHeads(merged));
+    return { doc: merged, result: { items, syncState: nextSyncState } };
+  });
 }
 
 export function mergeLocalSyncSnapshot(incomingBytes) {

@@ -63,6 +63,8 @@ function storageAdapter() {
   return {
     readSnapshot: storage.readSyncSnapshot,
     mergeSnapshot: storage.mergeSyncSnapshot,
+    readDocument: storage.readSyncDocument,
+    receiveMessage: storage.receiveSyncMessage,
   };
 }
 

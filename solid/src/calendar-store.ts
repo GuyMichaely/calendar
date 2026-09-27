@@ -100,7 +100,11 @@ export function createCalendarStore(options: { onChanged: () => void }) {
       if (!entries.some(group => group.id === id) && (!dragged || dragged.builtin)) return;
       const patches: { group: Group; patch: Partial<Group>; create: boolean }[] = layoutPatches(placeInLayout(boardColumns(entries), [id], target), items());
       // A nested group dragged onto the board leaves its parent and becomes a column entry.
-      if (dragged?.parentId) patches.unshift({ group: dragged, patch: { parentId: null }, create: false });
+      if (dragged?.parentId) {
+        const own = patches.find(entry => entry.group.id === id);
+        if (own) own.patch = { ...own.patch, parentId: null };
+        else patches.unshift({ group: dragged, patch: { parentId: null }, create: false });
+      }
       if (patches.length) await batch("Move group", async () => {
         for (const { group, patch, create } of patches) await (create ? putItem({ ...group, ...patch }) : patchGroup(group, patch));
       });

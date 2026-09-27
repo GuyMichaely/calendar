@@ -108,7 +108,18 @@ Server-only code lives under backend/. The sync/ directory holds the shared Auto
 - make it so using the arrow keys to navigate through item focus loops around when pressing up on top item or down on bottom item
 - what's the "saved on this device" status for? 
 - decide what to do about displaying sleeping/waiting tasks as descendents of open tasks
-- decouple model and view
 - search matches differently in the two views: calendar search (`textMatches` in `site/domain.js`) matches title, notes, tags, and attachment names, but task board search (its own `textMatches` in `solid/src/GroupsView.tsx`) skips attachment names. Decide whether the board should also match attachment names, then have both views use one function
-1. sleeping and waiting dates don't display year. don't display year if it's the current year, otherwise display year
-2. 
+- decide how to deal with dependent tasks in task view; have an expand/collapse arrow?
+- sleeping and waiting dates don't display year. don't display year if it's the current year, otherwise display year 
+
+* drag and drop is still a little buggy? looks like you didn't implement the thing where columns don't need to be chased, please do that
+* i see there's the ability to select all groups of a column but i can't seem to drag them together
+* when dragging a group to where it doesn't make sense to show a drop highlight (i.e. dragging to the immediate left; if we were to show a drop highlight there we'd be dropping the group to its immediate left, which is to say nowwhere. we have to drag it past the left 6th of the column to its left before a meaningful reorder can be made), can we make the droppable column immediately active on hover rather than requiring moving past the 6th?
+    * there's an exception to the above logic about not making sense to show drop highlight; if i'm dragging a subgroup, i'm dragging it out of its parent. it is tenable that i would want to drag a subgroup to the immediate left of its current column, meaning that the subgroup would retain the same column but the parent, all other groups in the column, and all columns to the right would move a column to the right. so in that case we shouldn't do that immediate active on hover so that we can still drop in to a new column
+* looks like you didn't implement dragging tasks by the row like i asked
+* the inline description line cutoff still isn't fixed
+* hitting the red X/Esc when red X is present doesn't show the error dialogue anymore, i want it to show once and once it's visible another Esc or X click reverts and discards
+* "Keep editing" should instead say revert and revert task state back to the last valid state (should probably do so in consideration of debouncing, e.g. if i start with title "title" and backspace until gone with each backspace less than .8 seconds from the last, the last valid state would be the initial state)
+* get rid of the dialogue that confirms whether you want to delete a group/task
+* make the drag handle on sub and dependent tasks in the task editor more obvious
+* what does the color left of the dependent and subtasks in the editor indicate?

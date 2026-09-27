@@ -14,6 +14,8 @@ export function exportData(): Promise<string>;
 export function importData(text: string): Promise<number>;
 export function readSyncSnapshot(): Promise<Uint8Array>;
 export function mergeSyncSnapshot(bytes: Uint8Array): Promise<Item[]>;
+export function readSyncDocument(): Promise<unknown>;
+export function receiveSyncMessage(syncState: unknown, message: Uint8Array): Promise<{ result: Item[]; syncState: unknown }>;
 export function getItem(id: string): Promise<Item | null>;
 export function historyBatch<T>(label: string, run: () => Promise<T>): Promise<T>;
 

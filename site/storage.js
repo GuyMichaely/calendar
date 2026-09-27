@@ -8,7 +8,9 @@ import {
   mergeLocalSyncSnapshot,
   putLocalItem,
   moveLocalTask,
+  readLocalDocument,
   readLocalSyncSnapshot,
+  receiveLocalSyncMessage,
 } from "./automerge-storage.js";
 import { uploadAttachmentsBeforePersist } from "./attachment-remote.js";
 
@@ -30,8 +32,10 @@ if (!historySessionId) {
   sessionStorage.setItem(HISTORY_SESSION_KEY, historySessionId);
 }
 
+// One connection is reused; it closes when another tab upgrades the database.
+let historyConnection = null;
 function openHistoryDb() {
-  return new Promise((resolve, reject) => {
+  historyConnection ||= new Promise((resolve, reject) => {
     const request = indexedDB.open(HISTORY_DB_NAME, HISTORY_DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -39,9 +43,15 @@ function openHistoryDb() {
         db.createObjectStore(HISTORY_STORE, { keyPath: "id" });
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => { db.close(); historyConnection = null; };
+      db.onclose = () => { historyConnection = null; };
+      resolve(db);
+    };
+    request.onerror = () => { historyConnection = null; reject(request.error); };
   });
+  return historyConnection;
 }
 
 function cloneValue(value) {
@@ -144,7 +154,6 @@ async function readPersistedHistory() {
     const req = tx.objectStore(HISTORY_STORE).get(historySessionId);
     req.onsuccess = () => resolve(req.result || null);
     req.onerror = () => reject(req.error);
-    tx.oncomplete = () => db.close();
   });
 }
 
@@ -158,14 +167,8 @@ async function persistHistory() {
       redoStack,
       updatedAt: new Date().toISOString(),
     });
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -380,6 +383,15 @@ export async function mergeSyncSnapshot(bytes) {
   const items = (await mergeLocalSyncSnapshot(bytes)).map(withoutAttachmentBytes);
   replaceLiveItems(items);
   return items;
+}
+
+export function readSyncDocument() { return readLocalDocument(); }
+
+export async function receiveSyncMessage(syncState, message) {
+  const { items, syncState: next } = await receiveLocalSyncMessage(syncState, message);
+  const clean = items.map(withoutAttachmentBytes);
+  replaceLiveItems(clean);
+  return { result: clean, syncState: next };
 }
 
 export async function getItem(id) {
