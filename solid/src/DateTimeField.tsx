@@ -5,12 +5,15 @@ const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const sameDay = (a: Date | null, b: Date) => !!a && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 /**
- * A date and time picker: a calendar, a separate time (12:00 AM unless set), and an editable text version
+ * A date and time picker: a calendar, an optional time (midnight, or 11:59 PM for due dates, unless set), and an editable text version
  * above them. The value is a hidden "YYYY-MM-DDTHH:mm" input, the same as a datetime-local field.
  */
 export function DateTimeField(props: { name: string; label: string; value: string; disabled?: boolean; placeholder?: string; onChange: (value: string) => void }) {
   const [value, setValue] = createSignal(props.value || "");
   createEffect(() => setValue(props.value || ""));
+  const defaultTime = (): [number, number] => props.name === "deadline" ? [23, 59] : [0, 0];
+  const [hasTime, setHasTime] = createSignal(false);
+  const displayText = (date: Date) => hasTime() ? formatDateTimeText(date) : formatDateTimeText(date).split(" ")[0];
   const [open, setOpen] = createSignal(false);
   const [draft, setDraft] = createSignal<Date | null>(null);
   const [month, setMonth] = createSignal(new Date());
@@ -29,7 +32,8 @@ export function DateTimeField(props: { name: string; label: string; value: strin
   const show = () => {
     const current = fromLocalValue(value());
     setDraft(current);
-    setText(current ? formatDateTimeText(current) : "");
+    setHasTime(!!current && (current.getHours() !== defaultTime()[0] || current.getMinutes() !== defaultTime()[1]));
+    setText(current ? displayText(current) : "");
     setTextValid(true);
     const base = current || new Date();
     setMonth(new Date(base.getFullYear(), base.getMonth(), 1));
@@ -45,22 +49,26 @@ export function DateTimeField(props: { name: string; label: string; value: strin
   };
   const pick = (next: Date | null) => {
     setDraft(next);
-    setText(next ? formatDateTimeText(next) : "");
+    setText(next ? displayText(next) : "");
     setTextValid(true);
     if (next) setMonth(new Date(next.getFullYear(), next.getMonth(), 1));
   };
   const pickDay = (day: Date) => {
     const time = draft();
-    pick(new Date(day.getFullYear(), day.getMonth(), day.getDate(), time?.getHours() ?? 0, time?.getMinutes() ?? 0));
+    pick(new Date(day.getFullYear(), day.getMonth(), day.getDate(), time?.getHours() ?? defaultTime()[0], time?.getMinutes() ?? defaultTime()[1]));
   };
   const pickTime = (time: string) => {
-    const [hours, minutes] = time ? time.split(":").map(Number) : [0, 0];
+    setHasTime(!!time);
+    const [hours, minutes] = time ? time.split(":").map(Number) : defaultTime();
     const base = draft() || new Date();
     pick(new Date(base.getFullYear(), base.getMonth(), base.getDate(), hours, minutes));
   };
   const typed = (input: string) => {
     setText(input);
-    const parsed = parseDateTimeText(input);
+    const parsed = parseDateTimeText(input, new Date(), defaultTime());
+    // Different defaults only change a date-only parse; an explicit midnight remains explicit.
+    const alternate = parseDateTimeText(input, new Date(), defaultTime()[0] === 0 ? [23, 59] : [0, 0]);
+    setHasTime(!!parsed && !!alternate && parsed.getTime() === alternate.getTime());
     setTextValid(!input.trim() || !!parsed);
     if (parsed) { setDraft(parsed); setMonth(new Date(parsed.getFullYear(), parsed.getMonth(), 1)); }
     else if (!input.trim()) setDraft(null);
@@ -71,7 +79,7 @@ export function DateTimeField(props: { name: string; label: string; value: strin
     const weeks = Math.ceil((first.getDay() + new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate()) / 7);
     return Array.from({ length: weeks * 7 }, (_, index) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + index));
   });
-  const timeValue = () => { const date = draft(); return date ? `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}` : ""; };
+  const timeValue = () => { const date = draft(); return date && hasTime() ? `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}` : ""; };
 
   // Clicking outside cancels, like the Cancel button.
   createEffect(() => {
@@ -90,7 +98,7 @@ export function DateTimeField(props: { name: string; label: string; value: strin
     </button>
     <Show when={open()}>
       <div class="dt-popover" style={position() ? { top: `${position()!.top}px`, left: `${position()!.left}px` } : undefined} role="dialog" aria-label={`Choose ${props.label.toLowerCase()}`}>
-        <input class="dt-text" classList={{ invalid: !textValid() }} data-editor-ignore aria-label={`${props.label} as text`} placeholder="e.g. Oct 10 2026 5pm" value={text()}
+        <input class="dt-text" classList={{ invalid: !textValid() }} data-editor-ignore aria-label={`${props.label} as text`} placeholder="mm/dd/yyyy hh:mm AM/PM" value={text()}
           onInput={event => typed(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); if (textValid()) commit(draft()); } }} />
         <div class="dt-month">
           <strong>{new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(month())}</strong>
@@ -101,7 +109,8 @@ export function DateTimeField(props: { name: string; label: string; value: strin
           <For each={WEEKDAYS}>{name => <span class="dt-weekday">{name}</span>}</For>
           <For each={days()}>{day => <button type="button" class="dt-day" classList={{ outside: day.getMonth() !== month().getMonth(), today: sameDay(new Date(), day), selected: sameDay(draft(), day) }} onClick={() => pickDay(day)}>{day.getDate()}</button>}</For>
         </div>
-        <label class="dt-time"><span>Time</span><input type="time" data-editor-ignore aria-label={`${props.label} time`} value={timeValue()} onInput={event => pickTime(event.currentTarget.value)} /></label>
+        <label class="dt-time"><span>Time (optional)</span><input type="time" data-editor-ignore aria-label={`${props.label} time`} value={timeValue()} onInput={event => pickTime(event.currentTarget.value)} /></label>
+        <small class="field-hint">Without a time: {props.name === "deadline" ? "11:59 PM" : "12:00 AM"}.</small>
         <div class="dt-actions">
           <button type="button" class="text-button" onClick={() => commit(null)}>Clear</button>
           <span class="spacer" />

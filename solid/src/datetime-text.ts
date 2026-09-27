@@ -17,7 +17,7 @@ export function formatDateTimeShort(date: Date) {
 }
 
 export function formatDateTimeText(date: Date) {
-  return new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+  return `${pad(date.getMonth() + 1)}/${pad(date.getDate())}/${date.getFullYear()} ${pad(date.getHours() % 12 || 12)}:${pad(date.getMinutes())} ${date.getHours() >= 12 ? "PM" : "AM"}`;
 }
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -35,8 +35,8 @@ function parseTime(text: string): [number, number] | null {
   return [hours, minutes];
 }
 
-function build(year: number, month: number, day: number, time: string | undefined): Date | null {
-  const [hours, minutes] = time?.trim() ? parseTime(time) ?? [NaN, NaN] : [0, 0];
+function build(year: number, month: number, day: number, time: string | undefined, defaultTime: [number, number]): Date | null {
+  const [hours, minutes] = time?.trim() ? parseTime(time) ?? [NaN, NaN] : defaultTime;
   if (Number.isNaN(hours)) return null;
   const date = new Date(year, month, day, hours, minutes);
   return date.getMonth() === month && date.getDate() === day ? date : null;
@@ -46,27 +46,27 @@ function build(year: number, month: number, day: number, time: string | undefine
  * Read a typed date and optional time, e.g. "Oct 10 2026 5pm", "Sat, Oct 10, 2026, 5:00 PM",
  * "10/10/2026 17:00" or "2026-10-10 17:00". A missing year means this year; a missing time means midnight.
  */
-export function parseDateTimeText(text: string, now = new Date()): Date | null {
+export function parseDateTimeText(text: string, now = new Date(), defaultTime: [number, number] = [0, 0]): Date | null {
   const input = text.trim().toLowerCase().replace(WEEKDAY, "");
   if (!input) return null;
   let match = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[\st,]+(?:at\s+)?(.+))?$/.exec(input);
-  if (match) return build(+match[1], +match[2] - 1, +match[3], match[4]);
+  if (match) return build(+match[1], +match[2] - 1, +match[3], match[4], defaultTime);
   match = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?(?:[\s,]+(?:at\s+)?(.+))?$/.exec(input);
   if (match) {
     const year = match[3] ? (match[3].length === 2 ? 2000 + +match[3] : +match[3]) : now.getFullYear();
-    return build(year, +match[1] - 1, +match[2], match[4]);
+    return build(year, +match[1] - 1, +match[2], match[4], defaultTime);
   }
   match = /^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?(?:[\s,]+(?:at\s+)?(.+))?$/.exec(input);
   if (match) {
     const month = MONTHS.indexOf(match[1].slice(0, 3));
     if (month < 0) return null;
-    return build(match[3] ? +match[3] : now.getFullYear(), month, +match[2], match[4]);
+    return build(match[3] ? +match[3] : now.getFullYear(), month, +match[2], match[4], defaultTime);
   }
   match = /^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)\.?(?:,?\s+(\d{4}))?(?:[\s,]+(?:at\s+)?(.+))?$/.exec(input);
   if (match) {
     const month = MONTHS.indexOf(match[2].slice(0, 3));
     if (month < 0) return null;
-    return build(match[3] ? +match[3] : now.getFullYear(), month, +match[1], match[4]);
+    return build(match[3] ? +match[3] : now.getFullYear(), month, +match[1], match[4], defaultTime);
   }
   return null;
 }

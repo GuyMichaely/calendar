@@ -1,5 +1,5 @@
 import { Icon } from "./Icon";
-import { taskAncestors, taskDescendants } from "../../site/task-tree.js";
+import { taskDescendants } from "../../site/task-tree.js";
 import { For, Show, createEffect, createMemo, createSignal, onMount, onCleanup, type JSX } from "solid-js";
 import {
   actionability,
@@ -422,7 +422,20 @@ export function ItemEditor(props: {
   // Options are keyed by id: rebuilding <option> elements would reset the select's choice.
   const groupChoices = createMemo(() => groupOptions(props.items));
   const groupLabel = (id: string) => { const option = groupChoices().find(choice => choice.group.id === id); return option ? `${"— ".repeat(option.depth)}${option.group.title}` : ""; };
-  const ancestors = () => (taskAncestors(props.items, itemId) as Task[]).reverse();
+  const ancestors = () => {
+    const byId = new Map(props.items.map(item => [item.id, item]));
+    const chain: Task[] = [], seen = new Set([itemId]);
+    let child = byId.get(itemId);
+    while (child?.kind === "task") {
+      const id = child.parentId || child.dependentOf;
+      if (!id || seen.has(id)) break;
+      seen.add(id);
+      const parent = byId.get(id);
+      if (parent?.kind !== "task") break;
+      chain.push(parent); child = parent;
+    }
+    return chain.reverse();
+  };
   const status = () => {
     const stored = props.items.find(item => item.id === itemId);
     if (stored?.kind !== "task") return "";
@@ -517,11 +530,10 @@ export function ItemEditor(props: {
         <Show when={closeBlocked() && dirty() && (saveError() || invalid())}>
           <div class="close-blocked" role="alert">
             <p><strong>Can't save this {kind()}:</strong> {saveError() || invalid()}</p>
-            <p>Revert goes back to the last saved version. Closing again reverts and closes; typing continues editing.</p>
             <div><button type="button" class="danger-button" onClick={() => void revert()}>Revert</button></div>
           </div>
         </Show>
-        <Show when={props.embedded} fallback={<p class="editor-eyebrow">{existing ? "The details" : props.request.parentId ? "New subtask" : "Make a little space for it"}</p>}>
+        <Show when={props.embedded || ancestors().length > 0} fallback={<p class="editor-eyebrow">{existing ? "The details" : props.request.parentId ? "New subtask" : "Make a little space for it"}</p>}>
           <nav class="detail-path" aria-label="Task path"><button type="button" class="text-button" onClick={close}>Tasks</button><For each={ancestors()}>{parent => <><span aria-hidden="true">›</span><button type="button" class="text-button" onClick={() => void navigateTask(parent)}>{parent.title || "Untitled task"}</button></>}</For></nav>
         </Show>
         <div class="dialog-header">
@@ -582,17 +594,6 @@ export function ItemEditor(props: {
         </div>
 
 
-          <Show when={kind() === "task"}>
-              <div class="subtask-editor full-span" data-task-drop-zone="subtasks" data-task-id={itemId}><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" hidden={props.embedded} disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <div class="subtask-row"><span class="subtask-grip" title="Drag to make this a dependent task" aria-hidden="true" onPointerDown={startRowDrag(child, "subtask")} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button></div>}</For>
-                <Show when={props.embedded && props.onQuickAddSubtask}><div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New subtask title" placeholder={hasSavedItem() ? "Add a next step…" : "Name this task first"} disabled={!hasSavedItem()} maxLength={240} value={subtaskDraft()} onInput={event => setSubtaskDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addSubtaskInline(); } }} /><button type="button" class="text-button" disabled={!subtaskDraft().trim()} onClick={() => void addSubtaskInline()}>Add</button></div></Show>
-                </div>
-                <Show when={hasSavedItem() && props.onAddDependent}>
-                   <div class="subtask-editor dependents-editor full-span" data-task-drop-zone="dependents" data-task-id={itemId}><div class="subtask-heading"><strong>Dependent tasks</strong></div>
-                     <For each={dependents()}>{dependent => <div class="dependent-row"><span class="subtask-grip" title="Drag to make this a subtask" aria-hidden="true" onPointerDown={startRowDrag(dependent, "dependent")} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(dependent)}><span aria-hidden="true">◌</span> {dependent.title || "Untitled task"}</button>{startButtons(dependent, currentItem?.kind === "task" ? currentItem : undefined)}</div>}</For>
-                    <div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New dependent task title" placeholder="Add a dependent task…" maxLength={240} value={dependentDraft()} onInput={event => setDependentDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addDependentInline(); } }} /><button type="button" class="text-button" disabled={!dependentDraft().trim()} onClick={() => void addDependentInline()}>Add</button></div>
-                  </div>
-                </Show>
-          </Show>
           <section class="attachments-section full-span" aria-labelledby={`attachments-title-${domId}`}>
             <h3 id={`attachments-title-${domId}`}>Attachments</h3>
             <div class={`attachment-drop-zone ${draggingAttachments() ? "dragging" : ""}`}
@@ -611,6 +612,18 @@ export function ItemEditor(props: {
             </ul>
             <small class="field-hint">Click a filename to download. Attachment changes can be undone.</small>
           </section>
+          <Show when={kind() === "task"}>
+              <div class="subtask-editor full-span" data-task-drop-zone="subtasks" data-task-id={itemId}><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" hidden={props.embedded} disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <div class="subtask-row"><span class="subtask-grip" title="Drag to make this a dependent task" aria-hidden="true" onPointerDown={startRowDrag(child, "subtask")} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button></div>}</For>
+                <Show when={props.embedded && props.onQuickAddSubtask}><div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New subtask title" placeholder={hasSavedItem() ? "Add a next step…" : "Name this task first"} disabled={!hasSavedItem()} maxLength={240} value={subtaskDraft()} onInput={event => setSubtaskDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addSubtaskInline(); } }} /><button type="button" class="text-button" disabled={!subtaskDraft().trim()} onClick={() => void addSubtaskInline()}>Add</button></div></Show>
+                </div>
+                <Show when={hasSavedItem() && props.onAddDependent}>
+                   <div class="subtask-editor dependents-editor full-span" data-task-drop-zone="dependents" data-task-id={itemId}><div class="subtask-heading"><strong>Dependent tasks</strong></div>
+                     <For each={dependents()}>{dependent => <div class="dependent-row"><span class="subtask-grip" title="Drag to make this a subtask" aria-hidden="true" onPointerDown={startRowDrag(dependent, "dependent")} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(dependent)}><span aria-hidden="true">◌</span> {dependent.title || "Untitled task"}</button>{startButtons(dependent, currentItem?.kind === "task" ? currentItem : undefined)}</div>}</For>
+                    <div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New dependent task title" placeholder="Add a dependent task…" maxLength={240} value={dependentDraft()} onInput={event => setDependentDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addDependentInline(); } }} /><button type="button" class="text-button" disabled={!dependentDraft().trim()} onClick={() => void addDependentInline()}>Add</button></div>
+                  </div>
+                </Show>
+          </Show>
+
 
         <div class="dialog-actions">
           <Show when={hasSavedItem()}><button type="button" class="danger-button" disabled={saving()} onClick={() => void deleteCurrent()}>Delete</button></Show>
@@ -649,7 +662,8 @@ export function SleepDialog(props: {
       <form onSubmit={(event) => {
         event.preventDefault();
         const until = localInputToIso(value());
-        if (!until || toDate(until) <= new Date()) {
+        const deadline = toDate(props.task.deadline);
+        if (!until || toDate(until) <= new Date() || (deadline && toDate(until) > deadline)) {
           props.onInvalid();
           return;
         }
@@ -661,7 +675,7 @@ export function SleepDialog(props: {
         </div>
         <div class="sleep-presets"><button type="button" class="secondary-button" disabled={!!props.task.deadline && tomorrowMidnight(new Date()) > toDate(props.task.deadline)!} onClick={() => void props.onSave(tomorrowMidnight(new Date()).toISOString())}><Icon name="sun" size={16} />Until tomorrow</button><button type="button" class="secondary-button" disabled={!!props.task.deadline} onClick={() => void props.onSave(null)}><Icon name="moon" size={16} />Indefinitely</button></div>
         <Show when={props.task.deadline}><p class="field-hint">Sleep must end by {formatDateTime(props.task.deadline)}. Indefinite sleep is unavailable while this task has a due date.</p></Show>
-        <label class="field full"><span>Or choose a date</span><input type="datetime-local" max={isoToLocalInput(props.task.deadline) || undefined} required value={value()} onInput={(event) => setValue(event.currentTarget.value)} data-dialog-autofocus={true} /></label>
+        <div class="field full"><span>Or choose a date</span><DateTimeField name="sleepUntil" label="Sleep until" value={value()} onChange={setValue} /></div>
         <div class="dialog-actions">
           <div class="spacer" />
           <button type="button" class="secondary-button" onClick={close}>Cancel</button>

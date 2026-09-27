@@ -89,6 +89,26 @@ export function GroupsView(props: GroupsViewProps) {
   const [dropHome, setDropHome] = createSignal(false);
   const targets = new Map<string, () => BoardTarget>();
   let boardRef!: HTMLDivElement;
+  const widthKey = "calendar.boardColumnWidths";
+  const [widths, setWidths] = createSignal<Record<string, number>>((() => {
+    try { const saved = JSON.parse(localStorage.getItem(widthKey) || "{}"); return Object.fromEntries(Object.entries(saved).filter(([, value]) => typeof value === "number" && value >= 220 && value <= 800)) as Record<string, number>; } catch { return {}; }
+  })());
+  const setWidth = (ids: string[], value: number) => {
+    const width = Math.max(220, Math.min(800, value));
+    setWidths(previous => ({ ...previous, ...Object.fromEntries(ids.map(id => [id, width])) }));
+    try { localStorage.setItem(widthKey, JSON.stringify(widths())); } catch { /* Session resizing still works without storage. */ }
+  };
+  const resizeColumn = (ids: string[], event: PointerEvent) => {
+    if (event.button !== 0) return;
+    event.preventDefault(); event.stopPropagation();
+    const handle = event.currentTarget as HTMLElement;
+    const initial = handle.parentElement!.getBoundingClientRect().width, start = event.clientX;
+    handle.setPointerCapture(event.pointerId);
+    const move = (next: PointerEvent) => setWidth(ids, initial + next.clientX - start);
+    const end = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", end); handle.removeEventListener("pointercancel", end); };
+    handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", end); handle.addEventListener("pointercancel", end);
+  };
+
   const dropTarget = (key: string, target: () => BoardTarget, class_: string) => {
     targets.set(key, target);
     return <div class={class_} data-drop={key} classList={{ active: !!dragId() && dropKey() === key }} />;
@@ -102,8 +122,32 @@ export function GroupsView(props: GroupsViewProps) {
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") { setColumnPick(null); setSelection(null); return; }
+      if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable], [role=dialog], [role=menu], .task-detail-pane")) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      const current = selection();
+      if (current && (event.key.startsWith("Arrow") || event.key === "Enter")) {
+        const selector = current.type === "group" ? ".board-group[data-group-id]" : ".board-task";
+        const candidates = [...boardRef.querySelectorAll<HTMLElement>(selector)].filter(el => el.getClientRects().length);
+        const active = document.activeElement instanceof HTMLElement && document.activeElement.matches(selector) ? document.activeElement : candidates.find(el => (current.type === "group" ? el.dataset.groupId : el.dataset.id) === current.id);
+        if (!active) return;
+        event.preventDefault();
+        if (event.key === "Enter") {
+          if (current.type === "group") active.querySelector<HTMLElement>(".board-task")?.focus();
+          else { const task = itemsById().get(current.id); if (task?.kind === "task") props.onEdit(task); }
+          return;
+        }
+        const box = active.getBoundingClientRect(), horizontal = ["ArrowLeft", "ArrowRight"].includes(event.key);
+        const sign = ["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 1;
+        const next = candidates.filter(el => el !== active).map(el => {
+          const rect = el.getBoundingClientRect();
+          const dx = rect.left + rect.width / 2 - box.left - box.width / 2;
+          const dy = rect.top + rect.height / 2 - box.top - box.height / 2;
+          return { el, along: (horizontal ? dx : dy) * sign, across: Math.abs(horizontal ? dy : dx) };
+        }).filter(item => item.along > 1).sort((a,b) => (a.along + a.across * 4) - (b.along + b.across * 4))[0];
+        if (next) { next.el.focus({ preventScroll: true }); next.el.scrollIntoView({ block: "nearest", inline: "nearest" }); }
+        return;
+      }
       if (event.key !== "Delete") return;
-      if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable]")) return;
       const sel = selection();
       if (!sel) return;
       event.preventDefault();
@@ -119,6 +163,12 @@ export function GroupsView(props: GroupsViewProps) {
     document.addEventListener("keydown", onKey);
     onCleanup(() => document.removeEventListener("keydown", onKey));
   });
+  const scrollBoardVertically = (y: number, edge: DOMRect) => {
+    const before = boardRef.scrollTop;
+    if (y > edge.bottom - 48) boardRef.scrollTop += Math.min(24, 4 + (y - edge.bottom + 48) * .3);
+    else if (y < edge.top + 48) boardRef.scrollTop -= Math.min(24, 4 + (edge.top + 48 - y) * .3);
+    return boardRef.scrollTop - before;
+  };
   // Pointer-based so it works with touch as well as a mouse. The dragged group follows
   // the pointer as a fixed ghost while wells expand to preview where it would land.
   const [dragSet, setDragSet] = createSignal<string[]>([]);
@@ -209,10 +259,11 @@ export function GroupsView(props: GroupsViewProps) {
       else if (leftDepth > 0) boardRef.scrollLeft -= Math.min(28, 4 + leftDepth * 0.4);
       // Deliberate edge scrolling carries the anchor along with the content.
       const scrolled = boardRef.scrollLeft - preScrollX;
-      if (anchor) anchor.x -= scrolled;
+      const scrolledY = scrollBoardVertically(lastY, edge);
+      if (anchor) { anchor.x -= scrolled; anchor.y -= scrolledY; }
       const shifted = holdAnchor();
       if (ghost) ghost.style.transform = `translate(${lastX - startX}px, ${lastY - startY}px)`;
-      if (Math.abs(lastX - aimX) + Math.abs(lastY - aimY) <= 5 && !scrolled && !shifted) { frame = requestAnimationFrame(update); return; }
+      if (Math.abs(lastX - aimX) + Math.abs(lastY - aimY) <= 5 && !scrolled && !scrolledY && !shifted) { frame = requestAnimationFrame(update); return; }
       aimX = lastX; aimY = lastY;
       const hit = document.elementFromPoint(lastX, lastY);
       const wellElement = hit?.closest<HTMLElement>("[data-drop]");
@@ -319,7 +370,8 @@ export function GroupsView(props: GroupsViewProps) {
     const ids = pick && pick.includes(id) ? columns().flat().filter(entry => pick.includes(entry)) : [id];
     beginGroupDrag(id, ids, event, event.currentTarget as HTMLElement);
   };
-  // The bar atop a column: click selects its groups, dragging it moves the whole column.
+  // Read the current column at pointerdown: Index preserves the bar while its groups change.
+  // Clicking selects its groups; dragging moves the whole column.
   let suppressPickClick = false;
   const pressColumnBar = (ids: string[]) => (event: PointerEvent) => {
     suppressPickClick = false;
@@ -380,8 +432,7 @@ export function GroupsView(props: GroupsViewProps) {
       const leftDepth = edge.left + EDGE - lastX, rightDepth = lastX - (edge.right - EDGE);
       if (rightDepth > 0) boardRef.scrollLeft += Math.min(28, 4 + rightDepth * 0.4);
       else if (leftDepth > 0) boardRef.scrollLeft -= Math.min(28, 4 + leftDepth * 0.4);
-      if (lastY > innerHeight - 48) window.scrollBy(0, Math.min(24, 4 + (lastY - (innerHeight - 48)) * 0.3));
-      else if (lastY < 104) window.scrollBy(0, -Math.min(24, 4 + (104 - lastY) * 0.3));
+      scrollBoardVertically(lastY, edge);
       const hit = document.elementFromPoint(lastX, lastY);
       let drop: { kind: "before" | "after" | "inside" | "group" | "dependent"; id: string | null } | null = null;
       const hostCard = hit?.closest<HTMLElement>("[data-task-card]");
@@ -545,7 +596,7 @@ export function GroupsView(props: GroupsViewProps) {
       props.onEdit(task());
     };
     return <>
-      <div class="board-task" classList={{ selected: props.selectedId === task().id || (selection()?.type === "task" && selection()?.id === task().id), done: shown().state === "completed", dormant: dormant(), "task-dragging": taskDragId() === task().id, "drop-inside": taskDrop()?.kind === "inside" && taskDropId() === task().id, "drop-before": taskDrop()?.kind === "before" && taskDropId() === task().id, "drop-after": taskDrop()?.kind === "after" && taskDropId() === task().id }} style={{ "padding-left": `${rowProps.depth * 16 + 6}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
+      <div class="board-task" classList={{ selected: selection()?.type === "task" && selection()?.id === task().id, done: shown().state === "completed", dormant: dormant(), "task-dragging": taskDragId() === task().id, "drop-inside": taskDrop()?.kind === "inside" && taskDropId() === task().id, "drop-before": taskDrop()?.kind === "before" && taskDropId() === task().id, "drop-after": taskDrop()?.kind === "after" && taskDropId() === task().id }} style={{ "margin-left": `${rowProps.depth * 16}px` }} data-task-card="true" data-id={task().id} tabIndex={0} onFocus={event => { if (event.target === event.currentTarget) setSelection({ type: "task", id: task().id }); }}
         onMouseDown={() => { clickEndedEdit = !!editing(); }}
         onPointerDown={event => {
           // The whole card drags: press, then move past a small threshold (mouse only;
@@ -585,7 +636,7 @@ export function GroupsView(props: GroupsViewProps) {
         </Show>
         <span class="board-task-copy">
           <Show when={editing()} fallback={<>
-            <div class="board-task-title"><span class="board-text" onClick={edit("title")}>{shown().title || "Untitled task"}</span></div>
+            <div class="board-task-title"><span class="board-text" onClick={edit("title")}>{shown().title}</span></div>
             <Show when={shown().notes}>{notes => <div class="board-task-notes markdown-notes"><span class="board-text" innerHTML={renderNotes(notes())} onClick={event => {
               const link = event.target instanceof Element ? event.target.closest("a") : null;
               if (link) {
@@ -608,7 +659,7 @@ export function GroupsView(props: GroupsViewProps) {
             <span class="dependent-actions">
               <button class="text-button" onClick={() => void props.onStartDependent(task(), false)}>Start</button>
               <Show when={parent()?.state !== "completed"}>
-                <button class="text-button" title={`Start this and complete “${parent()?.title || "Untitled task"}”`} onClick={() => void props.onStartDependent(task(), true)}>Start & complete <span class="parent-name">{parent()?.title}</span></button>
+                <button class="text-button" title={`Start this and complete “${parent()?.title || "Untitled task"}”`} onClick={() => void props.onStartDependent(task(), true)}>Start & complete</button>
               </Show>
             </span>
           </Show>
@@ -706,10 +757,11 @@ export function GroupsView(props: GroupsViewProps) {
       if (!title) { input.value = group().title; setShownTitle(group().title); return; }
       if (title !== group().title) void props.onRenameGroup(group(), title);
     };
-    return <section class="board-group" data-group-id={group().id} classList={{ nested: sectionProps.depth > 0, dragging: dragSet().includes(sectionProps.id), "nest-target": !!dragId() && nestId() === sectionProps.id, "drop-home": dropHome() && dragId() === sectionProps.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === sectionProps.id, "col-picked": !!columnPick()?.includes(sectionProps.id), selected: selection()?.type === "group" && selection()?.id === sectionProps.id }}
+    return <section class="board-group" data-group-id={group().id} tabIndex={0} onFocus={event => { if (event.target === event.currentTarget) setSelection({ type: "group", id: group().id }); }} classList={{ nested: sectionProps.depth > 0, dragging: dragSet().includes(sectionProps.id), "nest-target": !!dragId() && nestId() === sectionProps.id, "drop-home": dropHome() && dragId() === sectionProps.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === sectionProps.id, "col-picked": !!columnPick()?.includes(sectionProps.id), selected: selection()?.type === "group" && selection()?.id === sectionProps.id }}
       onClick={event => {
         // Clicking a group's own background selects it (controls and tasks inside don't).
         if ((event.target as Element).closest("button, input, select, a, .board-task, .task-menu")) return;
+        event.stopPropagation();
         setSelection({ type: "group", id: sectionProps.id });
       }}>
       <DragGrip id={group().id} />
@@ -733,8 +785,8 @@ export function GroupsView(props: GroupsViewProps) {
         </span>
       </header>
       <Show when={!collapsed()}>
-        <TaskList nodes={node().tasks} depth={0} />
         <AddTask groupId={group().id} />
+        <TaskList nodes={node().tasks} depth={0} />
         <GroupList nodes={node().groups} depth={sectionProps.depth + 1} />
       </Show>
     </section>;
@@ -753,11 +805,11 @@ export function GroupsView(props: GroupsViewProps) {
     const spec = BUILTIN_GROUPS.find(entry => entry.id === sectionProps.id)!;
     const empty = { available: "Nothing is available right now.", upcoming: "Nothing is waiting to start.", sleeping: "No sleeping tasks.", ungrouped: "" }[spec.builtin];
     const nodes = () => spec.builtin === "ungrouped" ? board().ungrouped : smart()[spec.builtin];
-    return <section class="board-group smart-group" data-builtin={spec.builtin} classList={{ dragging: dragSet().includes(spec.id), "drop-home": dropHome() && dragId() === spec.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === null && spec.builtin === "ungrouped", "col-picked": !!columnPick()?.includes(spec.id) }}>
+    return <section class="board-group smart-group" data-builtin={spec.builtin} data-group-id={spec.id} tabIndex={0} onFocus={event => { if (event.target === event.currentTarget) setSelection({ type: "group", id: spec.id }); }} onClick={event => { if (!(event.target as Element).closest("button, input, .board-task")) { event.stopPropagation(); setSelection({ type: "group", id: spec.id }); } }} classList={{ selected: selection()?.type === "group" && selection()?.id === spec.id, dragging: dragSet().includes(spec.id), "drop-home": dropHome() && dragId() === spec.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === null && spec.builtin === "ungrouped", "col-picked": !!columnPick()?.includes(spec.id) }}>
       <DragGrip id={spec.id} />
       <header class="board-group-header"><h2>{spec.title}</h2><span class="board-count">{countTasks(nodes())}</span></header>
-      <Show when={nodes().length || !empty} fallback={<p class="board-empty">{empty}</p>}><TaskList nodes={nodes()} depth={0} /></Show>
       <Show when={spec.builtin === "ungrouped"}><AddTask groupId={null} /></Show>
+      <Show when={nodes().length || !empty} fallback={<p class="board-empty">{empty}</p>}><TaskList nodes={nodes()} depth={0} /></Show>
     </section>;
   };
 
@@ -778,11 +830,19 @@ export function GroupsView(props: GroupsViewProps) {
       <label class="check-row"><input type="checkbox" checked={props.showCompleted} onChange={event => props.onShowCompletedChange(event.currentTarget.checked)} />Show completed</label>
       <button class="secondary-button" onClick={async () => focusGroupTitle(await props.onCreateGroup(null))}><Icon name="plus" size={15} />New group</button>
     </div>
-    <div ref={boardRef} class="board" classList={{ compact: props.compact, "drag-active": !!dragId(), "task-dragging": !!taskDragId() }}>
+    <div ref={boardRef} class="board" onClick={event => {
+      if (!(event.target as Element).closest(".board-group, button, input, .column-resize")) {
+        setSelection(null); setColumnPick(null);
+        if (document.activeElement instanceof HTMLElement && boardRef.contains(document.activeElement)) document.activeElement.blur();
+      }
+    }} classList={{ compact: props.compact, "drag-active": !!dragId(), "task-dragging": !!taskDragId() }}>
       {dropTarget("new-0", () => ({ newColumn: 0 }), "board-drop-column")}
       <Index each={columns()}>{(column, columnIndex) => <>
-        <div class="board-column">
-          <button class="column-pick" aria-pressed={pickedColumn(column())} aria-label={`Select all groups in column ${columnIndex + 1}`} title="Click to select all groups in this column, or drag to move the whole column (Escape clears)" onPointerDown={pressColumnBar(column())} onClick={() => { if (suppressPickClick) { suppressPickClick = false; return; } toggleColumnPick(column()); }} />
+        <div class="board-column" style={{ "flex-basis": widths()[column()[0]] ? `${widths()[column()[0]]}px` : undefined }}>
+          <div class="column-resize" role="separator" aria-label={`Resize column ${columnIndex + 1}`} aria-orientation="vertical" aria-valuemin={220} aria-valuemax={800} aria-valuenow={widths()[column()[0]] || 290} tabIndex={0} onPointerDown={event => resizeColumn([...column()], event)} onKeyDown={event => {
+            if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); event.stopPropagation(); setWidth(column(), (widths()[column()[0]] || event.currentTarget.parentElement!.getBoundingClientRect().width) + (event.key === "ArrowRight" ? 20 : -20)); }
+          }} />
+          <button class="column-pick" aria-pressed={pickedColumn(column())} aria-label={`Select all groups in column ${columnIndex + 1}`} title="Click to select all groups in this column, or drag to move the whole column (Escape clears)" onPointerDown={event => pressColumnBar([...column()])(event)} onClick={() => { if (suppressPickClick) { suppressPickClick = false; return; } toggleColumnPick(column()); }} />
           {dropTarget(`in-${columnIndex}-0`, () => ({ column: columnIndex, index: 0 }), "board-drop-slot")}
           <For each={column()}>{(id, position) => <>
             <div class="board-entry" data-board-entry={id} data-column={columnIndex}>
