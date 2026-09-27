@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js";
 import { Icon } from "./Icon";
 import { groupOptions } from "./group-board";
-import { buildSections, pushedDownInfo, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
+import { ancestors, buildSections, pushedDownInfo, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
 import { taskSchedule, windowsById } from "./windows";
 import type { Group, Item, Task } from "./types";
 
@@ -15,8 +15,6 @@ export type TodayViewProps = {
   now: Date;
   scope: TaskScope;
   selectedId: string | null;
-  showCompleted: boolean;
-  onShowCompletedChange: (value: boolean) => void;
   groupLayout: GroupLayout;
   laterPlacement: LaterPlacement;
   subtaskMode: SubtaskMode;
@@ -85,7 +83,8 @@ export function TodayView(props: TodayViewProps) {
     const filter = groupFilter();
     const all = buildSections(props.items, props.now, {
       mode: props.subtaskMode,
-      showCompleted: props.showCompleted,
+      // Completed tasks are always listed (their section starts collapsed).
+      showCompleted: true,
       include: task => textMatches(task, props.query) && (!filter || (taskGroupId(task, byId()) ?? "none") === filter),
     });
     const wanted = props.laterPlacement === "below" && props.scope === "today" ? [...SCOPE_SECTIONS.today.slice(0, 4), "anytime", "upcoming", "completed"] : SCOPE_SECTIONS[props.scope];
@@ -101,6 +100,12 @@ export function TodayView(props: TodayViewProps) {
     await props.onComplete(task);
     if (dependents.length) setStartPrompt({ owner: task, dependents });
   };
+
+  // Unchecking a finished task reopens it. One that's done only because a task above it
+  // was finished reopens that task instead, which brings its whole family back.
+  const finishedAbove = (task: Task) => task.state === "completed" ? task : [...ancestors(task, byId())].reverse().find(ancestor => ancestor.state === "completed") || task;
+  const reopenTitle = (task: Task) => { const owner = finishedAbove(task); return owner === task ? "Reopen" : `Done with “${owner.title || "Untitled task"}”: reopen it`; };
+  const reopen = (task: Task) => props.onReopen(finishedAbove(task));
 
   const chips = (node: TreeNode): Chip[] => {
     const task = node.task, placement: Placement | undefined = node.placement, now = props.now;
@@ -148,7 +153,7 @@ export function TodayView(props: TodayViewProps) {
       <div class="today-row" title={rowProps.node.muted ? "Its own timing is less urgent; shown here with its family" : rowProps.node.container ? "Holds these subtasks; checking it off finishes all of them" : undefined} classList={{ container: rowProps.node.container, muted: !!rowProps.node.muted, pushed: pushed(), selected: props.selectedId === task().id }}
         style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
         onClick={event => { if (!(event.target as Element).closest("button, .task-menu")) props.onEdit(task()); }}>
-        <Show when={!done()} fallback={<span class="complete-spacer" aria-hidden="true" />}>
+        <Show when={!done()} fallback={<button class="complete-button checked" aria-label={`Reopen ${task().title || "Untitled task"}`} title={reopenTitle(task())} onClick={() => void reopen(task())}>✓</button>}>
           <button class="complete-button" aria-label={`Complete ${task().title}`} onClick={() => void complete(task())} />
         </Show>
         <span class="today-copy">
@@ -252,7 +257,6 @@ export function TodayView(props: TodayViewProps) {
           <option value="context">Spread out</option>
         </select>
       </label>
-      <label class="check-row"><input type="checkbox" checked={props.showCompleted} onChange={event => props.onShowCompletedChange(event.currentTarget.checked)} />Show completed</label>
       <label class="today-filter"><span class="visually-hidden">Group</span>
         <select value={groupFilter()} onChange={event => setGroupFilter(event.currentTarget.value)}>
           <option value="">All groups</option>
