@@ -61,3 +61,50 @@ export function demoItems(now = new Date()): Item[] {
     task("demo-cancel", "Cancel old internet plan", { parentId: "demo-utilities", deadline: hours(10) }),
   ];
 }
+
+// Sample tasks share this id prefix so they can be removed again in one step.
+export const SAMPLE_PREFIX = "sample-";
+
+/*
+ * A small set, all in one group, for comparing the two subtask modes: in "Own section"
+ * each subtask is placed by its own timing (with its ancestors as context rows); in
+ * "Under parent" whole trees follow their top task. Every timing here holds at any time
+ * of day (the window is open all day), so the set can be added whenever.
+ */
+export function sampleSubtaskItems(now = new Date()): Item[] {
+  const at = now.toISOString();
+  const hours = (count: number) => new Date(now.getTime() + count * 3_600_000).toISOString();
+  const days = (count: number) => { const date = new Date(now); date.setDate(date.getDate() + count); date.setHours(9, 0, 0, 0); return date.toISOString(); };
+  let order = 0;
+  const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
+    id: SAMPLE_PREFIX + id, kind: "task", title, state: "open", notes: "", tags: [], attachments: [], sortOrder: order++,
+    createdAt: at, updatedAt: at, history: [{ at, type: "created" }], ...extra,
+  });
+  const group = "sample-group", parent = (id: string) => SAMPLE_PREFIX + id;
+  return [
+    { id: group, kind: "group", title: "Sample: subtasks", parentId: null, sortOrder: 0, createdAt: at, updatedAt: at },
+    { id: "sample-window", kind: "window", title: "Sample: open all day", days: [0, 1, 2, 3, 4, 5, 6], start: "00:00", end: "23:59", createdAt: at, updatedAt: at },
+    // Same section throughout: both modes look the same.
+    task("dinner", "Plan birthday dinner", { groupId: group, notes: "All subtasks are available, so both modes nest them here." }),
+    task("restaurant", "Pick a restaurant", { parentId: parent("dinner") }),
+    task("invites", "Send invites", { parentId: parent("dinner") }),
+    // Siblings with three different timings.
+    task("passport", "Renew passport", { groupId: group, notes: "Own section: its subtasks spread to Closing today and Upcoming. Under parent: all three stay here." }),
+    task("form", "Fill out form DS-82", { parentId: parent("passport") }),
+    task("photos", "Get passport photos", { parentId: parent("passport"), windowId: "sample-window", takes: 20 }),
+    task("mail", "Mail the application", { parentId: parent("passport"), availableFrom: days(2) }),
+    // Three levels: the grandchild is due soon.
+    task("move", "Apartment move", { groupId: group, notes: "Own section: the due grandchild shows under Firm with two context rows. Under parent: it's buried here." }),
+    task("utilities", "Sort out utilities", { parentId: parent("move"), availableFrom: days(4) }),
+    task("internet", "Cancel old internet plan", { parentId: parent("utilities"), deadline: hours(10) }),
+    // A parent that can't start yet, with a subtask that can.
+    task("taxes", "File tax return", { groupId: group, availableFrom: days(3), notes: "Own section: the W-2s show under Available now. Under parent: they wait in Upcoming." }),
+    task("w2", "Gather W-2s", { parentId: parent("taxes") }),
+    // An Anytime parent with a subtask that has no such flag.
+    task("spanish", "Learn Spanish", { groupId: group, anytime: true, notes: "Own section: the first step shows under Available. Under parent: it stays in Anytime." }),
+    task("app", "Download a language app", { parentId: parent("spanish") }),
+    // Tasks without subtasks, for comparison.
+    task("plants", "Water the plants", { groupId: group }),
+    task("phone", "Pay phone bill", { groupId: group, deadline: hours(20) }),
+  ];
+}

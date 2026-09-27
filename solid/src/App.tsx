@@ -13,7 +13,7 @@ import { type TaskDrop } from "./GroupsView";
 import { DesignToggles, TodayView, when, type TaskScope } from "./TodayView";
 import { GroupSettings, WindowSettings } from "./SettingsPanels";
 import { windowsById } from "./windows";
-import { demoItems } from "./demo-data";
+import { SAMPLE_PREFIX, demoItems, sampleSubtaskItems } from "./demo-data";
 import { isDormant, projectDependents } from "./dependencies";
 import { dependentTasks } from "../../site/task-tree.js";
 import { ToastStack, type ToastMessage } from "./ToastStack";
@@ -349,6 +349,11 @@ export function App() {
                 <h3>Backup &amp; sync</h3>
                 <button class="text-button" onClick={() => void exportBackup()}>Export backup</button>
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>
+                <div class="solid-menu-divider" />
+                <h3>Sample tasks</h3>
+                <p class="field-hint">Adds a “Sample: subtasks” group whose tasks show how the Subtasks switch (Own section / Under parent) differs. Filter Today to that group to see only them. Removing deletes every sample item; both can be undone.</p>
+                <button class="text-button" onClick={() => void attempt(() => store.importBackup(JSON.stringify({ items: sampleSubtaskItems() })), "Could not add the samples.", "Added the sample tasks")}>Add sample subtasks</button>
+                <button class="text-button" disabled={!items().some(item => item.id.startsWith(SAMPLE_PREFIX))} onClick={() => void attempt(() => store.removeByPrefix(SAMPLE_PREFIX, "Remove samples"), "Could not remove the samples.", "Removed the sample tasks")}>Remove sample tasks</button>
                 <div class="solid-menu-divider" />
                 <form class="solid-menu-remote" onSubmit={(event) => { event.preventDefault(); saveRemoteServer(); }}>
                   <label>

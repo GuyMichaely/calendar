@@ -180,6 +180,12 @@ export function createCalendarStore(options: { onChanged: () => void }) {
       return { added: incoming.length - updated, updated };
     },
     importBackup: (text: string) => change(() => importData(text)),
+    /** Remove every item whose id starts with the prefix (the sample tasks) in one undoable step. */
+    removeByPrefix: (prefix: string, label: string) => batch(label, async () => {
+      // Tasks first (a task takes its subtasks with it), then the windows and groups they used.
+      const doomed = items().filter(item => item.id.startsWith(prefix)).sort((a, b) => Number(a.kind !== "task") - Number(b.kind !== "task"));
+      for (const item of doomed) await deleteItem(item.id);
+    }),
     /** For storage that can't be read: its raw bytes to keep, then an empty calendar. */
     readRawBytes: readRawStoredBytes,
     reset: async () => { await resetStoredDocument(); await refresh(); },

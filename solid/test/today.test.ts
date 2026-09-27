@@ -81,3 +81,20 @@ test("a completed parent stays as context for its open subtasks", () => {
   expect(shape(buildSections(items, now, { mode: "context", showCompleted: false, include: () => true }))).toEqual({ available: [["(done)", ["left"]]] });
   expect(shape(buildSections(items, now, { mode: "nested", showCompleted: false, include: () => true }))).toEqual({ available: ["left"] });
 });
+
+test("the subtask samples differ between the two modes as their notes describe", async () => {
+  const { sampleSubtaskItems } = await import("../src/demo-data");
+  const items = sampleSubtaskItems(now);
+  const titles = (sections: Section[]) => Object.fromEntries(sections.map(entry => [entry.id, entry.trees.map(function flat(node): string[] { return [(node.context ? "(" : "") + node.task.title + (node.context ? ")" : ""), ...node.children.flatMap(flat)]; }).flat()]));
+  const own = titles(buildSections(items, now, { mode: "context", showCompleted: false, include: () => true }));
+  expect(own.firm).toEqual(["(Apartment move)", "(Sort out utilities)", "Cancel old internet plan", "Pay phone bill"]);
+  expect(own.closing).toEqual(["(Renew passport)", "Get passport photos"]);
+  expect(own.available).toContain("(File tax return)");
+  expect(own.available).toContain("(Learn Spanish)");
+  expect(own.upcoming).toEqual(["(Renew passport)", "Mail the application", "File tax return", "(Apartment move)", "Sort out utilities"]);
+  const nested = titles(buildSections(items, now, { mode: "nested", showCompleted: false, include: () => true }));
+  expect(Object.keys(nested)).toEqual(["firm", "available", "anytime", "upcoming"]);
+  expect(nested.firm).toEqual(["Pay phone bill"]);
+  expect(nested.upcoming).toEqual(["File tax return", "Gather W-2s"]);
+  expect(nested.anytime).toEqual(["Learn Spanish", "Download a language app"]);
+});
