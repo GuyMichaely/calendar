@@ -1,6 +1,8 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
-import { dateKey } from "../../site/domain.js";
+import { dateKey, isoToLocalInput, localInputToIso } from "../../site/domain.js";
+import { DateTimeField } from "./DateTimeField";
 import { WorkspaceShell } from "./WorkspaceShell";
+import { Icon } from "./Icon";
 import { DialogShell } from "./DialogShell";
 import { CalendarView } from "./CalendarView";
 import { ItemEditor, type EditorRequest } from "./ItemEditor";
@@ -52,8 +54,13 @@ export function App() {
     motionQuery.addEventListener("change", update);
     onCleanup(() => motionQuery.removeEventListener("change", update));
   });
-  const nowAtStart = new Date();
+  // Pretend time shifts what the lists, calendar, and editor treat as now; the clock keeps
+  // ticking from there. Saved timestamps (created, completed, edited) stay real.
+  const appNow = () => new Date(Date.now() + prefs.timeOffset());
+  const nowAtStart = appNow();
   const [clock, setClock] = createSignal(nowAtStart);
+  const pretend = (target: Date | null) => { prefs.setTimeOffset(target ? target.getTime() - Date.now() : 0); setClock(appNow()); };
+  const pretendLabel = () => clock().toLocaleString([], { weekday: "short", month: "short", day: "numeric", year: clock().getFullYear() === new Date().getFullYear() ? undefined : "numeric", hour: "numeric", minute: "2-digit" });
   // The calendar leaves out dependent tasks that haven't started, or shows them as what-if entries.
   // The calendar reads a task's named window as the working hours it already understands.
   const calendarItems = createMemo(() => {
@@ -88,7 +95,7 @@ export function App() {
   const [shortcuts, setShortcuts] = createSignal<Shortcuts>(loadShortcuts());
   const [shortcutsDirty, setShortcutsDirty] = createSignal(false);
   const [showSettings, setShowSettings] = createSignal(false);
-  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations" | "windows" | "groups">("data");
+  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations" | "windows" | "groups" | "time">("data");
   const [pendingImport, setPendingImport] = createSignal<{ text: string; added: number; updated: number } | null>(null);
   const [importing, setImporting] = createSignal(false);
   let toastSequence = 0;
@@ -247,7 +254,7 @@ export function App() {
       if (import.meta.env.DEV && !backendUrl && !items().length) await attempt(() => store.importBackup(JSON.stringify({ items: demoItems() })), "Could not add the sample tasks.");
       await remote.checkSession();
     })();
-    const clockTimer = window.setInterval(() => { if (!document.querySelector(".solid-dialog-backdrop")) setClock(new Date()); }, 30_000);
+    const clockTimer = window.setInterval(() => { if (!document.querySelector(".solid-dialog-backdrop")) setClock(appNow()); }, 30_000);
     const syncLocation = () => {
       setView(readView());
       setScope(readScope());
@@ -289,7 +296,7 @@ export function App() {
     }} />}>
       <div class="app-shell">
         <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = ""; }} />
-        <WorkspaceShell toolbar={view() === "tasks" ? <DesignToggles groupLayout={prefs.groupLayout()} onGroupLayoutChange={prefs.setGroupLayout}
+        <WorkspaceShell notice={prefs.timeOffset() ? <span class="pretend-notice" role="status"><button type="button" class="text-button" title="Change the pretend time" onClick={() => { setSettingsTab("time"); openSettings(); }}><Icon name="clock" size={15} />Pretending it's {pretendLabel()}</button><button type="button" class="icon-button" aria-label="Back to real time" title="Back to real time" onClick={() => pretend(null)}>×</button></span> : undefined} toolbar={view() === "tasks" ? <DesignToggles groupLayout={prefs.groupLayout()} onGroupLayoutChange={prefs.setGroupLayout}
             laterPlacement={prefs.laterPlacement()} onLaterPlacementChange={value => { prefs.setLaterPlacement(value); if (value === "below") navigate("tasks", "today"); }}
             subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode} /> : undefined}
           view={view()} scope={activeScope()} separateScopes={prefs.laterPlacement() === "separate"} openCount={openCount()} query={query()} onQuery={setQuery}
@@ -313,26 +320,37 @@ export function App() {
                   <ItemEditor embedded request={request} items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => dropTask(child, to === "dependent" ? { kind: "dependent", owner: request.item as Task } : { kind: "inside", parent: request.item as Task })} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} registerClose={close => { closeDetailEditor = close; return () => { if (closeDetailEditor === close) closeDetailEditor = null; }; }} onStale={() => setDetailVersion(version => version + 1)} onRevert={() => setDetailVersion(version => version + 1)}
                     onQuickAddSubtask={quickAddSubtask} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => void selectTask(task.id)} onAddSubtask={() => {}} onClose={() => void closeDetail()}
                     onDelete={async (item) => { await store.deleteItem(item.id); flushDetail = null; await selectTask(null, true); showToast("Deleted"); }}
-                    onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} />}
+                    onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />}
                 </Show>
               </aside>
             </Show>
             </div>
           </Show>
         </WorkspaceShell>
-        <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => dropTask(child, to === "dependent" ? { kind: "dependent", owner: request.item as Task } : { kind: "inside", parent: request.item as Task })} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} />}</Show>
+        <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => dropTask(child, to === "dependent" ? { kind: "dependent", owner: request.item as Task } : { kind: "inside", parent: request.item as Task })} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />}</Show>
         <Show when={showSettings()}><DialogShell labelledBy="settings-title" className="settings-dialog" onClose={closeSettings}>
           <div class="settings-content">
             <div class="dialog-header"><h2 id="settings-title">Settings</h2><button class="icon-button" aria-label="Close settings" onClick={closeSettings}>×</button></div>
             <div class="settings-tabs" role="tablist" aria-label="Settings sections">
               <button role="tab" aria-selected={settingsTab() === "data"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("data"); }}>Data</button>
               <button role="tab" aria-selected={settingsTab() === "windows"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("windows"); }}>Windows</button>
+              <button role="tab" aria-selected={settingsTab() === "time"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("time"); }}>Time</button>
               <button role="tab" aria-selected={settingsTab() === "groups"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("groups"); }}>Groups</button>
               <button role="tab" aria-selected={settingsTab() === "animations"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("animations"); }}>Animations</button>
               <button class="keyboard-settings-tab" role="tab" aria-selected={settingsTab() === "keyboard"} onClick={() => setSettingsTab("keyboard")}>Keyboard shortcuts</button>
             </div>
             <Show when={settingsTab() === "windows"}>
               <WindowSettings items={items()} onCreate={fields => windowChange(() => store.createWindow(fields))} onUpdate={(window, patch) => windowChange(() => store.updateWindow(window, patch))} onDelete={window => windowChange(() => store.deleteWindow(window))} />
+            </Show>
+            <Show when={settingsTab() === "time"}>
+              <section class="time-settings" aria-label="Pretend time">
+                <p class="field-hint">Pretend it's another date and time to see how Today, the calendar, and task details would look then. The clock keeps running from the time you pick. Only what's shown changes: anything you do is still saved at the real time, though dates you choose (like pushing a task down until tomorrow) count from the pretend time.</p>
+                <div class="field"><span>Pretend it's</span><DateTimeField name="pretendAt" label="Pretend it's" value={isoToLocalInput(clock().toISOString())} onChange={value => { const at = localInputToIso(value); if (at) pretend(new Date(at)); }} /></div>
+                <div class="time-steps">
+                  {([["−1 day", -86_400_000], ["−1 hour", -3_600_000], ["+1 hour", 3_600_000], ["+1 day", 86_400_000]] as const).map(([label, step]) => <button type="button" class="secondary-button" onClick={() => pretend(new Date(appNow().getTime() + step))}>{label}</button>)}
+                </div>
+                <button type="button" class="text-button" disabled={!prefs.timeOffset()} onClick={() => pretend(null)}>Use real time</button>
+              </section>
             </Show>
             <Show when={settingsTab() === "groups"}>
               <GroupSettings items={items()} onCreate={() => createGroup(null)} onRename={(group, title) => groupChange(() => store.renameGroup(group, title))} onMove={(group, parentId) => groupChange(() => store.moveGroup(group, parentId))} onDelete={deleteGroup} />

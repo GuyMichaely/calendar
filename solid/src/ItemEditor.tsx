@@ -103,6 +103,8 @@ export function ItemEditor(props: {
   onRevert?: (saved: Item | null) => void;
   // Opens the settings where named windows are edited.
   onManageWindows?: () => void;
+  // What counts as now for showing status (pretend time); saves still use the real time.
+  now?: Date;
 }) {
   const existing = props.request.item;
   const domId = `${++editorInstances}`;
@@ -123,7 +125,8 @@ export function ItemEditor(props: {
   // A dependent task that hasn't started: its dates can be days after starting instead of fixed.
   const dormant = () => !!task?.dependentOf && props.items.some(item => item.id === task.dependentOf && item.kind === "task");
   const [dateModes, setDateModes] = createSignal(Object.fromEntries(RELATIVE_DATE_FIELDS.map(field => [field, task?.relativeDates?.[field] != null ? "after" : "date"])) as Record<RelativeDateField, "date" | "after">);
-  const initialPush = task ? pushedDownInfo(task, new Date()) : null;
+  const now = () => props.now ?? new Date();
+  const initialPush = task ? pushedDownInfo(task, now()) : null;
   const defaults = eventDefaults(props.request);
   const [kind, setKind] = createSignal<"task" | "event">(props.request.kind);
   // A named window, "custom" for legacy inline hours, or "" for any time.
@@ -397,7 +400,7 @@ export function ItemEditor(props: {
     }
   };
 
-  const pushUntil = isoToLocalInput(initialPush?.until || tomorrowMidnight(new Date()));
+  const pushUntil = isoToLocalInput(initialPush?.until || tomorrowMidnight(now()));
   const windowList = createMemo(() => props.items.filter((item): item is TimeWindow => item.kind === "window").sort((a, b) => a.title.localeCompare(b.title)));
   const takesOptions = [[5, "5 min"], [15, "15 min"], [30, "30 min"], [45, "45 min"], [60, "1 hour"], [90, "1½ hours"], [120, "2 hours"], [180, "3 hours"], [240, "4 hours"]] as [number, string][];
   if (task?.takes && !takesOptions.some(([minutes]) => minutes === task.takes)) takesOptions.push([task.takes, `${task.takes} min`]);
@@ -440,9 +443,9 @@ export function ItemEditor(props: {
     if (stored?.kind !== "task") return "";
     if (stored.state === "completed") return "Completed";
     if (dormant()) return `Dependent task of “${parentTask()?.title || "Untitled task"}” · not started`;
-    const pushed = pushedDownInfo(stored, new Date());
+    const pushed = pushedDownInfo(stored, now());
     if (pushed.pushed) return pushed.until ? `Pushed down until ${formatDateTime(pushed.until)}` : "Pushed down";
-    return actionability(stored, new Date()).reason;
+    return actionability(stored, now()).reason;
   };
   const [subtaskDraft, setSubtaskDraft] = createSignal("");
   const addSubtaskInline = async () => {

@@ -27,6 +27,8 @@ export function createPreferences() {
   const [groupLayout, setGroupLayout] = choice("calendar.today.groups", ["labels", "headings"] as const);
   const [laterPlacement, setLaterPlacement] = choice("calendar.today.later", ["below", "separate"] as const);
   const [subtaskMode, setSubtaskMode] = choice("calendar.today.subtasks", ["context", "nested"] as const);
+  // Pretend time: milliseconds added to the real clock (0 = real time).
+  const [timeOffset, setTimeOffset] = stored("calendar.timeOffset", raw => Number(raw) || 0, value => value ? String(value) : null);
   const [pollSeconds, setPollSeconds] = stored("calendar.pollSeconds", () => loadPollSeconds(), value => String(value));
   return {
     showCompleted, setShowCompleted,
@@ -38,6 +40,7 @@ export function createPreferences() {
     groupLayout, setGroupLayout,
     laterPlacement, setLaterPlacement,
     subtaskMode, setSubtaskMode,
+    timeOffset, setTimeOffset,
     pollSeconds, setPollSeconds,
   };
 }

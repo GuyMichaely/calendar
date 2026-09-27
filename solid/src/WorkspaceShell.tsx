@@ -13,6 +13,8 @@ export function WorkspaceShell(props: {
   onUndo: () => void; onRedo: () => void;
   // Shown at the start of the top bar (the Today view's layout switches).
   toolbar?: JSX.Element;
+  // Shown in the top bar while the app pretends it's another time.
+  notice?: JSX.Element;
 }) {
   const [searchOpen, setSearchOpen] = createSignal(false);
   let searchInput!: HTMLInputElement;
@@ -40,6 +42,7 @@ export function WorkspaceShell(props: {
       <header class="workspace-topbar">
         <strong class="mobile-word">Calendar<span class="mobile-brand-period">.</span><Show when={prototypeName}><span class="prototype-badge">{prototypeName}</span></Show></strong>
         <Show when={props.toolbar}>{props.toolbar}</Show>
+        <Show when={props.notice}>{props.notice}</Show>
         <label class="workspace-search" data-open={searchOpen() || !!props.query}><Icon name="search" size={17} /><span class="visually-hidden">{props.view === "calendar" ? "Search calendar" : "Search tasks"}</span><input ref={searchInput} type="search" placeholder={props.view === "calendar" ? "Search calendar" : "Search tasks"} value={props.query} onInput={event => props.onQuery(event.currentTarget.value)} autocomplete="off" /><Show when={props.query}><button type="button" aria-label="Clear search" onClick={() => props.onQuery("")}>×</button></Show></label>
         <div class="workspace-utilities"><button class="icon-button mobile-search-toggle" aria-label={searchOpen() ? "Close search" : "Search"} aria-expanded={searchOpen() || !!props.query} onClick={toggleSearch}><Icon name="search" size={17} /></button>
           <button class="sync-indicator" data-state={props.syncState} title={props.syncDetail} aria-label={`${props.syncLabel}. Open sync settings`} onClick={props.onSettings}><Icon name={props.syncState === "error" ? "alert" : props.syncState === "local" ? "device" : "cloud"} size={17} /><span role="status">{props.syncLabel}</span></button>
