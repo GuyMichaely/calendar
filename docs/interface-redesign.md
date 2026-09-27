@@ -57,3 +57,17 @@ This is an MVP. The keyboard-shortcut and animation settings still exist but no 
 ## Dependent tasks
 
 A dependent task is a prepared next step for another task (`dependentOf`). It stays dormant — out of groups, the built-in lists, and the calendar — and shows dimmed in a "Dependent tasks" section under its parent task until started. Each of its dates is fixed or a number of days after starting (`relativeDates`); starting it fixes those dates from that moment, clears `dependentOf`, and leaves it a normal task in its group (by default its parent task's group). "Start & complete" also completes the parent task in the same undo step, and checking off a task with unstarted dependent tasks offers to start one. Unstarted dependent tasks of a completed task are hidden with it, and deleting a task deletes them. The calendar's "Show dependent tasks" toggle draws them as dashed what-if entries, as if started on the parent task's due date (else its latest start, else today), following chains.
+
+## Today replaces the board (prototype2)
+
+The Today view puts every open task in exactly one section, by the first rule that fits: **Firm** (has a due date and is past its warning time, which defaults to 24 hours before it's due; overdue first), **Closing today** (its window is open now, soonest close first), **Opens later today**, **Upcoming** (can't start yet, or its window doesn't open today), **Anytime** (flagged as having no timing), else **Available**. The logic is `solid/src/today.ts`.
+
+- **Windows** are named items (`kind: "window"`: days, start, end, local time) managed in Settings → Windows. A task references one by `windowId`; editing the window moves every task using it. Legacy inline working hours still count until the task picks a named window. The calendar reads a task's window as its working hours.
+- **Takes** is an optional estimate. A task in Closing today whose estimate is longer than the time left says it won't fit.
+- **Push down** replaces sleep: the task stays in its section, dimmed at the bottom, until a date or until lifted. Legacy sleep reads as pushed down and is converted when the task is next saved. Nothing is hidden, so the old sleep validation against due dates no longer matters for new edits.
+- **Subtasks**: in "Own section" mode each subtask is placed by its own timing, with its ancestors shown above it as dimmed context rows (openable, not checkable) when they aren't in that section. "Under parent" mode places only top-level tasks and nests their whole subtree.
+- Toggles in the Today header switch groups between row labels and headings, Upcoming/Anytime between below Today and separate views (`#upcoming`, `#anytime`), and the subtask mode. Groups are managed in Settings → Groups; a filter shows one group.
+- If the stored document can't be read, the app offers to import a backup or start fresh, downloading the unreadable bytes first.
+- A local development copy with no sync server starts with sample tasks (`solid/src/demo-data.ts`) covering each section and subtask arrangement.
+
+The board (`GroupsView.tsx`) is no longer shown but remains in the tree. Repeating tasks, check-ins, and follow-up triggers are the next slice.

@@ -10,6 +10,8 @@ import {
   moveLocalTask,
   readLocalDocument,
   readLocalSyncSnapshot,
+  readRawLocalBytes,
+  resetLocalDocument,
   receiveLocalSyncMessage,
 } from "./automerge-storage.js";
 import { uploadAttachmentsBeforePersist } from "./attachment-remote.js";
@@ -338,7 +340,7 @@ export function parseBackup(text) {
   if (!Array.isArray(items)) throw new Error("Import file does not contain an items array.");
   const ids = new Set();
   for (const item of items) {
-    if (!item || typeof item.id !== "string" || !item.id || !["task", "event", "group"].includes(item.kind) || typeof item.title !== "string") throw new Error("Every imported item requires an id, task/event/group kind, and title.");
+    if (!item || typeof item.id !== "string" || !item.id || !["task", "event", "group", "window"].includes(item.kind) || typeof item.title !== "string") throw new Error("Every imported item requires an id, task/event/group/window kind, and title.");
     if (item.kind === "task" && !["open", "completed"].includes(item.state)) throw new Error("Imported tasks must have an open or completed state.");
     if (ids.has(item.id)) throw new Error("The backup contains duplicate item IDs.");
     ids.add(item.id);
@@ -383,6 +385,18 @@ export async function mergeSyncSnapshot(bytes) {
   const items = (await mergeLocalSyncSnapshot(bytes)).map(withoutAttachmentBytes);
   replaceLiveItems(items);
   return items;
+}
+
+export function readRawStoredBytes() { return readRawLocalBytes(); }
+
+/** Start over with an empty calendar. Undo history is cleared too: it refers to the old document. */
+export async function resetStoredDocument() {
+  await resetLocalDocument();
+  if (liveItems) liveItems.length = 0;
+  undoStack.length = 0;
+  redoStack.length = 0;
+  await persistHistorySafely();
+  emitHistoryState();
 }
 
 export function readSyncDocument() { return readLocalDocument(); }

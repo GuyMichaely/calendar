@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { completedTask, dependentGroupId, eventFromDraft, newTask, sleptTask, taskFromDraft, wokenTask, type TaskDraft } from "../src/item-changes";
+import { completedTask, dependentGroupId, eventFromDraft, liftedTask, newTask, pushedTask, taskFromDraft, type TaskDraft } from "../src/item-changes";
 import { groupPlacement, reorderPatches, ungroupPatches } from "../src/group-board";
 import type { CalendarEvent, Group, Item, Task } from "../src/types";
 
@@ -8,8 +8,8 @@ const now = new Date("2026-09-26T12:00:00.000Z");
 const task = (id: string, extra: Partial<Task> = {}): Task => ({ id, kind: "task", title: id, state: "open", createdAt: at, updatedAt: at, ...extra });
 const group = (id: string, extra: Partial<Group> = {}): Group => ({ id, kind: "group", title: id, createdAt: at, updatedAt: at, ...extra });
 const draft = (extra: Partial<TaskDraft> = {}): TaskDraft => ({
-  title: "Write", notes: "", tags: [], attachments: [], state: "open", sleep: { mode: "awake" }, groupId: null,
-  availableFrom: null, deadline: null, latestStart: null, schedule: null, relativeDates: {}, ...extra,
+  title: "Write", notes: "", tags: [], attachments: [], state: "open", pushedDown: { mode: "normal" }, groupId: null,
+  availableFrom: null, deadline: null, warnAt: null, windowId: null, schedule: null, takes: null, anytime: false, relativeDates: {}, ...extra,
 });
 
 test("a new task is open, trimmed, and records its creation", () => {
@@ -18,17 +18,17 @@ test("a new task is open, trimmed, and records its creation", () => {
   expect(created.history).toEqual([{ at: now.toISOString(), type: "created" }]);
 });
 
-test("completing a task ends its sleep and records the completion", () => {
-  const done = completedTask(task("a", { sleep: { until: null, startedAt: at }, history: [{ at, type: "created" }] }), now);
-  expect(done).toMatchObject({ state: "completed", completedAt: now.toISOString(), sleep: null });
+test("completing a task lifts it and records the completion", () => {
+  const done = completedTask(task("a", { pushedDown: { until: null, at }, history: [{ at, type: "created" }] }), now);
+  expect(done).toMatchObject({ state: "completed", completedAt: now.toISOString(), pushedDown: null, sleep: null });
   expect(done.history!.map(entry => entry.type)).toEqual(["created", "completed"]);
 });
 
-test("sleeping and waking record history", () => {
+test("pushing down and lifting record history and replace legacy sleep", () => {
   const until = new Date("2026-09-27T00:00:00.000Z");
-  const slept = sleptTask(task("a"), until, now);
-  expect(slept.sleep).toEqual({ until: until.toISOString(), startedAt: now.toISOString() });
-  expect(wokenTask(slept, now)).toMatchObject({ sleep: null, history: [{ type: "slept" }, { type: "woke" }] });
+  const pushed = pushedTask(task("a", { sleep: { until: null, startedAt: at } }), until, now);
+  expect(pushed).toMatchObject({ sleep: null, pushedDown: { until: until.toISOString(), at: now.toISOString() } });
+  expect(liftedTask(pushed, now)).toMatchObject({ pushedDown: null, history: [{ type: "pushed-down" }, { type: "lifted" }] });
 });
 
 test("a dependent task goes in the group of its parent's top-level task", () => {
@@ -41,20 +41,25 @@ test("a new task from a draft records its creation; a subtask ignores the chosen
   expect(created).toMatchObject({ id: "n", parentId: "p", groupId: null, createdAt: now.toISOString(), history: [{ type: "created" }] });
 });
 
-test("editing a task records state and sleep changes", () => {
+test("editing a task records state and push-down changes", () => {
   const previous = task("a", { history: [{ at, type: "created" }] });
   const later = new Date("2026-09-28T00:00:00.000Z").toISOString();
-  const edited = taskFromDraft(draft({ sleep: { mode: "until", until: later } }), { id: "a", previous, now, dormant: false });
-  expect(edited.sleep).toEqual({ until: later, startedAt: now.toISOString() });
-  expect(edited.history!.map(entry => entry.type)).toEqual(["created", "sleep-updated"]);
-  const closed = taskFromDraft(draft({ state: "completed", sleep: { mode: "indefinite" } }), { id: "a", previous: edited, now, dormant: false });
-  expect(closed).toMatchObject({ state: "completed", completedAt: now.toISOString(), sleep: null });
-  expect(closed.history!.map(entry => entry.type)).toEqual(["created", "sleep-updated", "woke", "completed"]);
+  const edited = taskFromDraft(draft({ pushedDown: { mode: "until", until: later } }), { id: "a", previous, now, dormant: false });
+  expect(edited.pushedDown).toEqual({ until: later, at: now.toISOString() });
+  expect(edited.history!.map(entry => entry.type)).toEqual(["created", "pushed-down"]);
+  // Saving without a change records nothing.
+  expect(taskFromDraft(draft({ pushedDown: { mode: "until", until: later } }), { id: "a", previous: edited, now, dormant: false }).history!.length).toBe(2);
+  const closed = taskFromDraft(draft({ state: "completed", pushedDown: { mode: "indefinite" } }), { id: "a", previous: edited, now, dormant: false });
+  expect(closed).toMatchObject({ state: "completed", completedAt: now.toISOString(), pushedDown: null });
+  expect(closed.history!.map(entry => entry.type)).toEqual(["created", "pushed-down", "lifted", "completed"]);
 });
 
-test("a sleep that already ended is dropped", () => {
-  const edited = taskFromDraft(draft({ sleep: { mode: "until", until: at } }), { id: "a", previous: null, now, dormant: false });
-  expect(edited.sleep).toBeNull();
+test("legacy sleep becomes pushed down when saved; an ended push is dropped; a named window replaces inline hours", () => {
+  const sleeping = task("a", { history: [{ at, type: "created" }], sleep: { until: null, startedAt: at }, availabilitySchedule: { enabled: true, days: [1], start: "09:00", end: "17:00" } });
+  const saved = taskFromDraft(draft({ pushedDown: { mode: "indefinite" }, windowId: "w", schedule: sleeping.availabilitySchedule! }), { id: "a", previous: sleeping, now, dormant: false });
+  expect(saved).toMatchObject({ sleep: null, pushedDown: { until: null, at }, windowId: "w", availabilitySchedule: null });
+  expect(saved.history || []).toEqual([{ at, type: "created" }]);
+  expect(taskFromDraft(draft({ pushedDown: { mode: "until", until: at } }), { id: "a", previous: null, now, dormant: false }).pushedDown).toBeNull();
 });
 
 test("only a dormant dependent task keeps its relative dates", () => {

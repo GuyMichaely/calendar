@@ -5,9 +5,11 @@ export type {
   Group,
   HistoryEntry,
   Item,
+  PushedDown,
   SleepState,
   Task,
   TaskState,
+  TimeWindow,
 } from "../../site/model";
 export type { HorizonMode } from "../../site/domain";
 

@@ -10,16 +10,17 @@ import {
   listItems,
   parseBackup,
   putItem,
+  readRawStoredBytes,
   redo,
+  resetStoredDocument,
   redoLabel,
   undo,
   undoLabel,
 } from "../../site/storage.js";
-import { tomorrowMidnight } from "../../site/domain.js";
 import { startedTask } from "./dependencies";
 import { boardColumns, boardEntries, groupPlacement, layoutPatches, placeGroups as placeInLayout, reorderPatches, taskPlacePatches, taskSiblings, ungroupPatches, type BoardTarget } from "./group-board";
-import { completedTask, dependentGroupId, newGroup, newTask, patchedItem, sleptTask, wokenTask } from "./item-changes";
-import type { Group, Item, Task } from "./types";
+import { completedTask, dependentGroupId, liftedTask, newGroup, newTask, newWindow, patchedItem, pushedTask } from "./item-changes";
+import type { Group, Item, Task, TimeWindow } from "./types";
 
 export type HistoryState = { canUndo: boolean; canRedo: boolean; undoLabel: string; redoLabel: string };
 
@@ -68,13 +69,25 @@ export function createCalendarStore(options: { onChanged: () => void }) {
     saveItem: (item: Item, baseline: Item | null) => change(() => putItem(item, baseline)),
     deleteItem: (id: string) => change(() => deleteItem(id)),
 
-    addTask: (groupId: string | null, title: string) => change(() => putItem(newTask({ title, groupId }, new Date()))),
+    addTask: (groupId: string | null, title: string, extra: Partial<Task> = {}) => change(() => putItem(newTask({ ...extra, title, groupId }, new Date()))),
     addSubtask: (parent: Task, title: string) => change(() => putItem(newTask({ title, parentId: parent.id }, new Date()))),
     addDependent: (parent: Task, title: string) => change(() => putItem(newTask({ title, dependentOf: parent.id, groupId: dependentGroupId(items(), parent) }, new Date()))),
     patchTask: (task: Task, patch: Partial<Task>) => change(() => putItem(patchedItem(task, patch, new Date()), task)),
     completeTask: (task: Task) => change(() => putItem(completedTask(task, new Date()), task)),
-    sleepTask: (task: Task) => change(() => { const now = new Date(); return putItem(sleptTask(task, tomorrowMidnight(now), now), task); }),
-    wakeTask: (task: Task) => change(() => putItem(wokenTask(task, new Date()), task)),
+    pushDown: (task: Task, until: Date | null) => change(() => putItem(pushedTask(task, until, new Date()), task)),
+    lift: (task: Task) => change(() => putItem(liftedTask(task, new Date()), task)),
+
+    createWindow: async (fields: Pick<TimeWindow, "title" | "days" | "start" | "end">) => {
+      const window = newWindow(fields, new Date());
+      await change(() => putItem(window));
+      return window.id;
+    },
+    updateWindow: (window: TimeWindow, patch: Partial<Pick<TimeWindow, "title" | "days" | "start" | "end">>) => change(() => putItem(patchedItem(window, patch, new Date()), window)),
+    /** Tasks in a deleted window become doable any time; one undo restores both. */
+    deleteWindow: (window: TimeWindow) => batch(`Delete window “${window.title}”`, async () => {
+      for (const task of items()) if (task.kind === "task" && task.windowId === window.id) await putItem(patchedItem(task, { windowId: null }, new Date()), task);
+      await deleteItem(window.id);
+    }),
     // Starting a dependent task detaches it with fixed dates; optionally its parent task is completed in the same undo step.
     startDependent: async (task: Task, completeParent: boolean) => {
       const now = new Date();
@@ -167,6 +180,9 @@ export function createCalendarStore(options: { onChanged: () => void }) {
       return { added: incoming.length - updated, updated };
     },
     importBackup: (text: string) => change(() => importData(text)),
+    /** For storage that can't be read: its raw bytes to keep, then an empty calendar. */
+    readRawBytes: readRawStoredBytes,
+    reset: async () => { await resetStoredDocument(); await refresh(); },
   };
 }
 

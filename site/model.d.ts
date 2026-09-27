@@ -45,8 +45,19 @@ export type Task = BaseItem & {
   availableFrom?: string | null;
   deadline?: string | null;
   latestStart?: string | null;
+  // Legacy: sleep is read as pushed down (see pushedDownInfo); new edits write pushedDown.
   sleep?: SleepState | null;
+  // Kept in its section but moved to the bottom, dimmed; until null means until lifted.
+  pushedDown?: PushedDown | null;
+  // Legacy inline hours; tasks now use a named window (windowId).
   availabilitySchedule?: AvailabilitySchedule | null;
+  windowId?: string | null;
+  // When a due task joins the Firm section; null means 24 hours before it's due.
+  warnAt?: string | null;
+  // Estimated minutes of work.
+  takes?: number | null;
+  // No timing: listed under Anytime instead of Today.
+  anytime?: boolean | null;
   completedAt?: string | null;
   history?: HistoryEntry[];
   // Only top-level tasks use this; subtasks appear wherever their parent task is.
@@ -81,4 +92,19 @@ export type Group = BaseItem & {
   builtin?: "available" | "upcoming" | "sleeping" | "ungrouped";
 };
 
-export type Item = Task | CalendarEvent | Group;
+export type PushedDown = {
+  until: string | null;
+  at: string;
+};
+
+// A named, reusable time a task can be done in (for example business hours).
+export type TimeWindow = BaseItem & {
+  kind: "window";
+  // 0 = Sunday.
+  days: number[];
+  // "HH:MM", local time.
+  start: string;
+  end: string;
+};
+
+export type Item = Task | CalendarEvent | Group | TimeWindow;

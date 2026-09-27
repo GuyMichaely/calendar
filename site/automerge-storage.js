@@ -37,9 +37,11 @@ const COMMON_ITEM_FIELDS = new Set([
 const TASK_ITEM_FIELDS = new Set([
   ...COMMON_ITEM_FIELDS, "state", "parentId", "sortOrder", "availableFrom", "deadline", "latestStart", "sleep",
   "availabilitySchedule", "completedAt", "history", "groupId", "dependentOf", "relativeDates",
+  "pushedDown", "windowId", "warnAt", "takes", "anytime",
 ]);
 const GROUP_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "parentId", "sortOrder", "boardColumn", "builtin"]);
 const EVENT_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end"]);
+const WINDOW_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "days", "start", "end"]);
 const SPECIAL_DELTA_FIELDS = new Set([
   "id", "title", "notes", "tags", "attachments", "history", "deletedAt",
 ]);
@@ -127,6 +129,7 @@ function allowedFieldsForKind(kind) {
   if (kind === "task") return TASK_ITEM_FIELDS;
   if (kind === "event") return EVENT_ITEM_FIELDS;
   if (kind === "group") return GROUP_ITEM_FIELDS;
+  if (kind === "window") return WINDOW_ITEM_FIELDS;
   throw new Error(`Unknown item kind ${kind}.`);
 }
 
@@ -499,6 +502,24 @@ export function applyLocalHistoryChange(change, side) {
 export async function readLocalSyncSnapshot() {
   const record = await readRecord();
   return record?.bytes || saveCalendarDocument(createCalendarDocument());
+}
+
+/** The stored bytes exactly as they are, so a document that can't be read can still be saved elsewhere. */
+export async function readRawLocalBytes() {
+  return (await readRecord())?.bytes || null;
+}
+
+/** Replace the stored document with an empty one (after its bytes were saved elsewhere). */
+export function resetLocalDocument() {
+  return openDb().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(CALENDAR_DOCUMENT_STORE, "readwrite");
+    const doc = createCalendarDocument();
+    const version = crypto.randomUUID();
+    tx.objectStore(CALENDAR_DOCUMENT_STORE).put({ id: CALENDAR_DOCUMENT_ID, bytes: saveCalendarDocument(doc), version, appended: 0 });
+    tx.oncomplete = () => { cached = { doc, version }; resolve(); };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
+  }));
 }
 
 /** The current document, for reading only (sync messages are generated from it). */

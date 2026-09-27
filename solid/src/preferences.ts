@@ -22,6 +22,11 @@ export function createPreferences() {
   const [calendarSleepMode, setCalendarSleepMode] = stored<CalendarSleepMode>("calendar.calendarSleepMode", raw => raw === "ignore" ? "ignore" : "respect", value => value);
   // "on" or "off" overrides the device's reduced-motion setting; null follows it.
   const [animations, setAnimations] = stored<string | null>("calendar.animations", raw => raw, value => value);
+  // Today view layouts, switchable to compare.
+  const choice = <T extends string>(key: string, options: readonly T[]) => stored<T>(key, raw => options.includes(raw as T) ? raw as T : options[0], value => value);
+  const [groupLayout, setGroupLayout] = choice("calendar.today.groups", ["labels", "headings"] as const);
+  const [laterPlacement, setLaterPlacement] = choice("calendar.today.later", ["below", "separate"] as const);
+  const [subtaskMode, setSubtaskMode] = choice("calendar.today.subtasks", ["context", "nested"] as const);
   const [pollSeconds, setPollSeconds] = stored("calendar.pollSeconds", () => loadPollSeconds(), value => String(value));
   return {
     showCompleted, setShowCompleted,
@@ -30,6 +35,9 @@ export function createPreferences() {
     hideSleeping, setHideSleeping,
     calendarSleepMode, setCalendarSleepMode,
     animations, setAnimations,
+    groupLayout, setGroupLayout,
+    laterPlacement, setLaterPlacement,
+    subtaskMode, setSubtaskMode,
     pollSeconds, setPollSeconds,
   };
 }

@@ -14,12 +14,14 @@ import {
 import { NotesEditor, type NotesEditorApi } from "./NotesEditor";
 import { DateTimeField } from "./DateTimeField";
 import { groupOptions } from "./group-board";
+import { pushedDownInfo } from "./today";
+import { describeSchedule } from "./windows";
 import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
 import { attachmentMarkdown } from "./markdown";
 import { DialogShell } from "./DialogShell";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
 import { eventFromDraft, taskFromDraft, type TaskDraft } from "./item-changes";
-import type { Attachment, CalendarEvent, Item, Task } from "./types";
+import type { Attachment, CalendarEvent, Item, Task, TimeWindow } from "./types";
 
 export type EditorRequest = {
   item: Task | CalendarEvent | null;
@@ -31,6 +33,8 @@ export type EditorRequest = {
 };
 
 let editorInstances = 0;
+// The dates a dependent task can set as days after starting.
+const SHOWN_RELATIVE_FIELDS = ["availableFrom", "deadline"] as const;
 
 function uuid() {
   return crypto.randomUUID();
@@ -97,6 +101,8 @@ export function ItemEditor(props: {
   onLiveEdit?: (taskId: string, patch: Partial<Task> | null) => void;
   // Reopens the editor on the given saved item (null: a fresh editor for the same request).
   onRevert?: (saved: Item | null) => void;
+  // Opens the settings where named windows are edited.
+  onManageWindows?: () => void;
 }) {
   const existing = props.request.item;
   const domId = `${++editorInstances}`;
@@ -117,13 +123,14 @@ export function ItemEditor(props: {
   // A dependent task that hasn't started: its dates can be days after starting instead of fixed.
   const dormant = () => !!task?.dependentOf && props.items.some(item => item.id === task.dependentOf && item.kind === "task");
   const [dateModes, setDateModes] = createSignal(Object.fromEntries(RELATIVE_DATE_FIELDS.map(field => [field, task?.relativeDates?.[field] != null ? "after" : "date"])) as Record<RelativeDateField, "date" | "after">);
-  const initialSleep = task ? sleepInfo(task, new Date()) : null;
+  const initialPush = task ? pushedDownInfo(task, new Date()) : null;
   const defaults = eventDefaults(props.request);
   const [kind, setKind] = createSignal<"task" | "event">(props.request.kind);
-  const [scheduleEnabled, setScheduleEnabled] = createSignal(!!task?.availabilitySchedule?.enabled);
+  // A named window, "custom" for legacy inline hours, or "" for any time.
+  const [windowChoice, setWindowChoice] = createSignal(task?.windowId || (task?.availabilitySchedule?.enabled ? "custom" : ""));
   const [deadlineInput, setDeadlineInput] = createSignal(isoToLocalInput(task?.deadline));
-  const [sleepMode, setSleepMode] = createSignal<"awake" | "until" | "indefinite">(
-    initialSleep?.sleeping ? (initialSleep.indefinite ? "indefinite" : "until") : "awake",
+  const [pushMode, setPushMode] = createSignal<"normal" | "until" | "indefinite">(
+    initialPush?.pushed ? (initialPush.until ? "until" : "indefinite") : "normal",
   );
   const [eventStart, setEventStart] = createSignal(defaults.start);
   const [eventEnd, setEventEnd] = createSignal(defaults.end);
@@ -151,10 +158,8 @@ export function ItemEditor(props: {
       notes: String(data.get("notes") || ""),
       availableFrom: localInputToIso(data.get("availableFrom")),
       deadline: localInputToIso(data.get("deadline")),
-      latestStart: localInputToIso(data.get("latestStart")),
       groupId: String(data.get("groupId") || "") || null,
       state: taskState(),
-      sleep: sleepMode() === "awake" ? null : { until: sleepMode() === "until" ? localInputToIso(data.get("sleepUntil")) : null, startedAt: existing?.kind === "task" ? existing.sleep?.startedAt || new Date().toISOString() : new Date().toISOString() },
     };
   };
 
@@ -275,11 +280,7 @@ export function ItemEditor(props: {
   const saveOnce = async (): Promise<boolean> => {
     if (!dirty()) return true;
     if (!String(new FormData(formRef).get("title") || "").trim()) { setSaveError("Enter a title to save."); return false; }
-    if (!formRef.checkValidity()) {
-      const sleepInput = formRef.elements.namedItem("sleepUntil") as HTMLInputElement | null;
-      setSaveError(sleepInput?.validity.rangeOverflow ? "Sleep must end on or before the task’s due date." : "Complete the required fields to save.");
-      return false;
-    }
+    if (!formRef.checkValidity()) { setSaveError("Complete the required fields to save."); return false; }
     const submittedForm = serializeForm(formRef, pendingFiles(), removedAttachments());
     const submittedFiles = [...pendingFiles()];
     const submittedRemoved = new Set(removedAttachments());
@@ -299,21 +300,21 @@ export function ItemEditor(props: {
     let item: Item;
     if (kind() === "task") {
       const relativeDates: TaskDraft["relativeDates"] = {};
-      for (const field of RELATIVE_DATE_FIELDS) if (dateModes()[field] === "after") relativeDates[field] = Math.max(0, Number(data.get(`${field}After`)) || 0);
+      for (const field of SHOWN_RELATIVE_FIELDS) if (dateModes()[field] === "after") relativeDates[field] = Math.max(0, Number(data.get(`${field}After`)) || 0);
+      if (task?.relativeDates?.latestStart != null) relativeDates.latestStart = task.relativeDates.latestStart;
+      const choice = windowChoice();
       item = taskFromDraft({
         ...shared,
         state: taskState(),
-        sleep: sleepMode() === "until" ? { mode: "until", until: localInputToIso(data.get("sleepUntil")) } : { mode: sleepMode() as "awake" | "indefinite" },
+        pushedDown: pushMode() === "until" ? { mode: "until", until: localInputToIso(data.get("pushUntil")) } : { mode: pushMode() as "normal" | "indefinite" },
         groupId: String(data.get("groupId") || "") || null,
         availableFrom: localInputToIso(data.get("availableFrom")),
         deadline: localInputToIso(data.get("deadline")),
-        latestStart: localInputToIso(data.get("latestStart")),
-        schedule: scheduleEnabled() ? {
-          enabled: true,
-          days: data.getAll("scheduleDay").map(Number),
-          start: String(data.get("scheduleStart") || "08:00"),
-          end: String(data.get("scheduleEnd") || "17:00"),
-        } : null,
+        warnAt: localInputToIso(data.get("warnAt")),
+        windowId: choice && choice !== "custom" ? choice : null,
+        schedule: choice === "custom" ? task?.availabilitySchedule ?? null : null,
+        takes: Number(data.get("takes")) || null,
+        anytime: data.get("anytime") === "on",
         relativeDates,
       }, { ...context, parentId: props.request.parentId, dormant: dormant() });
     } else {
@@ -396,11 +397,10 @@ export function ItemEditor(props: {
     }
   };
 
-  const schedule = task?.availabilitySchedule;
-  const selectedDays = schedule?.enabled ? schedule.days : [1, 2, 3, 4, 5];
-  const sleepUntil = initialSleep?.sleeping && !initialSleep.indefinite
-    ? isoToLocalInput(initialSleep.until)
-    : isoToLocalInput(tomorrowMidnight(new Date()));
+  const pushUntil = isoToLocalInput(initialPush?.until || tomorrowMidnight(new Date()));
+  const windowList = createMemo(() => props.items.filter((item): item is TimeWindow => item.kind === "window").sort((a, b) => a.title.localeCompare(b.title)));
+  const takesOptions = [[5, "5 min"], [15, "15 min"], [30, "30 min"], [45, "45 min"], [60, "1 hour"], [90, "1½ hours"], [120, "2 hours"], [180, "3 hours"], [240, "4 hours"]] as [number, string][];
+  if (task?.takes && !takesOptions.some(([minutes]) => minutes === task.takes)) takesOptions.push([task.takes, `${task.takes} min`]);
   const removeAttachment = (attachment: Attachment) => {
     setRemovedAttachments(current => new Set([...current, attachment.id]));
     syncDirty();
@@ -440,8 +440,8 @@ export function ItemEditor(props: {
     if (stored?.kind !== "task") return "";
     if (stored.state === "completed") return "Completed";
     if (dormant()) return `Dependent task of “${parentTask()?.title || "Untitled task"}” · not started`;
-    const sleep = sleepInfo(stored, new Date());
-    if (sleep.sleeping) return sleep.indefinite ? "Sleeping indefinitely" : `Sleeping until ${formatDateTime(sleep.until)}`;
+    const pushed = pushedDownInfo(stored, new Date());
+    if (pushed.pushed) return pushed.until ? `Pushed down until ${formatDateTime(pushed.until)}` : "Pushed down";
     return actionability(stored, new Date()).reason;
   };
   const [subtaskDraft, setSubtaskDraft] = createSignal("");
@@ -558,26 +558,20 @@ export function ItemEditor(props: {
               <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><Show when={!props.embedded}>{completionButton(false)}</Show></div>
               {dateField("availableFrom", "Can start", <DateTimeField name="availableFrom" label="Can start" value={isoToLocalInput(task?.availableFrom)} onChange={syncDirty} />)}
               {dateField("deadline", "Due", <DateTimeField name="deadline" label="Due" value={deadlineInput()} onChange={value => { setDeadlineInput(value); syncDirty(); }} />)}
-              {dateField("latestStart", "Latest start", <DateTimeField name="latestStart" label="Latest start" value={isoToLocalInput(task?.latestStart)} onChange={syncDirty} />)}
               <Show when={!task?.parentId && !props.request.parentId}><label class="field"><span>Group</span><select name="groupId" value={task?.groupId || props.request.groupId || ""}><option value="">No group</option><For each={groupChoices().map(option => option.group.id)}>{id => <option value={id}>{groupLabel(id)}</option>}</For></select></label></Show>
-              <label class="field"><span>Sleep</span><select name="sleepMode" value={sleepMode()} onChange={(event) => { setSleepMode(event.currentTarget.value as ReturnType<typeof sleepMode>); syncDirty(); }}><option value="awake">Awake</option><option value="until">Until a date</option><option value="indefinite" disabled={!!deadlineInput()}>Indefinitely</option></select></label>
-              <div class="field" hidden={sleepMode() !== "until"}><span>Sleep until</span><DateTimeField name="sleepUntil" label="Sleep until" value={sleepUntil} disabled={sleepMode() !== "until"} onChange={syncDirty} /></div>
-            </div>
-            <details class="schedule-box" open={!!task?.availabilitySchedule?.enabled}><summary><Icon name="clock" size={16} />Working hours<span>Optional</span></summary>
-              <label class="toggle-row">
-                <input type="checkbox" name="scheduleEnabled" checked={scheduleEnabled()} onChange={(event) => { setScheduleEnabled(event.currentTarget.checked); syncDirty(); }} />
-                <span><strong>Recurring action window</strong><small>The same task becomes actionable during these times until you close it.</small></span>
+              <Show when={deadlineInput()}><div class="field"><span>Warn from</span><DateTimeField name="warnAt" label="Warn from" value={isoToLocalInput(task?.warnAt)} onChange={syncDirty} /><small class="field-hint">When it joins Firm. Empty: 24 hours before it's due.</small></div></Show>
+              <label class="field"><span>Window<Show when={props.onManageWindows}> <button type="button" class="inline-link" onClick={() => props.onManageWindows?.()}>Manage</button></Show></span>
+                <select name="windowId" value={windowChoice()} onChange={event => { setWindowChoice(event.currentTarget.value); syncDirty(); }}>
+                  <option value="">Any time</option>
+                  <For each={windowList().map(window => window.id)}>{id => { const window = () => windowList().find(entry => entry.id === id); return <option value={id}>{window()?.title} · {window() ? describeSchedule(window()!) : ""}</option>; }}</For>
+                  <Show when={task?.availabilitySchedule?.enabled}><option value="custom">Custom hours · {describeSchedule(task!.availabilitySchedule!)}</option></Show>
+                </select>
               </label>
-              <div class={`schedule-options ${scheduleEnabled() ? "" : "disabled"}`}>
-                <div class="weekday-picks" aria-label="Action days">
-                  <For each={["S", "M", "T", "W", "T", "F", "S"]}>{(name, day) => <label><input type="checkbox" name="scheduleDay" value={day()} checked={selectedDays.includes(day())} disabled={!scheduleEnabled()} /><span>{name}</span></label>}</For>
-                </div>
-                <div class="time-pair">
-                  <label class="field"><span>From</span><input name="scheduleStart" type="time" value={schedule?.start || "08:00"} disabled={!scheduleEnabled()} /></label>
-                  <label class="field"><span>Until</span><input name="scheduleEnd" type="time" value={schedule?.end || "17:00"} disabled={!scheduleEnabled()} /></label>
-                </div>
-              </div>
-            </details>
+              <label class="field"><span>Takes</span><select name="takes" value={String(task?.takes ?? "")}><option value="">Not estimated</option><For each={takesOptions}>{([minutes, label]) => <option value={minutes}>{label}</option>}</For></select></label>
+              <label class="field"><span>Push down</span><select name="pushMode" value={pushMode()} onChange={event => { setPushMode(event.currentTarget.value as ReturnType<typeof pushMode>); syncDirty(); }}><option value="normal">No</option><option value="until">Until a date</option><option value="indefinite">Until I lift it</option></select></label>
+              <div class="field" hidden={pushMode() !== "until"}><span>Pushed down until</span><DateTimeField name="pushUntil" label="Pushed down until" value={pushUntil} disabled={pushMode() !== "until"} onChange={syncDirty} /></div>
+              <label class="toggle-row full-span"><input type="checkbox" name="anytime" checked={!!task?.anytime} /><span><strong>Anytime</strong><small>No timing: listed under Anytime instead of Today.</small></span></label>
+            </div>
           </div>
         </Show>
 
