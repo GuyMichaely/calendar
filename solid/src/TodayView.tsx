@@ -125,12 +125,16 @@ export function TodayView(props: TodayViewProps) {
     return option?.group.title || "";
   };
 
+  // Rows whose "+N subtasks" are unfolded (Under parent mode).
+  const [unfolded, setUnfolded] = createSignal(new Set<string>());
+  const toggleFold = (id: string) => setUnfolded(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+
   const Row = (rowProps: { node: TreeNode; depth: number; label: boolean }): JSX.Element => {
     const task = () => rowProps.node.task;
     const pushed = () => !rowProps.node.context && !!rowProps.node.placement?.pushed;
     const label = () => rowProps.label && props.groupLayout === "labels" ? groupTitle(taskGroupId(task(), byId())) : "";
     return <>
-      <div class="today-row" classList={{ context: rowProps.node.context, pushed: pushed(), done: task().state === "completed", selected: props.selectedId === task().id }}
+      <div class="today-row" title={rowProps.node.muted ? "Its own timing is less urgent; shown here with its subtasks" : undefined} classList={{ context: rowProps.node.context, muted: !!rowProps.node.muted, pushed: pushed(), done: task().state === "completed", selected: props.selectedId === task().id }}
         style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
         onClick={event => { if (!(event.target as Element).closest("button, .task-menu")) props.onEdit(task()); }}>
         <Show when={!rowProps.node.context} fallback={<span class="context-mark" title={task().state === "completed" ? "Completed; shown for its subtasks" : "Shown for its subtasks"} aria-hidden="true">{task().state === "completed" ? "✓" : "↳"}</span>}>
@@ -146,6 +150,13 @@ export function TodayView(props: TodayViewProps) {
         <Show when={!rowProps.node.context}><RowMenu task={task()} /></Show>
       </div>
       <For each={rowProps.node.children}>{child => <Row node={child} depth={rowProps.depth + 1} label={false} />}</For>
+      <Show when={rowProps.node.hidden?.length}>
+        <Show when={unfolded().has(task().id)} fallback={
+          <button type="button" class="today-fold" style={{ "padding-left": `${38 + rowProps.depth * 20}px` }} onClick={() => toggleFold(task().id)}>+{rowProps.node.hidden!.length} subtask{rowProps.node.hidden!.length === 1 ? "" : "s"}</button>}>
+          <For each={rowProps.node.hidden}>{child => <Row node={child} depth={rowProps.depth + 1} label={false} />}</For>
+          <button type="button" class="today-fold" style={{ "padding-left": `${38 + rowProps.depth * 20}px` }} onClick={() => toggleFold(task().id)}>Fold {rowProps.node.hidden!.length === 1 ? "it" : "them"} away</button>
+        </Show>
+      </Show>
     </>;
   };
 

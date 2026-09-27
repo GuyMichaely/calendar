@@ -68,7 +68,7 @@ export const SAMPLE_PREFIX = "sample-";
 /*
  * A small set, all in one group, for comparing the two subtask modes: in "Own section"
  * each subtask is placed by its own timing (with its ancestors as context rows); in
- * "Under parent" whole trees follow their top task. Every timing here holds at any time
+ * "Under parent" each whole tree shows once, in its most urgent task's section. Every timing here holds at any time
  * of day (the window is open all day), so the set can be added whenever.
  */
 export function sampleSubtaskItems(now = new Date()): Item[] {
@@ -89,19 +89,19 @@ export function sampleSubtaskItems(now = new Date()): Item[] {
     task("restaurant", "Pick a restaurant", { parentId: parent("dinner") }),
     task("invites", "Send invites", { parentId: parent("dinner") }),
     // Siblings with three different timings.
-    task("passport", "Renew passport", { groupId: group, notes: "Own section: its subtasks spread to Closing today and Upcoming. Under parent: all three stay here." }),
+    task("passport", "Renew passport", { groupId: group, notes: "Own section: its subtasks spread to Closing today and Upcoming. Under parent: the whole tree moves to Closing today, with the other two folded into “+2 subtasks”." }),
     task("form", "Fill out form DS-82", { parentId: parent("passport") }),
     task("photos", "Get passport photos", { parentId: parent("passport"), windowId: "sample-window", takes: 20 }),
     task("mail", "Mail the application", { parentId: parent("passport"), availableFrom: days(2) }),
     // Three levels: the grandchild is due soon.
-    task("move", "Apartment move", { groupId: group, notes: "Own section: the due grandchild shows under Firm with two context rows. Under parent: it's buried here." }),
+    task("move", "Apartment move", { groupId: group, notes: "Own section: the due grandchild shows under Firm with two context rows, and the move stays in Available. Under parent: the whole tree moves up to Firm." }),
     task("utilities", "Sort out utilities", { parentId: parent("move"), availableFrom: days(4) }),
     task("internet", "Cancel old internet plan", { parentId: parent("utilities"), deadline: hours(10) }),
     // A parent that can't start yet, with a subtask that can.
-    task("taxes", "File tax return", { groupId: group, availableFrom: days(3), notes: "Own section: the W-2s show under Available now. Under parent: they wait in Upcoming." }),
+    task("taxes", "File tax return", { groupId: group, availableFrom: days(3), notes: "Own section: the W-2s show under Available now while the return waits in Upcoming. Under parent: the whole tree moves to Available." }),
     task("w2", "Gather W-2s", { parentId: parent("taxes") }),
     // An Anytime parent with a subtask that has no such flag.
-    task("spanish", "Learn Spanish", { groupId: group, anytime: true, notes: "Own section: the first step shows under Available. Under parent: it stays in Anytime." }),
+    task("spanish", "Learn Spanish", { groupId: group, anytime: true, notes: "Own section: the first step shows under Available while the goal stays in Anytime. Under parent: the whole tree moves to Available." }),
     task("app", "Download a language app", { parentId: parent("spanish") }),
     // Tasks without subtasks, for comparison.
     task("plants", "Water the plants", { groupId: group }),

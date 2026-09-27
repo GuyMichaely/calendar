@@ -439,7 +439,7 @@ main:has(.tasks-panel) { padding: 16px 24px 64px; }
 .task-detail-pane.closing { opacity: 0; transition: opacity .2s ease .03s; }
 .tasks-workspace.split .tasks-panel { max-width: none; min-width: 0; }
 .task-card.selected-task { background: var(--surface); border-color: var(--line); box-shadow: inset 3px 0 var(--accent); }
-.task-detail-pane { position: sticky; top: 72px; height: calc(100dvh - 88px); overflow: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); min-width: 0; }
+.task-detail-pane { position: sticky; top: 72px; height: calc(100dvh - 88px); overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); min-width: 0; }
 .task-detail-empty { display: grid; align-content: center; justify-items: start; gap: 8px; height: 100%; padding: 40px 44px; color: var(--muted); }
 .task-detail-empty h2 { margin: 0; color: var(--text); font-size: 22px; letter-spacing: -.5px; max-width: 18em; }
 .task-detail-empty p:last-child { margin: 0; font-size: 12px; max-width: 30em; line-height: 1.6; }
@@ -717,6 +717,9 @@ main:has(.groups-panel) > .tasks-workspace { flex: 1; min-height: 0; grid-templa
 .today-title { min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
 .today-row.done .today-title { color: var(--muted); text-decoration: line-through; }
 .today-row.pushed { opacity: .55; }
+.today-row.muted .today-title, .today-row.muted .today-chips { opacity: .6; }
+.today-fold { display: block; width: 100%; border: 0; background: none; padding-block: 3px 6px; text-align: left; color: var(--muted); font-size: 11px; }
+.today-fold:hover { color: var(--accent-strong); }
 .today-row.context { min-height: 28px; color: var(--muted); }
 .today-row.context .today-title { font-size: 12px; }
 .context-mark { width: 19px; flex: 0 0 19px; text-align: center; color: var(--muted); font-size: 12px; }

@@ -52,9 +52,11 @@ test("windows describe themselves and find their next opening", () => {
   expect(nextOpening(business, new Date(2026, 9, 9, 18))?.opens).toEqual(new Date(local(12, 9)));
 });
 
+// "(x)" is a context row, "~x" a muted one, and "+2" the subtasks folded under a row.
 const shape = (sections: Section[]) => Object.fromEntries(sections.map(entry => [entry.id, entry.trees.map(function show(node): unknown {
-  const label = node.context ? `(${node.task.id})` : node.task.id;
-  return node.children.length ? [label, node.children.map(show)] : label;
+  const label = node.context ? `(${node.task.id})` : node.muted ? `~${node.task.id}` : node.task.id;
+  const below = [...node.children.map(show), ...(node.hidden ? [`+${node.hidden.length}`] : [])];
+  return below.length ? [label, below] : label;
 })]));
 
 test("subtasks show in their own section with their ancestors as context, or nest under their parent", () => {
@@ -73,7 +75,10 @@ test("subtasks show in their own section with their ancestors as context, or nes
   });
   expect(context.find(entry => entry.id === "closing")!.count).toBe(1);
   const nested = buildSections(items, now, { mode: "nested", showCompleted: false, include: () => true });
-  expect(shape(nested)).toEqual({ available: [["parent", ["child-now", ["child-window", ["grand-child"]]]], "solo"] });
+  // The tree goes to its most urgent section (the grandchild's Firm); the subtask that
+  // doesn't lead there is folded away.
+  expect(shape(nested)).toEqual({ firm: [["~parent", [["~child-window", ["grand-child"]], "+1"]]], available: ["solo"] });
+  expect(nested.find(entry => entry.id === "firm")!.count).toBe(1);
 });
 
 test("a completed parent stays as context for its open subtasks", () => {
@@ -85,7 +90,10 @@ test("a completed parent stays as context for its open subtasks", () => {
 test("the subtask samples differ between the two modes as their notes describe", async () => {
   const { sampleSubtaskItems } = await import("../src/demo-data");
   const items = sampleSubtaskItems(now);
-  const titles = (sections: Section[]) => Object.fromEntries(sections.map(entry => [entry.id, entry.trees.map(function flat(node): string[] { return [(node.context ? "(" : "") + node.task.title + (node.context ? ")" : ""), ...node.children.flatMap(flat)]; }).flat()]));
+  const titles = (sections: Section[]) => Object.fromEntries(sections.map(entry => [entry.id, entry.trees.map(function flat(node): string[] {
+    const label = node.context ? `(${node.task.title})` : node.muted ? `~${node.task.title}` : node.task.title;
+    return [label, ...node.children.flatMap(flat), ...(node.hidden ? [`+${node.hidden.length}`] : [])];
+  }).flat()]));
   const own = titles(buildSections(items, now, { mode: "context", showCompleted: false, include: () => true }));
   expect(own.firm).toEqual(["(Apartment move)", "(Sort out utilities)", "Cancel old internet plan", "Pay phone bill"]);
   expect(own.closing).toEqual(["(Renew passport)", "Get passport photos"]);
@@ -93,8 +101,10 @@ test("the subtask samples differ between the two modes as their notes describe",
   expect(own.available).toContain("(Learn Spanish)");
   expect(own.upcoming).toEqual(["(Renew passport)", "Mail the application", "File tax return", "(Apartment move)", "Sort out utilities"]);
   const nested = titles(buildSections(items, now, { mode: "nested", showCompleted: false, include: () => true }));
-  expect(Object.keys(nested)).toEqual(["firm", "available", "anytime", "upcoming"]);
-  expect(nested.firm).toEqual(["Pay phone bill"]);
-  expect(nested.upcoming).toEqual(["File tax return", "Gather W-2s"]);
-  expect(nested.anytime).toEqual(["Learn Spanish", "Download a language app"]);
+  // Each tree shows once, in its most urgent section.
+  expect(nested).toEqual({
+    firm: ["~Apartment move", "~Sort out utilities", "Cancel old internet plan", "Pay phone bill"],
+    closing: ["~Renew passport", "Get passport photos", "+2"],
+    available: ["Plan birthday dinner", "Pick a restaurant", "Send invites", "~File tax return", "Gather W-2s", "~Learn Spanish", "Download a language app", "Water the plants"],
+  });
 });
