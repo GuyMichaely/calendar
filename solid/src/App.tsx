@@ -1,3 +1,4 @@
+import { hasDemoTasks } from "./demo-tasks";
 import { SleepControls } from "./SleepControls";
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { dateKey, sleepInfo } from "../../site/domain.js";
@@ -31,6 +32,16 @@ export function App() {
   const store = createCalendarStore({ onChanged: () => void remote.request() });
   const remote = createRemoteSync({ backendUrl, pollSeconds: prefs.pollSeconds, onSynced: store.refresh });
   const items = store.items;
+  const [loadingDemo, setLoadingDemo] = createSignal(false);
+  const loadDemo = async () => {
+    if (loadingDemo() || hasDemoTasks(items())) return;
+    if (backendUrl) { showToast("Disconnect remote sync before loading demo tasks."); return; }
+    setLoadingDemo(true);
+    try { await store.loadDemoTasks(); showToast("Demo tasks added. Undo removes the whole set."); }
+    catch (error) { showToast(errorMessage(error, "Could not load demo tasks.")); }
+    finally { setLoadingDemo(false); }
+  };
+  const demoButton = () => <button class="secondary-button" disabled={loadingDemo() || hasDemoTasks(items()) || !!backendUrl} title={backendUrl ? "Disconnect remote sync to keep examples local." : "Adds examples without replacing your tasks. Undo removes the set."} onClick={() => void loadDemo()}>{loadingDemo() ? "Loading examples…" : hasDemoTasks(items()) ? "Demo tasks loaded" : "Load demo tasks"}</button>;
   const [remoteUrlDraft, setRemoteUrlDraft] = createSignal(backendUrl);
   const [loadingError, setLoadingError] = createSignal("");
   const [view, setView] = createSignal<View>(readView());
@@ -273,7 +284,7 @@ export function App() {
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
           <Show when={view() === "tasks"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} sleepMode={prefs.calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={prefs.setCalendarSleepMode} hideSleeping={prefs.hideSleeping()} onHideSleepingChange={prefs.setHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
             <div class="tasks-workspace" classList={{ split: paneOpen() }} data-animations={animations() ? "on" : "off"}>
-            <GroupsView hideSleeping={prefs.hideSleeping()} onHideSleepingChange={prefs.setHideSleeping} onRespectSleepChange={value => prefs.setCalendarSleepMode(value ? "respect" : "ignore")} onPrioritize={(task, ref, before) => attempt(() => store.prioritizeTask(task, ref, before), "Could not reorder priority.")} items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null} showCompleted={prefs.showCompleted()} onShowCompletedChange={prefs.setShowCompleted}
+            <GroupsView demoAction={demoButton()} hideSleeping={prefs.hideSleeping()} onHideSleepingChange={prefs.setHideSleeping} onRespectSleepChange={value => prefs.setCalendarSleepMode(value ? "respect" : "ignore")} onPrioritize={(task, ref, before) => attempt(() => store.prioritizeTask(task, ref, before), "Could not reorder priority.")} items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null} showCompleted={prefs.showCompleted()} onShowCompletedChange={prefs.setShowCompleted}
               compact={prefs.compact()} onCompactChange={prefs.setCompact} onPatchTask={patchTask} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit}
               onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={(group, title) => groupChange(() => store.renameGroup(group, title))} onMoveGroup={(group, parentId) => groupChange(() => store.moveGroup(group, parentId))} onReorderGroup={(group, offset) => groupChange(() => store.reorderGroup(group, offset))} onDeleteGroup={deleteGroup} onPlaceGroup={(id, target) => groupChange(() => store.placeGroup(id, target))} onPlaceGroups={(ids, target) => groupChange(() => store.placeGroups(ids, target))} onDropTask={dropTask} onStartDependent={startDependent} onDeleteTask={deleteTask} onSleepTask={sleepTask} onWakeTask={wakeTask} respectSleep={prefs.calendarSleepMode() === "respect"} />
             <Show when={paneMounted()}>
@@ -316,6 +327,7 @@ export function App() {
               <section class="data-settings" aria-label="Data settings">
                 <h3>Backup &amp; sync</h3>
                 <p class="field-hint">This prototype has separate browser data and settings. Import a backup to try your tasks here. Connecting a sync server will merge this preview’s data with that server.</p>
+                {demoButton()}
                 <button class="text-button" onClick={() => void exportBackup()}>Export backup</button>
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>
                 <div class="solid-menu-divider" />

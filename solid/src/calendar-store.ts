@@ -1,3 +1,4 @@
+import { demoTasks } from "./demo-tasks";
 import { priorityOrder } from "./todo-planning";
 import { createSignal, onCleanup } from "solid-js";
 import {
@@ -69,6 +70,12 @@ export function createCalendarStore(options: { onChanged: () => void }) {
     saveItem: (item: Item, baseline: Item | null) => change(() => putItem(item, baseline)),
     deleteItem: (id: string) => change(() => deleteItem(id)),
 
+    loadDemoTasks: () => batch("Load demo tasks", async () => {
+      const existing = new Set((await listItems()).map(item => item.id));
+      const examples = demoTasks().filter(item => !existing.has(item.id));
+      for (const item of examples) await putItem(item);
+      return examples.length;
+    }),
     addTask: (groupId: string | null, title: string) => change(() => putItem(newTask({ title, groupId }, new Date()))),
     addSubtask: (parent: Task, title: string) => change(() => putItem(newTask({ title, parentId: parent.id }, new Date()))),
     addDependent: (parent: Task, title: string) => change(() => putItem(newTask({ title, dependentOf: parent.id, groupId: dependentGroupId(items(), parent) }, new Date()))),

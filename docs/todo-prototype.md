@@ -29,3 +29,9 @@ Recurrence and outcomes are not yet implemented. Add fixed daily/weekly schedule
 ## Verification
 
 182 tests, TypeScript, and production build pass. Isolated desktop/mobile browser checks verify classification, unique membership, closing-time order, priority dragging across organizational groups, reload persistence, completion/undo, and Tasks/Groups navigation at 390 and 320 pixels. The browser also contains sentinel unprefixed preferences and a separate IndexedDB database, verifying that the preview uses its own storage and ignores the other build's sync configuration. No production data is used by the checks.
+
+## Demo data
+
+Use **Load demo tasks** in the Tasks toolbar or Settings → Data. The examples are dated relative to loading time and cover every timing section, manual priority, groups, subtasks, a dormant dependent, completed work, and notes. They use actual task records and normal persistence. Loading preserves existing records, uses one undo step, and is disabled once examples exist or while a remote sync server is configured. Undo the load to remove the entire example set.
+
+Demo verification: 183 tests plus typecheck/build pass. Browser checks confirm each section is populated, existing tasks are retained, one undo removes the examples, loading cannot be duplicated, examples survive reload, and the mobile layout fits.

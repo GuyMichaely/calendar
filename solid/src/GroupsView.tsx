@@ -18,6 +18,7 @@ export type TaskDrop =
   | { kind: "dependent"; owner: Task };
 
 export type GroupsViewProps = {
+  demoAction?: JSX.Element;
   items: Item[];
   query: string;
   now: Date;
@@ -873,6 +874,7 @@ export function GroupsView(props: GroupsViewProps) {
     </Show>
 
     <div class="groups-toolbar">
+      {props.demoAction}
       <div class="todo-view-tabs" role="group" aria-label="Task view"><button class="secondary-button" aria-pressed={focusView()} onClick={() => switchView(true)}>Tasks</button><button class="secondary-button" aria-pressed={!focusView()} onClick={() => switchView(false)}>Groups</button></div>
       <button class={`secondary-button density-toggle ${props.compact ? "active" : ""}`} aria-pressed={props.compact} onClick={() => props.onCompactChange(!props.compact)}><Icon name="compact" size={15} />Compact</button>
       <label class="check-row"><input type="checkbox" checked={props.showCompleted} onChange={event => props.onShowCompletedChange(event.currentTarget.checked)} />Show completed</label>
