@@ -85,6 +85,8 @@ export function GroupsView(props: GroupsViewProps) {
   const [dragId, setDragId] = createSignal<string | null>(null);
   const [dropKey, setDropKey] = createSignal("");
   const [nestId, setNestId] = createSignal("");
+  // The dragged group shows a "home" outline over positions that would leave it put.
+  const [dropHome, setDropHome] = createSignal(false);
   const targets = new Map<string, () => BoardTarget>();
   let boardRef!: HTMLDivElement;
   const dropTarget = (key: string, target: () => BoardTarget, class_: string) => {
@@ -95,27 +97,23 @@ export function GroupsView(props: GroupsViewProps) {
   const [columnPick, setColumnPick] = createSignal<string[] | null>(null);
   const toggleColumnPick = (ids: string[]) => setColumnPick(previous => previous && ids.every(id => previous.includes(id)) ? null : ids);
   const pickedColumn = (ids: string[]) => { const pick = columnPick(); return !!ids.length && !!pick && ids.every(id => pick.includes(id)); };
-  // Clicking or dragging selects a group or task; Delete asks to remove it, Escape clears.
+  // Clicking or dragging selects a group or task; Delete removes it, Escape clears.
   const [selection, setSelection] = createSignal<{ type: "group" | "task"; id: string } | null>(null);
-  const [confirmDelete, setConfirmDelete] = createSignal<{ kind: "group"; group: Group } | { kind: "task"; task: Task } | null>(null);
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (confirmDelete()) { event.preventDefault(); event.stopPropagation(); setConfirmDelete(null); return; }
-        setColumnPick(null); setSelection(null);
-        return;
-      }
+      if (event.key === "Escape") { setColumnPick(null); setSelection(null); return; }
       if (event.key !== "Delete") return;
       if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable]")) return;
       const sel = selection();
       if (!sel) return;
       event.preventDefault();
+      setSelection(null);
       if (sel.type === "task") {
         const task = itemsById().get(sel.id);
-        if (task?.kind === "task") setConfirmDelete({ kind: "task", task });
+        if (task?.kind === "task") void props.onDeleteTask(task);
       } else {
         const group = groupsById().get(sel.id)?.group;
-        if (group) setConfirmDelete({ kind: "group", group });
+        if (group) void props.onDeleteGroup(group);
       }
     };
     document.addEventListener("keydown", onKey);
@@ -163,23 +161,37 @@ export function GroupsView(props: GroupsViewProps) {
       return entryNode ? [entry, ...flattenGroupNodes(entryNode.groups).keys()] : [entry];
     }));
     // A rAF loop drives the drag: pointermove events stop when a held finger is
-    // stationary, so edge scrolling runs every frame. But the drop target only
-    // re-aims when the pointer actually moves or the board scrolls — otherwise
-    // opening wells would shift content out from under a still pointer ("chasing").
-    let lastX = startX, lastY = startY, aimX = Infinity, aimY = Infinity, lastScroll = -1, frame = 0;
+    // stationary, so edge scrolling runs every frame. Three stabilizers: the drop
+    // target only re-aims when the pointer actually moves or the board scrolls,
+    // the content point under the pointer is pinned while a target is engaged
+    // (opening wells shift OTHER elements, not your target), and hovering a spot
+    // that would leave the group exactly where it is highlights its own home.
+    let lastX = startX, lastY = startY, aimX = Infinity, aimY = Infinity, frame = 0;
+    // While a target is engaged, the content point that was under the pointer at
+    // engagement stays at that viewport spot: expanding wells shift other content
+    // (mostly scrolling it left / the page up) instead of your target. Deliberate
+    // edge-scrolling wins; the pin re-anchors whenever the engaged target changes.
+    let pin: { contentX: number; viewportX: number; contentY: number; viewportY: number } | null = null;
+    let lastEngaged = "";
     const update = () => {
-      if (ghost) ghost.style.transform = `translate(${lastX - startX}px, ${lastY - startY}px)`;
       const edge = boardRef.getBoundingClientRect();
       const EDGE = 56;
+      const preScrollX = boardRef.scrollLeft, preScrollY = window.scrollY;
       const leftDepth = edge.left + EDGE - lastX, rightDepth = lastX - (edge.right - EDGE);
       if (rightDepth > 0) boardRef.scrollLeft += Math.min(28, 4 + rightDepth * 0.4);
       else if (leftDepth > 0) boardRef.scrollLeft -= Math.min(28, 4 + leftDepth * 0.4);
-      const scrolled = boardRef.scrollLeft !== lastScroll; lastScroll = boardRef.scrollLeft;
+      const scrolled = boardRef.scrollLeft !== preScrollX || window.scrollY !== preScrollY;
+      if (!scrolled && pin) {
+        const wantX = pin.contentX - pin.viewportX, wantY = pin.contentY - pin.viewportY;
+        if (Math.abs(boardRef.scrollLeft - wantX) > 1) boardRef.scrollLeft = wantX;
+        if (Math.abs(window.scrollY - wantY) > 1) window.scrollTo({ top: wantY });
+      }
+      if (ghost) ghost.style.transform = `translate(${lastX - startX}px, ${lastY - startY}px)`;
       if (Math.abs(lastX - aimX) + Math.abs(lastY - aimY) <= 5 && !scrolled) { frame = requestAnimationFrame(update); return; }
       aimX = lastX; aimY = lastY;
       const hit = document.elementFromPoint(lastX, lastY);
       const well = hit?.closest<HTMLElement>("[data-drop]")?.dataset.drop;
-      let key = well || "", nest = "";
+      let key = well || "", nest = "", home = false;
       if (!well) {
         const host = hit?.closest<HTMLElement>(".board-group:not(.smart-group)");
         const hostId = host?.dataset.groupId || "";
@@ -198,10 +210,12 @@ export function GroupsView(props: GroupsViewProps) {
             else if (relX > 1 - edgeShare) key = `new-${column + 1}`;
             else if (!multi) nest = hostId;
           } else if (!multi) nest = hostId; // Nested hosts: dropping nests inside.
-        } else if (!host) {
-          // Over an entry's empty margin, the same halves-to-column rule applies.
+        } else if (host && hostId === id) home = true; // Over the dragged group itself.
+        else if (!host) {
+          // Over an entry's margin or its own spot: dropping changes nothing → home.
           const entry = hit?.closest<HTMLElement>("[data-board-entry]");
-          if (entry && !moving.has(entry.dataset.boardEntry || "")) {
+          if (entry && moving.has(entry.dataset.boardEntry || "")) home = true;
+          else if (entry) {
             const box = entry.getBoundingClientRect(), column = Number(entry.dataset.column);
             key = `new-${lastX < box.left + box.width / 2 ? column : column + 1}`;
           }
@@ -209,8 +223,16 @@ export function GroupsView(props: GroupsViewProps) {
       }
       // Dropping onto the current parent when already last in it changes nothing.
       if (nest && node?.group.parentId === nest && groupsById().get(nest)?.groups.at(-1)?.group.id === id) nest = "";
-      if (targetIsNoop(key)) key = "";
-      setDropKey(key); setNestId(nest);
+      if (targetIsNoop(key)) { key = ""; home = true; }
+      // (Re)anchor the pinned content point only when the engaged target changes.
+      // "Home" doesn't expand anything, so it isn't pinned.
+      const engaged = key || nest;
+      if (!engaged) { pin = null; lastEngaged = ""; }
+      else if (engaged !== lastEngaged) {
+        lastEngaged = engaged;
+        pin = { contentX: lastX + boardRef.scrollLeft, viewportX: lastX, contentY: lastY + window.scrollY, viewportY: lastY };
+      }
+      setDropKey(key); setNestId(nest); setDropHome(home);
       frame = requestAnimationFrame(update);
     };
     const move = (next: PointerEvent) => { lastX = next.clientX; lastY = next.clientY; };
@@ -227,7 +249,7 @@ export function GroupsView(props: GroupsViewProps) {
       handle.removeEventListener("pointercancel", cancel);
       document.removeEventListener("keydown", escape, true);
       const key = dropKey(), nest = nestId(), target = targets.get(key);
-      setDragId(null); setDropKey(""); setNestId("");
+      setDragId(null); setDropKey(""); setNestId(""); setDropHome(false);
       if (!drop) return;
       const dragged = groupsById().get(id)?.group;
       if (nest) { if (dragged) void props.onMoveGroup(dragged, nest); }
@@ -246,15 +268,17 @@ export function GroupsView(props: GroupsViewProps) {
     document.addEventListener("keydown", escape, true);
   };
 
-  // Task dragging: a grip on each card undocks it; dropping onto another card nests
-  // it as a subtask (middle), orders as a sibling (top/bottom edge), or re-groups it.
+  // Task dragging: a grip on each card undocks it, and the whole row starts a drag
+  // after a small movement threshold; dropping onto another card nests it as a
+  // subtask (middle), orders as a sibling (top/bottom edge), or re-groups it.
   const [taskDragId, setTaskDragId] = createSignal<string | null>(null);
   const [taskDrop, setTaskDrop] = createSignal<{ kind: "before" | "after" | "inside" | "group" | "dependent"; id: string | null } | null>(null);
   const taskDropId = () => taskDrop()?.id;
-  const startTaskDrag = (id: string, event: PointerEvent) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    const handle = event.currentTarget as HTMLElement;
+  // A row drag that engaged must not also count as an open-editor click on release.
+  let suppressRowClick = "";
+  const beginTaskDrag = (id: string, event: PointerEvent, host?: HTMLElement) => {
+    if (host) event.preventDefault();
+    const handle = (host || event.currentTarget) as HTMLElement;
     const card = handle.closest<HTMLElement>("[data-task-card]");
     handle.setPointerCapture(event.pointerId);
     setTaskDragId(id);
@@ -448,11 +472,37 @@ export function GroupsView(props: GroupsViewProps) {
     return <>
       <div class="board-task" classList={{ selected: props.selectedId === task().id || (selection()?.type === "task" && selection()?.id === task().id), done: shown().state === "completed", dormant: dormant(), "task-dragging": taskDragId() === task().id, "drop-inside": taskDrop()?.kind === "inside" && taskDropId() === task().id, "drop-before": taskDrop()?.kind === "before" && taskDropId() === task().id, "drop-after": taskDrop()?.kind === "after" && taskDropId() === task().id }} style={{ "padding-left": `${rowProps.depth * 16 + 6}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
         onMouseDown={() => { clickEndedEdit = !!editing(); }}
+        onPointerDown={event => {
+          // The whole card drags: press, then move past a small threshold (mouse only;
+          // touch uses the grip so vertical scrolling never fights the drag).
+          if (event.button !== 0 || event.pointerType !== "mouse" || dormant()) return;
+          if (event.target instanceof Element && event.target.closest("button, textarea, input, select, a, .board-text")) return;
+          const card = event.currentTarget as HTMLElement;
+          const id = task().id, x0 = event.clientX, y0 = event.clientY;
+          card.setPointerCapture(event.pointerId);
+          const arm = (next: PointerEvent) => {
+            if (Math.abs(next.clientX - x0) + Math.abs(next.clientY - y0) <= 6) return;
+            suppressRowClick = id;
+            card.removeEventListener("pointermove", arm);
+            card.removeEventListener("pointerup", disarm);
+            card.removeEventListener("pointercancel", disarm);
+            beginTaskDrag(id, next, card);
+          };
+          const disarm = () => {
+            card.removeEventListener("pointermove", arm);
+            card.removeEventListener("pointerup", disarm);
+            card.removeEventListener("pointercancel", disarm);
+          };
+          card.addEventListener("pointermove", arm);
+          card.addEventListener("pointerup", disarm, { once: true });
+          card.addEventListener("pointercancel", disarm, { once: true });
+        }}
         onClick={event => {
+          if (suppressRowClick === task().id) { suppressRowClick = ""; return; }
           if (clickEndedEdit) { clickEndedEdit = false; return; }
           if (!(event.target instanceof Element && event.target.closest("button, textarea, .board-text"))) { openedCard = event.currentTarget as HTMLElement; setSelection({ type: "task", id: task().id }); props.onEdit(task()); }
         }}>
-        <Show when={!dormant()}><div class="task-grip" title="Drag to move" aria-hidden="true" onPointerDown={event => startTaskDrag(task().id, event)} /></Show>
+        <Show when={!dormant()}><div class="task-grip" title="Drag to move" aria-hidden="true" onPointerDown={event => { if (event.button === 0) beginTaskDrag(task().id, event); }} /></Show>
         <Show when={!dormant()} fallback={<span class="dormant-indicator" title="Not started" aria-hidden="true" />}>
           <Show when={task().state !== "completed"} fallback={<span class="complete-indicator" aria-hidden="true">✓</span>}>
             <button class="complete-button" aria-label={`Complete ${task().title}`} onClick={() => void complete()} />
@@ -581,7 +631,7 @@ export function GroupsView(props: GroupsViewProps) {
       if (!title) { input.value = group().title; setShownTitle(group().title); return; }
       if (title !== group().title) void props.onRenameGroup(group(), title);
     };
-    return <section class="board-group" data-group-id={group().id} classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id, "nest-target": !!dragId() && nestId() === sectionProps.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === sectionProps.id, "col-picked": !!columnPick()?.includes(sectionProps.id), selected: selection()?.type === "group" && selection()?.id === sectionProps.id }}
+    return <section class="board-group" data-group-id={group().id} classList={{ nested: sectionProps.depth > 0, dragging: dragId() === sectionProps.id, "nest-target": !!dragId() && nestId() === sectionProps.id, "drop-home": dropHome() && dragId() === sectionProps.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === sectionProps.id, "col-picked": !!columnPick()?.includes(sectionProps.id), selected: selection()?.type === "group" && selection()?.id === sectionProps.id }}
       onClick={event => {
         // Clicking a group's own background selects it (controls and tasks inside don't).
         if ((event.target as Element).closest("button, input, select, a, .board-task, .task-menu")) return;
@@ -628,7 +678,7 @@ export function GroupsView(props: GroupsViewProps) {
     const spec = BUILTIN_GROUPS.find(entry => entry.id === sectionProps.id)!;
     const empty = { available: "Nothing is available right now.", upcoming: "Nothing is waiting to start.", sleeping: "No sleeping tasks.", ungrouped: "" }[spec.builtin];
     const nodes = () => spec.builtin === "ungrouped" ? board().ungrouped : smart()[spec.builtin];
-    return <section class="board-group smart-group" data-builtin={spec.builtin} classList={{ dragging: dragId() === spec.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === null && spec.builtin === "ungrouped", "col-picked": !!columnPick()?.includes(spec.id) }}>
+    return <section class="board-group smart-group" data-builtin={spec.builtin} classList={{ dragging: dragId() === spec.id, "drop-home": dropHome() && dragId() === spec.id, "drop-group": taskDrop()?.kind === "group" && taskDropId() === null && spec.builtin === "ungrouped", "col-picked": !!columnPick()?.includes(spec.id) }}>
       <DragGrip id={spec.id} />
       <header class="board-group-header"><h2>{spec.title}</h2><span class="board-count">{countTasks(nodes())}</span></header>
       <Show when={nodes().length || !empty} fallback={<p class="board-empty">{empty}</p>}><TaskList nodes={nodes()} depth={0} /></Show>
@@ -646,18 +696,7 @@ export function GroupsView(props: GroupsViewProps) {
         </div>
       </div>}
     </Show>
-    <Show when={confirmDelete()}>{pending => {
-      const pendingNow = pending();
-      return <div class="start-prompt" role="alert">
-        <span>{pendingNow.kind === "group"
-          ? `Delete group “${pendingNow.group.title}”? Its tasks and subgroups move up a level.`
-          : `Delete “${pendingNow.task.title}”? Subtasks and dependent tasks go with it.`}</span>
-        <div>
-          <button class="danger-button" onClick={() => { setConfirmDelete(null); setSelection(null); if (pendingNow.kind === "group") void props.onDeleteGroup(pendingNow.group); else void props.onDeleteTask(pendingNow.task); }}>Delete</button>
-          <button class="text-button" onClick={() => setConfirmDelete(null)}>Cancel</button>
-        </div>
-      </div>;
-    }}</Show>
+
     <div class="groups-toolbar">
       <h1>Groups</h1>
       <button class={`secondary-button density-toggle ${props.compact ? "active" : ""}`} aria-pressed={props.compact} onClick={() => props.onCompactChange(!props.compact)}><Icon name="compact" size={15} />Compact</button>
