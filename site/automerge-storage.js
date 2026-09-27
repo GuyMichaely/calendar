@@ -1,3 +1,4 @@
+import { storageKey } from "./storage-scope.js";
 import { sleepValidationMessage } from "./domain.js";
 import { taskDescendants, taskAncestors, validateTaskParent, validateGroupParent, validateTaskGroup, validateDependentOf, dependentTasks, taskMoveUpdates } from "./task-tree.js";
 import * as Automerge from "@automerge/automerge";
@@ -25,7 +26,7 @@ import {
   updateItemText,
 } from "../sync/automerge-document.js";
 
-export const CALENDAR_DATA_DB_NAME = "calendar-automerge-2";
+export const CALENDAR_DATA_DB_NAME = storageKey("calendar-automerge-2");
 export const CALENDAR_DATA_DB_VERSION = 1;
 export const CALENDAR_DOCUMENT_STORE = "documents";
 export const CALENDAR_DOCUMENT_ID = "primary";

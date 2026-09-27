@@ -1,3 +1,4 @@
+import { priorityOrder } from "./todo-planning";
 import { createSignal, onCleanup } from "solid-js";
 import {
   canRedo,
@@ -71,6 +72,12 @@ export function createCalendarStore(options: { onChanged: () => void }) {
     addTask: (groupId: string | null, title: string) => change(() => putItem(newTask({ title, groupId }, new Date()))),
     addSubtask: (parent: Task, title: string) => change(() => putItem(newTask({ title, parentId: parent.id }, new Date()))),
     addDependent: (parent: Task, title: string) => change(() => putItem(newTask({ title, dependentOf: parent.id, groupId: dependentGroupId(items(), parent) }, new Date()))),
+    prioritizeTask: (task: Task, ref: Task, before: boolean) => batch("Reorder priority", async () => {
+      const tasks = items().filter((item): item is Task => item.kind === "task");
+      for (const entry of priorityOrder(tasks, task.id, ref.id, before)) {
+        if (entry.task.sortOrder !== entry.sortOrder) await putItem(patchedItem(entry.task, { sortOrder: entry.sortOrder }, new Date()), entry.task);
+      }
+    }),
     patchTask: (task: Task, patch: Partial<Task>) => change(() => putItem(patchedItem(task, patch, new Date()), task)),
     completeTask: (task: Task) => change(() => putItem(completedTask(task, new Date()), task)),
     sleepTask: (task: Task) => change(() => { const now = new Date(); return putItem(sleptTask(task, tomorrowMidnight(now), now), task); }),

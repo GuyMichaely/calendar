@@ -1,3 +1,4 @@
+import { storageKey } from "../../site/storage-scope.js";
 import { configureRemoteAttachments } from "../../site/attachment-remote.js";
 import { createCalendarSyncClient } from "../../sync/client.js";
 
@@ -43,7 +44,7 @@ type RemoteSyncQueueOptions = {
   onError?: (error: unknown) => void;
 };
 
-export const REMOTE_BACKEND_STORAGE_KEY = "calendar.remoteBackendUrl";
+export const REMOTE_BACKEND_STORAGE_KEY = storageKey("calendar.remoteBackendUrl");
 
 function normalizeBaseUrl(value: string) {
   const trimmed = value.trim();
@@ -66,7 +67,7 @@ function browserBackendUrl() {
   if (typeof window === "undefined") return "";
   const saved = window.localStorage?.getItem(REMOTE_BACKEND_STORAGE_KEY);
   if (saved !== null) return saved;
-  return import.meta.env?.VITE_CALENDAR_BACKEND_URL || "";
+  return ""; // Connect explicitly; never inherit another build's remote dataset.
 }
 
 export function configuredBackendUrl(value = browserBackendUrl()) {

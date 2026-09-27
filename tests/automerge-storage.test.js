@@ -1,3 +1,4 @@
+import { storageKey } from "../site/storage-scope.js";
 import * as Automerge from "@automerge/automerge";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -63,7 +64,7 @@ test("Solid persistence uploads attachment bytes before storing metadata-only Au
   assert.equal("blob" in materializeItem(baseDocument, initial.id).attachments[0], false);
 
   const db = await new Promise((resolve, reject) => {
-    const request = indexedDB.open("calendar-automerge-2", 1);
+    const request = indexedDB.open(storageKey("calendar-automerge-2"), 1);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -329,7 +330,7 @@ test("the loaded document is reused until another tab writes, and appended saves
   assert.equal(materializeItem(stored, "task-cache").title, "edit 4");
   // Another tab writes a new record directly; the next read must see it.
   const other = patchItem(forkCalendarDocument(stored), "task-cache", { title: "from another tab" });
-  const db = await new Promise((resolve, reject) => { const request = indexedDB.open("calendar-automerge-2", 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+  const db = await new Promise((resolve, reject) => { const request = indexedDB.open(storageKey("calendar-automerge-2"), 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
   await new Promise((resolve, reject) => {
     const tx = db.transaction("documents", "readwrite");
     tx.objectStore("documents").put({ id: "primary", bytes: saveCalendarDocument(other), version: "other-tab" });

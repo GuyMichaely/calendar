@@ -1,3 +1,6 @@
+import { planTodos, TODO_SECTIONS } from "./todo-planning";
+import { SleepControls } from "./SleepControls";
+import { storageKey } from "../../site/storage-scope.js";
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { formatDateTime, isSleeping, sleepInfo } from "../../site/domain.js";
 import { taskDescendants } from "../../site/task-tree.js";
@@ -43,6 +46,10 @@ export type GroupsViewProps = {
   onSleepTask: (task: Task) => Promise<void>;
   onWakeTask: (task: Task) => Promise<void>;
   respectSleep: boolean;
+  hideSleeping: boolean;
+  onHideSleepingChange: (value: boolean) => void;
+  onRespectSleepChange: (value: boolean) => void;
+  onPrioritize: (task: Task, ref: Task, before: boolean) => Promise<unknown>;
 };
 
 // The character offset under a click within an element's text, so editing can start there.
@@ -62,6 +69,10 @@ function textMatches(task: Task, query: string) {
 }
 
 export function GroupsView(props: GroupsViewProps) {
+  const [focusView, setFocusView] = createSignal(localStorage.getItem(storageKey("taskView")) !== "groups");
+  const switchView = (focus: boolean) => { setSelection(null); setFocusView(focus); localStorage.setItem(storageKey("taskView"), focus ? "tasks" : "groups"); };
+  const daily = createMemo(() => planTodos(props.items, props.now, props.respectSleep, props.hideSleeping).filter(row => textMatches(row.task, props.query)));
+  const dailyById = createMemo(() => new Map(daily().map(row => [row.task.id, row])));
   const board = createMemo(() => buildBoard(props.items, task => (props.showCompleted || task.state !== "completed") && textMatches(task, props.query)));
   // Components are keyed by id so inputs keep focus and drafts when the board is rebuilt.
   const groupsById = createMemo(() => flattenGroupNodes(board().groups));
@@ -89,7 +100,7 @@ export function GroupsView(props: GroupsViewProps) {
   const [dropHome, setDropHome] = createSignal(false);
   const targets = new Map<string, () => BoardTarget>();
   let boardRef!: HTMLDivElement;
-  const widthKey = "calendar.boardColumnWidths";
+  const widthKey = storageKey("calendar.boardColumnWidths");
   const [widths, setWidths] = createSignal<Record<string, number>>((() => {
     try { const saved = JSON.parse(localStorage.getItem(widthKey) || "{}"); return Object.fromEntries(Object.entries(saved).filter(([, value]) => typeof value === "number" && value >= 220 && value <= 800)) as Record<string, number>; } catch { return {}; }
   })());
@@ -479,6 +490,10 @@ export function GroupsView(props: GroupsViewProps) {
       if (drop?.kind === "dependent" || (drop?.kind === "inside" && hit?.closest("[data-task-drop-zone]"))) {
         hit?.closest("[data-task-drop-zone]")?.classList.add("zone-target");
       }
+      if (focusView() && drop && (drop.kind === "before" || drop.kind === "after")) {
+        const source = dailyById().get(id), target = dailyById().get(drop.id || "");
+        if (!source || !target || source.section !== target.section || (source.section === "open" && source.windowEnd !== target.windowEnd)) drop = null;
+      }
       setTaskDrop(drop);
       frame = requestAnimationFrame(update);
     };
@@ -497,6 +512,11 @@ export function GroupsView(props: GroupsViewProps) {
       const drop = taskDrop();
       setTaskDragId(null); setTaskDrop(null);
       if (!dropIt || !drop || !dragged) return;
+      if (focusView() && (drop.kind === "before" || drop.kind === "after")) {
+        const ref = byId.get(drop.id || "");
+        if (ref?.kind === "task") void props.onPrioritize(dragged, ref, drop.kind === "before");
+        return;
+      }
       if (drop.kind === "group") void props.onDropTask(dragged, { kind: "group", groupId: drop.id });
       else {
         const ref = byId.get(drop.id || "") as Task | undefined;
@@ -577,6 +597,16 @@ export function GroupsView(props: GroupsViewProps) {
     let titleField: HTMLTextAreaElement | undefined, notesField: HTMLTextAreaElement | undefined, clickEndedEdit = false;
     // Status chips under a task: sleep, dormant relative dates, can-start, and due.
     const chips = () => {
+      if (focusView()) {
+        const row = dailyById().get(task().id);
+        const context = itemsById().get(task().parentId || task().groupId || "");
+        return [
+          ...(context ? [{ label: context.title, kind: "relative" }] : []),
+          ...(row?.due ? [{ label: row.due, kind: "due" }] : []),
+          ...(row?.reason ? [{ label: row.reason, kind: "waiting" }] : []),
+          ...(row?.section === "upcoming" && row.relevantToday ? [{ label: "Later today", kind: "relative" }] : []),
+        ];
+      }
       const result: { label: string; kind: "sleep" | "relative" | "waiting" | "due" }[] = [];
       const sleep = sleepInfo(shown(), props.now);
       if (sleep.sleeping) result.push({ label: sleep.indefinite ? "Sleeping" : `Sleeping until ${formatDateTime(sleep.until)}`, kind: "sleep" });
@@ -831,7 +861,7 @@ export function GroupsView(props: GroupsViewProps) {
     </section>;
   };
 
-  return <section class="panel groups-panel">
+  return <section class="panel groups-panel" classList={{ "todo-panel": focusView() }}>
     <Show when={startPrompt()}>{prompt =>
       <div class="start-prompt" role="status">
         <span>Completed “{prompt().owner.title || "Untitled task"}”. Start a dependent task?</span>
@@ -843,10 +873,11 @@ export function GroupsView(props: GroupsViewProps) {
     </Show>
 
     <div class="groups-toolbar">
-      <h1>Groups</h1>
+      <div class="todo-view-tabs" role="group" aria-label="Task view"><button class="secondary-button" aria-pressed={focusView()} onClick={() => switchView(true)}>Tasks</button><button class="secondary-button" aria-pressed={!focusView()} onClick={() => switchView(false)}>Groups</button></div>
       <button class={`secondary-button density-toggle ${props.compact ? "active" : ""}`} aria-pressed={props.compact} onClick={() => props.onCompactChange(!props.compact)}><Icon name="compact" size={15} />Compact</button>
       <label class="check-row"><input type="checkbox" checked={props.showCompleted} onChange={event => props.onShowCompletedChange(event.currentTarget.checked)} />Show completed</label>
-      <button class="secondary-button" onClick={async () => focusGroupTitle(await props.onCreateGroup(null))}><Icon name="plus" size={15} />New group</button>
+      <Show when={!focusView()}><button class="secondary-button" onClick={async () => focusGroupTitle(await props.onCreateGroup(null))}><Icon name="plus" size={15} />New group</button></Show>
+      <Show when={focusView()}><SleepControls mode={props.respectSleep ? "respect" : "ignore"} hideSleeping={props.hideSleeping} onModeChange={mode => props.onRespectSleepChange(mode === "respect")} onHideChange={props.onHideSleepingChange} /></Show>
     </div>
     <div ref={boardRef} class="board" onClick={event => {
       if (!(event.target as Element).closest(".board-group, button, input, .column-resize")) {
@@ -854,6 +885,7 @@ export function GroupsView(props: GroupsViewProps) {
         if (document.activeElement instanceof HTMLElement && boardRef.contains(document.activeElement)) document.activeElement.blur();
       }
     }} classList={{ compact: props.compact, "drag-active": !!dragId(), "task-dragging": !!taskDragId() }}>
+      <Show when={focusView()} fallback={<>
       {dropTarget("new-0", () => ({ newColumn: 0 }), "board-drop-column")}
       <Index each={columns()}>{(column, columnIndex) => <>
         <div class="board-column" style={{ "flex-basis": widths()[column()[0]] ? `${widths()[column()[0]]}px` : undefined }}>
@@ -871,6 +903,22 @@ export function GroupsView(props: GroupsViewProps) {
         </div>
         {dropTarget(`new-${columnIndex + 1}`, () => ({ newColumn: columnIndex + 1 }), "board-drop-column")}
       </>}</Index>
+      </>}>
+        <div class="board-column todo-column">
+          <div class="todo-capture"><AddTask groupId={null} /></div>
+          <For each={TODO_SECTIONS}>{spec => {
+            const rows = () => daily().filter(row => row.section === spec.id);
+            return <section class="board-group smart-group todo-section" data-builtin={spec.id} data-group-id={`todo-${spec.id}`} tabIndex={0} onFocus={event => { if (event.target === event.currentTarget) setSelection({ type: "group", id: `todo-${spec.id}` }); }}>
+              <header class="board-group-header"><h2>{spec.title}</h2><span class="board-count">{rows().length}</span></header>
+              <p class="todo-section-hint">{spec.description}</p>
+              <Show when={rows().length} fallback={<p class="board-empty">{spec.empty}</p>}>
+                <TaskList nodes={rows().map(row => ({ task: row.task, children: [], dependents: [] }))} depth={0} />
+              </Show>
+            </section>;
+          }}</For>
+          <Show when={props.showCompleted}><section class="board-group smart-group"><header class="board-group-header"><h2>Completed</h2></header><TaskList nodes={props.items.filter((item): item is Task => item.kind === "task" && item.state === "completed" && textMatches(item, props.query)).map(task => ({ task, children: [], dependents: [] }))} depth={0} /></section></Show>
+        </div>
+      </Show>
     </div>
   </section>;
 }

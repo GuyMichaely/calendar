@@ -682,3 +682,25 @@ main:has(.groups-panel) > .tasks-workspace { flex: 1; min-height: 0; grid-templa
 @media (max-width: 760px) {
   main:has(.groups-panel) { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
+
+/* The timing view is a single reading column; Groups keeps the spatial board. */
+.todo-view-tabs { display: flex; gap: 4px; }
+.todo-view-tabs [aria-pressed="true"] { color: var(--accent-strong); border-color: var(--accent); background: var(--accent-soft); }
+.todo-panel .groups-toolbar { flex-wrap: wrap; }
+.todo-panel .sleep-controls { margin: 0 0 0 auto; }
+.todo-panel > .board { display: block; overflow-anchor: none; }
+.todo-panel .todo-column { width: 100%; max-width: 1000px; margin-inline: auto; gap: 16px; }
+.todo-panel .todo-section { padding: 8px 12px; }
+.todo-section-hint { margin: 0 0 8px; color: var(--muted); font-size: 11px; }
+.todo-panel .board-task { padding-block: 9px; }
+.todo-panel .board-group-header { padding-block: 5px; }
+.todo-panel [data-builtin="attention"] h2 { color: var(--due); }
+.todo-panel [data-builtin="open"] h2 { color: var(--ready); }
+.todo-capture { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.todo-panel .board-empty { padding: 6px 0; }
+@media (max-width: 760px) {
+  .todo-panel .sleep-controls { margin-left: 0; }
+  .todo-panel .todo-section { padding: 6px 8px; }
+}
+
+.todo-panel .smart-group + .smart-group { margin-top: 0; }

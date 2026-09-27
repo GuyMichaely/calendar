@@ -1,7 +1,8 @@
+import { storageKey } from "../../site/storage-scope.js";
 export type ShortcutAction = "edit" | "complete" | "sleepTomorrow" | "sleepIndefinite" | "customSleep";
 export type Shortcuts = Record<ShortcutAction, string>;
 
-export const SHORTCUT_STORAGE_KEY = "calendar.keyboardShortcuts";
+export const SHORTCUT_STORAGE_KEY = storageKey("calendar.keyboardShortcuts");
 export const DEFAULT_SHORTCUTS: Shortcuts = {
   edit: "Enter",
   complete: " ",

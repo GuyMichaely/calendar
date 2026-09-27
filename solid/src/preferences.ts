@@ -1,9 +1,11 @@
+import { storageKey } from "../../site/storage-scope.js";
 import { createSignal, type Accessor } from "solid-js";
 import { loadPollSeconds } from "./settings";
 import type { CalendarSleepMode } from "./types";
 
 // Per-browser view preferences, kept in localStorage.
 function stored<T>(key: string, read: (raw: string | null) => T, write: (value: T) => string | null): [Accessor<T>, (value: T) => void] {
+  key = storageKey(key);
   const [value, setValue] = createSignal(read(localStorage.getItem(key)));
   return [value, (next: T) => {
     setValue(() => next);

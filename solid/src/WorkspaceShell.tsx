@@ -2,7 +2,7 @@ import { Show, createSignal, type JSX } from "solid-js";
 import { Icon } from "./Icon";
 import type { View } from "./types";
 // Prototype builds are published beside production and name themselves by their path.
-const prototypeName = import.meta.env.VITE_CALENDAR_PRIMARY_BASE ? import.meta.env.BASE_URL.split("/").filter(Boolean).at(-1) : "";
+const prototypeName = import.meta.env.VITE_CALENDAR_PRIMARY_BASE ? import.meta.env.BASE_URL.split("/").filter(Boolean).at(-1) : import.meta.env.DEV ? "todo prototype" : "";
 export function WorkspaceShell(props: {
   view: View; openCount: number; query: string;
   onQuery: (value: string) => void; onNavigate: (view: View) => void;
@@ -18,9 +18,9 @@ export function WorkspaceShell(props: {
     <a class="skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById("workspace-content")?.focus(); }}>Skip to content</a>
     <aside class="workspace-rail">
       <button class="workspace-brand" onClick={() => props.onNavigate("tasks")} aria-label="Calendar home"><span class="brand-mark"><Icon name="calendar" size={23} /></span>Calendar<span class="brand-period">.</span></button>
-      <Show when={prototypeName}><span class="prototype-badge" title="Preview build. Shares data with the main app.">{prototypeName}</span></Show>
+      <Show when={prototypeName}><span class="prototype-badge" title="Isolated preview. Uses separate browser data.">{prototypeName}</span></Show>
       <nav class="rail-nav" aria-label="Workspace">
-        <button classList={{active: props.view === "tasks"}} aria-current={props.view === "tasks" ? "page" : undefined} onClick={() => props.onNavigate("tasks")}><Icon name="list" /><span>Groups</span><span class="nav-count">{props.openCount}</span></button>
+        <button classList={{active: props.view === "tasks"}} aria-current={props.view === "tasks" ? "page" : undefined} onClick={() => props.onNavigate("tasks")}><Icon name="list" /><span>Tasks</span><span class="nav-count">{props.openCount}</span></button>
         <button classList={{active: props.view === "calendar"}} aria-current={props.view === "calendar" ? "page" : undefined} onClick={() => props.onNavigate("calendar")}><Icon name="calendar" /><span>Calendar</span></button>
       </nav>
       <div class="rail-bottom">
@@ -41,7 +41,7 @@ export function WorkspaceShell(props: {
       <main id="workspace-content" tabIndex={-1}>{props.children}</main>
     </div>
     <nav class="mobile-nav" aria-label="Primary">
-      <button classList={{active: props.view === "tasks"}} aria-current={props.view === "tasks" ? "page" : undefined} onClick={() => props.onNavigate("tasks")}><Icon name="list" /><span>Groups</span></button>
+      <button classList={{active: props.view === "tasks"}} aria-current={props.view === "tasks" ? "page" : undefined} onClick={() => props.onNavigate("tasks")}><Icon name="list" /><span>Tasks</span></button>
       <button classList={{active: props.view === "calendar"}} aria-current={props.view === "calendar" ? "page" : undefined} onClick={() => props.onNavigate("calendar")}><Icon name="calendar" /><span>Calendar</span></button>
       <button class="mobile-create" aria-label={props.view === "calendar" ? "New event" : "New task"} onClick={props.onNew}><span><Icon name="plus" /></span></button>
       <button onClick={props.onSettings}><Icon name="settings" /><span>Settings</span></button>

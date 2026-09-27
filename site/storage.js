@@ -1,3 +1,4 @@
+import { storageKey } from "./storage-scope.js";
 import { sleepValidationMessage } from "./domain.js";
 import { validateDependentOf, validateGroupParent, validateTaskGroup, validateTaskParent } from "./task-tree.js";
 import {
@@ -14,10 +15,10 @@ import {
 } from "./automerge-storage.js";
 import { uploadAttachmentsBeforePersist } from "./attachment-remote.js";
 
-const HISTORY_DB_NAME = "calendar-history-2";
+const HISTORY_DB_NAME = storageKey("calendar-history-2");
 const HISTORY_DB_VERSION = 1;
 const HISTORY_STORE = "sessions";
-const HISTORY_SESSION_KEY = "calendar.historySessionId.2";
+const HISTORY_SESSION_KEY = storageKey("calendar.historySessionId.2");
 const HISTORY_LIMIT = 100;
 
 const undoStack = [];
