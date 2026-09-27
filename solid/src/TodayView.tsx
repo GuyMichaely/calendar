@@ -18,11 +18,8 @@ export type TodayViewProps = {
   showCompleted: boolean;
   onShowCompletedChange: (value: boolean) => void;
   groupLayout: GroupLayout;
-  onGroupLayoutChange: (value: GroupLayout) => void;
   laterPlacement: LaterPlacement;
-  onLaterPlacementChange: (value: LaterPlacement) => void;
   subtaskMode: SubtaskMode;
-  onSubtaskModeChange: (value: SubtaskMode) => void;
   // Unsaved editor text shows on the row as it's typed.
   liveEdits: () => Map<string, Partial<Task>>;
   onEdit: (task: Task) => void;
@@ -206,11 +203,6 @@ export function TodayView(props: TodayViewProps) {
     if (await props.onAddTask(filter && filter !== "none" ? filter : null, title, props.scope === "anytime" ? { anytime: true } : {})) setDraft(value => value.trim() === title ? "" : value);
   };
 
-  const Segmented = <T extends string>(segProps: { label: string; value: T; options: [T, string][]; onChange: (value: T) => void }) =>
-    <span class="today-toggle" role="group" aria-label={segProps.label}><span>{segProps.label}</span>
-      <For each={segProps.options}>{([value, text]) => <button type="button" aria-pressed={segProps.value === value} onClick={() => segProps.onChange(value)}>{text}</button>}</For>
-    </span>;
-
   const heading = () => props.scope === "today" ? "Today" : props.scope === "upcoming" ? "Upcoming" : "Anytime";
   return <section class="panel today-panel">
     <Show when={startPrompt()}>{prompt =>
@@ -226,6 +218,7 @@ export function TodayView(props: TodayViewProps) {
       <h1>{heading()}</h1>
       <span class="today-date">{props.now.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · {clock(props.now)}</span>
       <span class="spacer" />
+      <label class="check-row"><input type="checkbox" checked={props.showCompleted} onChange={event => props.onShowCompletedChange(event.currentTarget.checked)} />Show completed</label>
       <label class="today-filter"><span class="visually-hidden">Group</span>
         <select value={groupFilter()} onChange={event => setGroupFilter(event.currentTarget.value)}>
           <option value="">All groups</option>
@@ -233,12 +226,6 @@ export function TodayView(props: TodayViewProps) {
           <option value="none">No group</option>
         </select>
       </label>
-    </div>
-    <div class="today-toggles">
-      <Segmented label="Groups" value={props.groupLayout} options={[["labels", "Labels"], ["headings", "Headings"]]} onChange={props.onGroupLayoutChange} />
-      <Segmented label="Upcoming and Anytime" value={props.laterPlacement} options={[["below", "Below Today"], ["separate", "Separate views"]]} onChange={props.onLaterPlacementChange} />
-      <Segmented label="Subtasks" value={props.subtaskMode} options={[["context", "Own section"], ["nested", "Under parent"]]} onChange={props.onSubtaskModeChange} />
-      <label class="check-row"><input type="checkbox" checked={props.showCompleted} onChange={event => props.onShowCompletedChange(event.currentTarget.checked)} />Show completed</label>
     </div>
     <form class="quick-capture today-add" onSubmit={event => { event.preventDefault(); void add(); }}>
       <Icon name="plus" size={17} />
@@ -265,4 +252,22 @@ export function TodayView(props: TodayViewProps) {
       </For>
     </Show>
   </section>;
+}
+
+const Segmented = <T extends string>(props: { label: string; value: T; options: [T, string][]; onChange: (value: T) => void }) =>
+  <span class="today-toggle" role="group" aria-label={props.label}><span>{props.label}</span>
+    <For each={props.options}>{([value, text]) => <button type="button" aria-pressed={props.value === value} onClick={() => props.onChange(value)}>{text}</button>}</For>
+  </span>;
+
+/** The prototype's layout switches, shown in the top bar while comparing designs. */
+export function DesignToggles(props: {
+  groupLayout: GroupLayout; onGroupLayoutChange: (value: GroupLayout) => void;
+  laterPlacement: LaterPlacement; onLaterPlacementChange: (value: LaterPlacement) => void;
+  subtaskMode: SubtaskMode; onSubtaskModeChange: (value: SubtaskMode) => void;
+}) {
+  return <div class="design-toggles" aria-label="Layout options">
+    <Segmented label="Groups" value={props.groupLayout} options={[["labels", "Labels"], ["headings", "Headings"]]} onChange={props.onGroupLayoutChange} />
+    <Segmented label="Upcoming/Anytime" value={props.laterPlacement} options={[["below", "Below Today"], ["separate", "Separate"]]} onChange={props.onLaterPlacementChange} />
+    <Segmented label="Subtasks" value={props.subtaskMode} options={[["context", "Own section"], ["nested", "Under parent"]]} onChange={props.onSubtaskModeChange} />
+  </div>;
 }

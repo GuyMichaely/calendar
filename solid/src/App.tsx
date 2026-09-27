@@ -10,7 +10,7 @@ import { createCalendarStore } from "./calendar-store";
 import { createPreferences } from "./preferences";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
 import { type TaskDrop } from "./GroupsView";
-import { TodayView, when, type TaskScope } from "./TodayView";
+import { DesignToggles, TodayView, when, type TaskScope } from "./TodayView";
 import { GroupSettings, WindowSettings } from "./SettingsPanels";
 import { windowsById } from "./windows";
 import { demoItems } from "./demo-data";
@@ -289,7 +289,10 @@ export function App() {
     }} />}>
       <div class="app-shell">
         <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = ""; }} />
-        <WorkspaceShell view={view()} scope={activeScope()} separateScopes={prefs.laterPlacement() === "separate"} openCount={openCount()} query={query()} onQuery={setQuery}
+        <WorkspaceShell toolbar={view() === "tasks" ? <DesignToggles groupLayout={prefs.groupLayout()} onGroupLayoutChange={prefs.setGroupLayout}
+            laterPlacement={prefs.laterPlacement()} onLaterPlacementChange={value => { prefs.setLaterPlacement(value); if (value === "below") navigate("tasks", "today"); }}
+            subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode} /> : undefined}
+          view={view()} scope={activeScope()} separateScopes={prefs.laterPlacement() === "separate"} openCount={openCount()} query={query()} onQuery={setQuery}
           onNavigate={(next, nextScope) => { navigate(next, nextScope); window.scrollTo({top: 0, behavior: "instant"}); }}
           onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
           onSettings={() => { setSettingsTab("data"); openSettings(); }}
@@ -302,9 +305,7 @@ export function App() {
             <div class="tasks-workspace" classList={{ split: paneOpen() }} data-animations={animations() ? "on" : "off"}>
             <TodayView items={items()} query={query()} now={clock()} scope={activeScope()} selectedId={splitView() ? selectedTaskId() : null}
               showCompleted={prefs.showCompleted()} onShowCompletedChange={prefs.setShowCompleted}
-              groupLayout={prefs.groupLayout()} onGroupLayoutChange={prefs.setGroupLayout}
-              laterPlacement={prefs.laterPlacement()} onLaterPlacementChange={value => { prefs.setLaterPlacement(value); if (value === "below") navigate("tasks", "today"); }}
-              subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
+              groupLayout={prefs.groupLayout()} laterPlacement={prefs.laterPlacement()} subtaskMode={prefs.subtaskMode()}
               liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onDeleteTask={deleteTask} onStartDependent={startDependent} />
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
