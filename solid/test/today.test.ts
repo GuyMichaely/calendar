@@ -77,11 +77,6 @@ test("subtasks show in their own section with their ancestors as context, or nes
   // The tree goes to its most urgent section (the grandchild's Firm); the rest of it is dimmed.
   expect(shape(nested)).toEqual({ firm: [["~parent", ["~child-now", ["~child-window", ["grand-child"]]]]], available: ["solo"] });
   expect(nested.find(entry => entry.id === "firm")!.count).toBe(1);
-  // A top task's own choice beats the view setting, in either direction.
-  const together = items.map(item => item.id === "parent" ? { ...item, subtaskLayout: "together" as const } : item);
-  expect(shape(buildSections(together, now, { mode: "context", showCompleted: false, include: () => true }))).toEqual(shape(nested));
-  const spread = items.map(item => item.id === "parent" ? { ...item, subtaskLayout: "spread" as const } : item);
-  expect(shape(buildSections(spread, now, { mode: "nested", showCompleted: false, include: () => true }))).toEqual(shape(context));
 });
 
 test("a completed parent stays as context for its open subtasks", () => {

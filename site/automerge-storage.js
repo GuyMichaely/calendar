@@ -37,7 +37,7 @@ const COMMON_ITEM_FIELDS = new Set([
 const TASK_ITEM_FIELDS = new Set([
   ...COMMON_ITEM_FIELDS, "state", "parentId", "sortOrder", "availableFrom", "deadline", "latestStart", "sleep",
   "availabilitySchedule", "completedAt", "history", "groupId", "dependentOf", "relativeDates",
-  "pushedDown", "windowId", "warnAt", "takes", "anytime", "subtaskLayout",
+  "pushedDown", "windowId", "warnAt", "takes", "anytime",
 ]);
 const GROUP_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "parentId", "sortOrder", "boardColumn", "builtin"]);
 const EVENT_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end"]);

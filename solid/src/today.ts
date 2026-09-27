@@ -84,7 +84,7 @@ function compareTasks(a: { task: Task; placement: Placement }, b: { task: Task; 
 // A section is a forest. Context rows are ancestors shown only to explain where a
 // subtask belongs: dimmed, openable, not checkable here.
 //
-// Subtasks are shown one of two ways, set for the view and overridable per top task:
+// Subtasks are shown one of two ways, set for the whole view:
 // "context" (Spread out) places every task by its own timing, with its ancestors as
 // context rows; "nested" (Keep together) shows each family once, in the most urgent
 // section any of its open tasks belongs to, dimming (but not hiding) the tasks whose
@@ -93,11 +93,6 @@ export type TreeNode = { task: Task; context: boolean; muted?: boolean; placemen
 export type SubtaskMode = "context" | "nested";
 
 export type Section = { id: SectionId; trees: TreeNode[]; count: number };
-
-/** How a family's subtasks are shown: its top task's own choice, else the view's. */
-export function familyMode(top: Task, fallback: SubtaskMode): SubtaskMode {
-  return top.subtaskLayout === "together" ? "nested" : top.subtaskLayout === "spread" ? "context" : fallback;
-}
 
 function taskParent(task: Task, byId: Map<string, Item>) {
   const parent = task.parentId ? byId.get(task.parentId) : undefined;
@@ -124,9 +119,8 @@ export function buildSections(items: Item[], now: Date, options: { mode: Subtask
   // Every tree remembers the task that decides its place in the section order.
   const bySection = new Map<SectionId, { tree: TreeNode; lead: { task: Task; placement: Placement } }[]>();
   const add = (section: SectionId, tree: TreeNode, lead: { task: Task; placement: Placement }) => bySection.set(section, [...(bySection.get(section) || []), { tree, lead }]);
-  const top = (task: Task) => ancestors(task, byId)[0] || task;
-  const spread = placed.filter(entry => familyMode(top(entry.task), options.mode) === "context");
-  const together = placed.filter(entry => familyMode(top(entry.task), options.mode) === "nested");
+  const spread = options.mode === "context" ? placed : [];
+  const together = options.mode === "nested" ? placed : [];
 
   // Spread out: each task in its own section, under context rows for ancestors that aren't.
   for (const id of SECTION_ORDER) {

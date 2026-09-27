@@ -716,7 +716,9 @@ main:has(.groups-panel) > .tasks-workspace { flex: 1; min-height: 0; grid-templa
 .today-copy { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; }
 .today-title { min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
 .today-row.done .today-title { color: var(--muted); text-decoration: line-through; }
-.today-row.pushed { opacity: .55; }
+/* Fade a pushed-down row's content, not its ⋮ menu: opacity on the whole row would
+   make the open menu translucent and trap it beneath the rows below. */
+.today-row.pushed > :not(.task-menu) { opacity: .55; }
 .today-row.muted .today-title, .today-row.muted .today-chips { opacity: .6; }
 .today-subtasks { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .today-subtasks select { background: var(--surface); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; font-size: 12px; }

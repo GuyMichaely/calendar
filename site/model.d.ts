@@ -58,8 +58,6 @@ export type Task = BaseItem & {
   takes?: number | null;
   // No timing: listed under Anytime instead of Today.
   anytime?: boolean | null;
-  // A top-level task's choice for how Today shows its subtasks; null follows the view setting.
-  subtaskLayout?: "together" | "spread" | null;
   completedAt?: string | null;
   history?: HistoryEntry[];
   // Only top-level tasks use this; subtasks appear wherever their parent task is.

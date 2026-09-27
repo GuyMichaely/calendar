@@ -210,7 +210,6 @@ export function App() {
     await attempt(() => store.deleteItem(task.id), "Could not delete task.", `Deleted “${title}” (Ctrl+Z to undo)`);
   };
   const pushDown = async (task: Task, until: Date | null) => { await attempt(() => store.pushDown(task, until), "Could not push the task down.", until ? `Pushed down until ${when(until, new Date())}` : "Pushed down"); };
-  const setSubtaskLayout = async (task: Task, layout: Task["subtaskLayout"]) => { await attempt(() => store.patchTask(task, { subtaskLayout: layout }), "Could not change how its subtasks show.", layout === "together" ? "Keeping its subtasks together" : layout === "spread" ? "Spreading its subtasks out" : "Its subtasks follow the view setting again"); };
   const lift = async (task: Task) => { await attempt(() => store.lift(task), "Could not lift the task.", "Lifted back up"); };
   const windowChange = async (run: () => Promise<unknown>) => { await attempt(run, "Could not update windows."); };
   const groupChange = async (run: () => Promise<unknown>) => { await attempt(run, "Could not update groups."); };
@@ -312,7 +311,7 @@ export function App() {
             <TodayView items={items()} query={query()} now={clock()} scope={activeScope()} selectedId={splitView() ? selectedTaskId() : null}
               showCompleted={prefs.showCompleted()} onShowCompletedChange={prefs.setShowCompleted}
               groupLayout={prefs.groupLayout()} laterPlacement={prefs.laterPlacement()} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
-              liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onDeleteTask={deleteTask} onStartDependent={startDependent} onSubtaskLayout={setSubtaskLayout} />
+              liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onDeleteTask={deleteTask} onStartDependent={startDependent} />
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
                 <Show when={detailRequest() || lastRequest} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
