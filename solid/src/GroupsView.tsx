@@ -131,10 +131,28 @@ export function GroupsView(props: GroupsViewProps) {
         const active = document.activeElement instanceof HTMLElement && document.activeElement.matches(selector) ? document.activeElement : candidates.find(el => (current.type === "group" ? el.dataset.groupId : el.dataset.id) === current.id);
         if (!active) return;
         event.preventDefault();
+        const focus = (element?: HTMLElement | null) => {
+          if (!element) return;
+          element.focus({ preventScroll: true });
+          element.scrollIntoView({ block: "nearest", inline: "nearest" });
+        };
+        const group = active.closest<HTMLElement>(".board-group[data-group-id]");
+        // A nested group owns its own tasks; do not jump into it from its parent.
+        const groupTasks = group ? [...group.querySelectorAll<HTMLElement>(".board-task")].filter(el => el.getClientRects().length && el.closest(".board-group") === group) : [];
         if (event.key === "Enter") {
-          if (current.type === "group") active.querySelector<HTMLElement>(".board-task")?.focus();
-          else { const task = itemsById().get(current.id); if (task?.kind === "task") props.onEdit(task); }
+          focus(groupTasks[0]);
           return;
+        }
+        if (current.type === "task" && event.key === "ArrowUp" && active === groupTasks[0]) {
+          focus(group);
+          return;
+        }
+        if (current.type === "group" && event.key === "ArrowDown") {
+          const columnGroups = [...active.closest(".board-column")!.querySelectorAll<HTMLElement>(".board-group[data-group-id]")].filter(el => el.getClientRects().length);
+          if (active === columnGroups.at(-1)) {
+            focus(groupTasks.at(-1));
+            return;
+          }
         }
         const box = active.getBoundingClientRect(), horizontal = ["ArrowLeft", "ArrowRight"].includes(event.key);
         const sign = ["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 1;
@@ -144,7 +162,7 @@ export function GroupsView(props: GroupsViewProps) {
           const dy = rect.top + rect.height / 2 - box.top - box.height / 2;
           return { el, along: (horizontal ? dx : dy) * sign, across: Math.abs(horizontal ? dy : dx) };
         }).filter(item => item.along > 1).sort((a,b) => (a.along + a.across * 4) - (b.along + b.across * 4))[0];
-        if (next) { next.el.focus({ preventScroll: true }); next.el.scrollIntoView({ block: "nearest", inline: "nearest" }); }
+        focus(next?.el);
         return;
       }
       if (event.key !== "Delete") return;

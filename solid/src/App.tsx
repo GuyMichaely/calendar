@@ -180,7 +180,6 @@ export function App() {
   const deleteTask = async (task: Task) => {
     const attached = dependentTasks(items(), task.id) as Task[];
     const title = task.title || "Untitled task";
-    if (attached.length && !window.confirm(`Delete “${title}” and the ${attached.length} subtask${attached.length === 1 ? "" : "s"} or dependent task${attached.length === 1 ? "" : "s"} under it?`)) return;
     // Close the task pane first if it shows one of them, so its pending edits can't recreate a deleted task.
     const selected = selectedTaskId();
     if (selected && [task.id, ...attached.map(item => item.id)].includes(selected)) { await selectTask(null, true); if (selectedTaskId()) return; }
