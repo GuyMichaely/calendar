@@ -70,9 +70,9 @@ export function createCalendarStore(options: { onChanged: () => void }) {
     saveItem: (item: Item, baseline: Item | null) => change(() => putItem(item, baseline)),
     deleteItem: (id: string) => change(() => deleteItem(id)),
 
-    loadDemoTasks: () => batch("Load demo tasks", async () => {
+    loadDemoTasks: (now = new Date()) => batch("Load demo tasks", async () => {
       const existing = new Set((await listItems()).map(item => item.id));
-      const examples = demoTasks().filter(item => !existing.has(item.id));
+      const examples = demoTasks(now).filter(item => !existing.has(item.id));
       for (const item of examples) await putItem(item);
       return examples.length;
     }),

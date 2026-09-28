@@ -704,3 +704,18 @@ main:has(.groups-panel) > .tasks-workspace { flex: 1; min-height: 0; grid-templa
 }
 
 .todo-panel .smart-group + .smart-group { margin-top: 0; }
+
+.preview-clock { flex: none; margin-bottom: 12px; padding: 9px 12px; border: 1px dashed var(--line); border-radius: 8px; font-size: 12px; }
+.preview-clock.simulated { border-color: var(--accent); background: var(--accent-soft); }
+.preview-clock summary { cursor: pointer; }
+.preview-clock summary span { margin-left: 12px; color: var(--muted); }
+.preview-clock.simulated summary span { color: var(--accent-strong); }
+.preview-clock-controls, .preview-clock-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.preview-clock-controls { margin-top: 12px; }
+.preview-clock-controls label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.preview-clock input { min-width: 0; max-width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 5px; color: var(--text); background: var(--surface); }
+.preview-clock .field-hint { margin-bottom: 0; }
+@media (max-width: 760px) {
+  .preview-clock summary span { display: block; margin: 4px 0 0; }
+  .preview-clock input { font-size: 16px; }
+}

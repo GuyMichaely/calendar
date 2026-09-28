@@ -35,3 +35,9 @@ Recurrence and outcomes are not yet implemented. Add fixed daily/weekly schedule
 Use **Load demo tasks** in the Tasks toolbar or Settings → Data. The examples are dated relative to loading time and cover every timing section, manual priority, groups, subtasks, a dormant dependent, completed work, and notes. They use actual task records and normal persistence. Loading preserves existing records, uses one undo step, and is disabled once examples exist or while a remote sync server is configured. Undo the load to remove the entire example set.
 
 Demo verification: 183 tests plus typecheck/build pass. Browser checks confirm each section is populated, existing tasks are retained, one undo removes the examples, loading cannot be duplicated, examples survive reload, and the mobile layout fits.
+
+## Preview clock
+
+Expand **Preview clock** above the board to choose a local date/time or step by one hour/day. **Use real time** resets it. The simulated time is fixed until changed and survives reload in this tab's namespaced sessionStorage. A day step preserves local clock time across DST changes. The control changes Tasks/Groups placement only; it never rewrites task records or changes the calendar view, and editing/completion timestamps still use real time. Loading demos uses the current preview date.
+
+Clock verification: 185 tests plus typecheck/build pass. Desktop/mobile browser checks cover the picker, steps, window closures, overdue/start/sleep projections, reload, reset, and unchanged persisted records.

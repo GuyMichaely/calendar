@@ -19,6 +19,7 @@ export type TaskDrop =
 
 export type GroupsViewProps = {
   demoAction?: JSX.Element;
+  previewClock?: JSX.Element;
   items: Item[];
   query: string;
   now: Date;
@@ -881,6 +882,7 @@ export function GroupsView(props: GroupsViewProps) {
       <Show when={!focusView()}><button class="secondary-button" onClick={async () => focusGroupTitle(await props.onCreateGroup(null))}><Icon name="plus" size={15} />New group</button></Show>
       <Show when={focusView()}><SleepControls mode={props.respectSleep ? "respect" : "ignore"} hideSleeping={props.hideSleeping} onModeChange={mode => props.onRespectSleepChange(mode === "respect")} onHideChange={props.onHideSleepingChange} /></Show>
     </div>
+    {props.previewClock}
     <div ref={boardRef} class="board" onClick={event => {
       if (!(event.target as Element).closest(".board-group, button, input, .column-resize")) {
         setSelection(null); setColumnPick(null);

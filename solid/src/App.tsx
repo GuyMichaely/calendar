@@ -1,3 +1,5 @@
+import { PreviewClock } from "./PreviewClock";
+import { PREVIEW_CLOCK_KEY, readPreviewTime } from "./preview-clock";
 import { hasDemoTasks } from "./demo-tasks";
 import { SleepControls } from "./SleepControls";
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
@@ -37,7 +39,7 @@ export function App() {
     if (loadingDemo() || hasDemoTasks(items())) return;
     if (backendUrl) { showToast("Disconnect remote sync before loading demo tasks."); return; }
     setLoadingDemo(true);
-    try { await store.loadDemoTasks(); showToast("Demo tasks added. Undo removes the whole set."); }
+    try { await store.loadDemoTasks(taskClock()); showToast("Demo tasks added. Undo removes the whole set."); }
     catch (error) { showToast(errorMessage(error, "Could not load demo tasks.")); }
     finally { setLoadingDemo(false); }
   };
@@ -56,6 +58,13 @@ export function App() {
   });
   const nowAtStart = new Date();
   const [clock, setClock] = createSignal(nowAtStart);
+  const [previewTime, setPreviewTime] = createSignal(readPreviewTime(sessionStorage.getItem(PREVIEW_CLOCK_KEY)));
+  const taskClock = () => previewTime() || clock();
+  const changePreviewTime = (date: Date | null) => {
+    setPreviewTime(date);
+    if (date) sessionStorage.setItem(PREVIEW_CLOCK_KEY, date.toISOString());
+    else { sessionStorage.removeItem(PREVIEW_CLOCK_KEY); setClock(new Date()); }
+  };
   // The calendar leaves out dependent tasks that haven't started, or shows them as what-if entries.
   const calendarView = createMemo(() => {
     const byId = new Map(items().map(item => [item.id, item]));
@@ -284,7 +293,7 @@ export function App() {
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
           <Show when={view() === "tasks"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} sleepMode={prefs.calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={prefs.setCalendarSleepMode} hideSleeping={prefs.hideSleeping()} onHideSleepingChange={prefs.setHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
             <div class="tasks-workspace" classList={{ split: paneOpen() }} data-animations={animations() ? "on" : "off"}>
-            <GroupsView demoAction={demoButton()} hideSleeping={prefs.hideSleeping()} onHideSleepingChange={prefs.setHideSleeping} onRespectSleepChange={value => prefs.setCalendarSleepMode(value ? "respect" : "ignore")} onPrioritize={(task, ref, before) => attempt(() => store.prioritizeTask(task, ref, before), "Could not reorder priority.")} items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null} showCompleted={prefs.showCompleted()} onShowCompletedChange={prefs.setShowCompleted}
+            <GroupsView previewClock={<PreviewClock now={taskClock()} simulated={!!previewTime()} onChange={changePreviewTime} />} demoAction={demoButton()} hideSleeping={prefs.hideSleeping()} onHideSleepingChange={prefs.setHideSleeping} onRespectSleepChange={value => prefs.setCalendarSleepMode(value ? "respect" : "ignore")} onPrioritize={(task, ref, before) => attempt(() => store.prioritizeTask(task, ref, before), "Could not reorder priority.")} items={items()} query={query()} now={taskClock()} selectedId={splitView() ? selectedTaskId() : null} showCompleted={prefs.showCompleted()} onShowCompletedChange={prefs.setShowCompleted}
               compact={prefs.compact()} onCompactChange={prefs.setCompact} onPatchTask={patchTask} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit}
               onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onCreateGroup={createGroup} onRenameGroup={(group, title) => groupChange(() => store.renameGroup(group, title))} onMoveGroup={(group, parentId) => groupChange(() => store.moveGroup(group, parentId))} onReorderGroup={(group, offset) => groupChange(() => store.reorderGroup(group, offset))} onDeleteGroup={deleteGroup} onPlaceGroup={(id, target) => groupChange(() => store.placeGroup(id, target))} onPlaceGroups={(ids, target) => groupChange(() => store.placeGroups(ids, target))} onDropTask={dropTask} onStartDependent={startDependent} onDeleteTask={deleteTask} onSleepTask={sleepTask} onWakeTask={wakeTask} respectSleep={prefs.calendarSleepMode() === "respect"} />
             <Show when={paneMounted()}>
