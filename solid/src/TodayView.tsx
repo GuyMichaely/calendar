@@ -6,6 +6,7 @@ import { taskSchedule, windowsById } from "./windows";
 import { describeRepeat, lastCheckIn } from "./repeats";
 // The same search as the calendar: title, notes, tags, and attachment names.
 import { textMatches } from "../../site/domain.js";
+import { actionForKey, normalizeEventKey, type Shortcuts } from "./shortcut-config";
 import type { Item, Task } from "./types";
 
 // Agenda lists the urgency sections; Boards shows your boards and the built-in ones as columns.
@@ -49,6 +50,8 @@ export type TodayViewProps = {
   onMoveTask: (task: Task, to: { parent: Task } | { groupId: string | null }) => Promise<unknown>;
   // The Boards view's boards in a new layout (every board's key, a section id or a board id, by column).
   onLayoutBoards: (layout: BoardLayout) => Promise<void>;
+  // Settings → Keyboard shortcuts.
+  shortcuts: Shortcuts;
   // Lets the app animate changes made elsewhere (undo and redo) the same way.
   registerMotion?: (motion: (run: () => Promise<unknown>) => Promise<void>) => () => void;
 };
@@ -233,7 +236,7 @@ export function TodayView(props: TodayViewProps) {
       <Show when={waitingOpen()}><For each={waiting()}>{node => <Row node={node} depth={rowProps.depth + 1} label={false} runKey={`${rowProps.runKey}/${task().id}/waiting`} />}</For></Show>
     </Show>;
     if (rowProps.node.dependent) return <>
-      <div class="today-row dependent" classList={{ selected: props.selectedId === task().id }} style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
+      <div class="today-row dependent" classList={{ selected: props.selectedId === task().id }} style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={focusId() === task().id ? 0 : -1} onFocus={() => setFocusId(task().id)}
         onClick={event => { if (!(event.target as Element).closest("button, .task-menu")) props.onEdit(task()); }}>
         <span class="waiting-mark" aria-hidden="true" />
         <span class="today-copy">
@@ -249,7 +252,7 @@ export function TodayView(props: TodayViewProps) {
     const label = () => rowProps.label && props.showBoard ? boardTitle(taskGroupId(task(), byId())) : "";
     return <>
       <div class="today-row" title={rowProps.node.muted ? "Its own timing is less urgent; shown here with its family" : rowProps.node.container ? "Holds these subtasks; checking it off finishes all of them" : undefined} classList={{ container: rowProps.node.container, muted: !!rowProps.node.muted, pushed: isPushed(rowProps.node), selected: props.selectedId === task().id, "drag-source": draggingId() === task().id }}
-        style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1} onPointerDown={event => dragTask(task())(event)}
+        style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={focusId() === task().id ? 0 : -1} onFocus={() => setFocusId(task().id)} onPointerDown={event => dragTask(task())(event)}
         onClick={event => { if (!(event.target as Element).closest("button, .task-menu")) props.onEdit(task()); }}>
         <Show when={!done()} fallback={<button class="complete-button checked" aria-label={`Reopen ${task().title || "Untitled task"}`} title={reopenTitle(task())} onClick={() => void reopen(task())}><svg class="check-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 12 10 15.5 17.5 4" /></svg></button>}>
           <button class="complete-button" aria-label={task().repeat?.untilDone ? `It happened: ${task().title}` : `Complete ${task().title}`} title={task().repeat?.untilDone ? "It happened (finishes it)" : task().repeat ? "Done for now (it repeats)" : undefined} onClick={() => void complete(task())} />
@@ -437,6 +440,77 @@ export function TodayView(props: TodayViewProps) {
   };
 
 
+  // Keyboard. The last focused row is the one Tab comes back to; arrows move focus between
+  // rows (and the rows that fold others away, and in the Agenda the section headings),
+  // wrapping around at the ends. In Boards, ↑/↓ stay in a column and ←/→ change column.
+  const [focusId, setFocusId] = createSignal<string | null>(null);
+  const editable = (target: EventTarget | null) => target instanceof Element && !!target.closest("input, textarea, select, [contenteditable]");
+  const stops = () => [...boardRef.querySelectorAll<HTMLElement>(`.today-row[data-id], .today-fold${props.view === "today" ? ", .today-section-heading" : ""}`)].filter(element => element.getClientRects().length);
+  const stackOf = (element: Element) => element.closest(".board-stack");
+  const focusStop = (element: HTMLElement | undefined) => { if (!element) return; element.focus(); element.scrollIntoView({ block: "nearest", inline: "nearest" }); };
+  const step = (from: HTMLElement | null, key: string) => {
+    const all = stops();
+    if (!all.length) return;
+    if (!from || !all.includes(from)) return focusStop(key === "ArrowUp" || key === "End" ? all.at(-1) : all[0]);
+    // In Boards, a column's rows; ←/→ jump to the row nearest in height in the next column.
+    const stacks = props.view === "boards" ? [...new Set(all.map(stackOf))] : [null];
+    const here = props.view === "boards" ? all.filter(element => stackOf(element) === stackOf(from)) : all;
+    const index = here.indexOf(from);
+    if (key === "ArrowDown") return focusStop(here[(index + 1) % here.length]);
+    if (key === "ArrowUp") return focusStop(here[(index - 1 + here.length) % here.length]);
+    if (key === "Home") return focusStop(here[0]);
+    if (key === "End") return focusStop(here.at(-1));
+    if (props.view !== "boards" || stacks.length < 2) return;
+    const stack = stacks[(stacks.indexOf(stackOf(from)) + (key === "ArrowRight" ? 1 : -1) + stacks.length) % stacks.length];
+    const y = from.getBoundingClientRect().top;
+    const nearest = all.filter(element => stackOf(element) === stack).sort((a, b) => Math.abs(a.getBoundingClientRect().top - y) - Math.abs(b.getBoundingClientRect().top - y))[0];
+    focusStop(nearest);
+  };
+  // After a change moves the focused row away, focus stays where it was: on the row that
+  // took its place, else the one before.
+  const keepFocus = async (row: HTMLElement, run: () => Promise<unknown>) => {
+    const all = stops(), index = all.indexOf(row);
+    const key = (element?: HTMLElement) => element?.dataset.id ?? null;
+    const after = key(all[index + 1]), before = key(all[index - 1]);
+    await run();
+    const find = (id: string | null) => id ? boardRef.querySelector<HTMLElement>(`.today-row[data-id="${CSS.escape(id)}"]`) ?? undefined : undefined;
+    if (document.activeElement === row && row.isConnected && stops()[index] === row) return;
+    focusStop(find(after) ?? find(before) ?? stops()[Math.min(index, stops().length - 1)]);
+  };
+  const addField = (row?: Element | null) => (row?.closest(".board-card")?.querySelector<HTMLInputElement>(".board-add input")) ?? boardRef.closest(".today-panel")?.querySelector<HTMLInputElement>(".today-add input");
+  const onRowKey = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target as HTMLElement;
+    if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) && (target.matches(".today-row, .today-fold, .today-section-heading"))) {
+      event.preventDefault(); step(target, event.key); return;
+    }
+    if (!target.matches(".today-row[data-id]")) return;
+    const task = byId().get(target.dataset.id!) as Task | undefined;
+    const action = actionForKey(normalizeEventKey(event), props.shortcuts);
+    if (!task || !action) return;
+    event.preventDefault();
+    const waiting = target.classList.contains("dependent"), done = !!target.querySelector(".complete-button.checked");
+    if (action === "edit") props.onEdit(task);
+    else if (action === "addTask") addField(target)?.focus();
+    else if (waiting) return;
+    else if (action === "complete") void keepFocus(target, () => done ? reopen(task) : complete(task));
+    else if (done) return;
+    else if (action === "pushDown") void keepFocus(target, () => moving([task.id], () => pushedDownInfo(task, props.now).pushed ? props.onLift(task) : props.onPushDown(task, null)));
+    else if (action === "pushDownTomorrow") { const date = new Date(props.now); date.setDate(date.getDate() + 1); date.setHours(0, 0, 0, 0); void keepFocus(target, () => moving([task.id], () => props.onPushDown(task, date))); }
+    else if (action === "notYet" && task.repeat?.untilDone) void keepFocus(target, () => moving([task.id], () => props.onNotYet(task)));
+  };
+  // With nothing focused, ↓/↑ start at the first or last row, and Add a task works too.
+  onMount(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || editable(event.target) || document.querySelector(".solid-dialog-backdrop")) return;
+      if (event.target !== document.body) return;
+      if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); step(null, event.key); }
+      else if (actionForKey(normalizeEventKey(event), props.shortcuts) === "addTask") { event.preventDefault(); addField()?.focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    onCleanup(() => document.removeEventListener("keydown", onKey));
+  });
+
   const [draft, setDraft] = createSignal("");
   const add = async () => {
     const title = draft().trim();
@@ -550,7 +624,11 @@ export function TodayView(props: TodayViewProps) {
     return <form class="board-add" onSubmit={event => { event.preventDefault(); void submit(); }}>
       <Icon name="plus" size={14} />
       <input placeholder="Add a task" aria-label={`Add a task to ${addProps.boardId ? boardTitle(addProps.boardId) : "no board"}`} value={title()} onInput={event => setTitle(event.currentTarget.value)}
-        onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); setTitle(""); event.currentTarget.blur(); } }} />
+        onKeyDown={event => {
+          if (event.key === "Escape") { event.preventDefault(); setTitle(""); event.currentTarget.blur(); }
+          // Up from a board's field: its last row.
+          else if (event.key === "ArrowUp") { event.preventDefault(); event.stopPropagation(); const rows = [...(event.currentTarget.closest(".board-card")?.querySelectorAll<HTMLElement>(".today-row[data-id], .today-fold") || [])]; focusStop(rows.at(-1)); }
+        }} />
     </form>;
   };
 
@@ -616,9 +694,10 @@ export function TodayView(props: TodayViewProps) {
     </div>
     <form class="quick-capture today-add" onSubmit={event => { event.preventDefault(); void add(); }}>
       <Icon name="plus" size={17} />
-      <input placeholder="Add a task" aria-label="Add a task" value={draft()} onInput={event => setDraft(event.currentTarget.value)} />
+      <input placeholder="Add a task" aria-label="Add a task" value={draft()} onInput={event => setDraft(event.currentTarget.value)}
+        onKeyDown={event => { if (event.key === "ArrowDown") { event.preventDefault(); step(null, "ArrowDown"); } else if (event.key === "Escape" && !draft()) event.currentTarget.blur(); }} />
     </form>
-    <div class="today-board" ref={boardRef} classList={{ "boards-layout": props.view === "boards", "drag-active": !!dragKey() }}>
+    <div class="today-board" ref={boardRef} onKeyDown={onRowKey} classList={{ "boards-layout": props.view === "boards", "drag-active": !!dragKey() }}>
       <Show when={props.view === "boards"} fallback={
         <Show when={sections().length} fallback={<p class="today-empty">{props.query ? "No tasks match your search." : "Nothing needs you right now."}</p>}>
           <For each={sections().map(entry => entry.id)}>{id => <SectionBlock id={id} />}</For>

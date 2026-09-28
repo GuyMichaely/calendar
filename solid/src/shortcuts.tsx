@@ -1,7 +1,6 @@
-import { Icon } from "./Icon";
 import { For, createMemo, createSignal, createEffect, onCleanup } from "solid-js";
 
-import { actions, labels, DEFAULT_SHORTCUTS, SHORTCUT_STORAGE_KEY, normalizeEventKey, keyLabel, shortcutTooltip, type ShortcutAction, type Shortcuts } from "./shortcut-config";
+import { actions, labels, DEFAULT_SHORTCUTS, SHORTCUT_STORAGE_KEY, normalizeEventKey, keyLabel, type ShortcutAction, type Shortcuts } from "./shortcut-config";
 export * from "./shortcut-config";
 
 export function KeyboardShortcutSettings(props: {
@@ -55,7 +54,7 @@ export function KeyboardShortcutSettings(props: {
       <div class="dialog-header">
         <h2 id="shortcut-title">Keyboard shortcuts</h2>
       </div>
-      <p class="shortcut-help">Task hotkeys apply when the task card itself is focused. ↑/↓ moves between visible tasks; Tab moves through the focused card's controls.</p>
+      <p class="shortcut-help">In the Agenda and Boards, these apply to the focused task (Add a task works anywhere there). ↑/↓ moves between tasks, wrapping around at the ends; in Boards, ←/→ moves between columns. Home and End go to the first and last task; Tab moves through the focused task's buttons.</p>
       <div class="shortcut-grid">
         <For each={actions}>{(action, index) => (
           <label class="shortcut-row">
@@ -80,18 +79,5 @@ export function KeyboardShortcutSettings(props: {
         <button type="button" class="primary-button" onClick={save}>Save</button>
       </div>
     </section>
-  );
-}
-
-export function TaskActionIcon(props: {
-  action: "customSleep";
-  shortcuts: Shortcuts;
-  onClick: () => void;
-}) {
-  const title = () => shortcutTooltip(props.action, props.shortcuts);
-  return (
-    <button type="button" class="task-action-icon" title={title()} aria-label={title()} onClick={props.onClick}>
-      <Icon name="moon" size={18} />
-    </button>
   );
 }

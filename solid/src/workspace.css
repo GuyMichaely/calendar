@@ -719,6 +719,7 @@ main:has(.groups-panel) > .tasks-workspace { flex: 1; min-height: 0; grid-templa
 .today-row { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 /* Dragging a task: its row stays put, faded; where it would go is outlined, with a hint by the pointer. */
 .today-row.drag-source { opacity: .35; }
+.today-row:focus-visible, .today-fold:focus-visible, .today-section-heading:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
 .task-drag-ghost { background: var(--surface); box-shadow: var(--shadow); opacity: .92; }
 .task-drag-hint { position: fixed; left: 0; top: 0; z-index: 61; pointer-events: none; max-width: 260px; padding: 4px 9px; border-radius: 7px; background: var(--text); color: var(--bg); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .today-row.task-drop-target { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }

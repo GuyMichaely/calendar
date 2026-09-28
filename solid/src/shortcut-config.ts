@@ -1,21 +1,23 @@
-export type ShortcutAction = "edit" | "complete" | "sleepTomorrow" | "sleepIndefinite" | "customSleep";
+export type ShortcutAction = "edit" | "complete" | "pushDown" | "pushDownTomorrow" | "notYet" | "addTask";
 export type Shortcuts = Record<ShortcutAction, string>;
 
 export const SHORTCUT_STORAGE_KEY = "calendar.keyboardShortcuts";
 export const DEFAULT_SHORTCUTS: Shortcuts = {
   edit: "Enter",
   complete: " ",
-  sleepTomorrow: "s",
-  sleepIndefinite: "h",
-  customSleep: "c",
+  pushDown: "h",
+  pushDownTomorrow: "s",
+  notYet: "n",
+  addTask: "a",
 };
 
 export const labels: Record<ShortcutAction, string> = {
-  edit: "Edit focused task",
-  complete: "Complete task",
-  sleepTomorrow: "Sleep until tomorrow",
-  sleepIndefinite: "Sleep indefinitely",
-  customSleep: "Custom sleep",
+  edit: "Open task details",
+  complete: "Complete or reopen task",
+  pushDown: "Push down or lift back up",
+  pushDownTomorrow: "Push down until tomorrow",
+  notYet: "Not yet (check-ins)",
+  addTask: "Add a task",
 };
 
 export const actions = Object.keys(labels) as ShortcutAction[];
@@ -27,16 +29,13 @@ function normalizeStoredKey(value: unknown, fallback: string) {
   return fallback;
 }
 
+// Keys saved under the old sleep actions carry over to the push-down ones.
+const OLD_NAMES: Partial<Record<ShortcutAction, string>> = { pushDown: "sleepIndefinite", pushDownTomorrow: "sleepTomorrow" };
+
 export function loadShortcuts(): Shortcuts {
   try {
-    const stored = JSON.parse(localStorage.getItem(SHORTCUT_STORAGE_KEY) || "null");
-    return {
-      edit: normalizeStoredKey(stored?.edit, DEFAULT_SHORTCUTS.edit),
-      complete: normalizeStoredKey(stored?.complete, DEFAULT_SHORTCUTS.complete),
-      sleepTomorrow: normalizeStoredKey(stored?.sleepTomorrow, DEFAULT_SHORTCUTS.sleepTomorrow),
-      sleepIndefinite: normalizeStoredKey(stored?.sleepIndefinite, DEFAULT_SHORTCUTS.sleepIndefinite),
-      customSleep: normalizeStoredKey(stored?.customSleep, DEFAULT_SHORTCUTS.customSleep),
-    };
+    const stored = JSON.parse(localStorage.getItem(SHORTCUT_STORAGE_KEY) || "null") || {};
+    return Object.fromEntries(actions.map(action => [action, normalizeStoredKey(stored[action] ?? stored[OLD_NAMES[action] ?? ""], DEFAULT_SHORTCUTS[action])])) as Shortcuts;
   } catch {
     return { ...DEFAULT_SHORTCUTS };
   }
