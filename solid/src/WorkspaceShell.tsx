@@ -50,8 +50,8 @@ export function WorkspaceShell(props: {
     <nav class="mobile-nav" aria-label="Primary">
       <button classList={{active: props.view === "tasks"}} aria-current={props.view === "tasks" ? "page" : undefined} onClick={() => props.onNavigate("tasks")}><Icon name="sun" /><span>Agenda</span></button>
       <button classList={{active: props.view === "boards"}} aria-current={props.view === "boards" ? "page" : undefined} onClick={() => props.onNavigate("boards")}><Icon name="compact" /><span>Boards</span></button>
-      <button classList={{active: props.view === "calendar"}} aria-current={props.view === "calendar" ? "page" : undefined} onClick={() => props.onNavigate("calendar")}><Icon name="calendar" /><span>Calendar</span></button>
       <button class="mobile-create" aria-label={props.view === "calendar" ? "New event" : "New task"} onClick={props.onNew}><span><Icon name="plus" /></span></button>
+      <button classList={{active: props.view === "calendar"}} aria-current={props.view === "calendar" ? "page" : undefined} onClick={() => props.onNavigate("calendar")}><Icon name="calendar" /><span>Calendar</span></button>
       <button onClick={props.onSettings}><Icon name="settings" /><span>Settings</span></button>
     </nav>
   </div>;

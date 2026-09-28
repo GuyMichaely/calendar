@@ -266,7 +266,7 @@ body.task-dragging { overflow-anchor: none; }
   .workspace-search input { font-size: 16px; padding-block: 6px; }
   .workspace-utilities { gap: 12px; }.sync-indicator { padding: 5px; }.sync-indicator > span { display: none; }.workspace-new { display: none; }
   .mobile-history { display: flex; gap: 2px; }.mobile-history .icon-button { border: 0; font-size: 24px; width: 27px; height: 28px; }.mobile-history button:disabled { opacity: .23; }
-  .mobile-nav { display: grid; grid-template-columns: repeat(4,1fr); align-items: center; position: fixed; bottom: 0; left: 0; right: 0; min-height: 69px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #171e1bf5; backdrop-filter: blur(12px); z-index: 30; }
+  .mobile-nav { display: grid; grid-template-columns: repeat(5,1fr); align-items: center; position: fixed; bottom: 0; left: 0; right: 0; min-height: 69px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #171e1bf5; backdrop-filter: blur(12px); z-index: 30; }
   .mobile-nav > button { display: flex; flex-direction: column; align-items: center; gap: 4px; border: 0; background: transparent; font-size: 9px; padding: 3px 0; color: var(--muted); }.mobile-nav > button.active { color: var(--accent); }.mobile-nav > .mobile-create > span { display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); width: 42px; height: 39px; border-radius: 10px; }
   main { padding: 20px 17px 100px; min-height: calc(100dvh - 120px); }.page-eyebrow { font-size: 9px; letter-spacing: 1px; margin-bottom: 8px; }
   .quick-capture { padding: 9px; gap: 7px; }.quick-capture input { font-size: 16px; }.quick-capture button > span { display: none; }.quick-capture button { width: 30px; height: 30px; padding: 0; justify-content: center; }.tags, .attachments { margin-left: 16px; }
@@ -513,6 +513,8 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 /* A fixed width: sized to its content, the row of columns would widen the page instead of scrolling. */
 .today-panel.columns { max-width: none; width: 100%; }
 .today-board.boards-layout { display: flex; align-items: stretch; overflow-x: auto; padding-bottom: 12px; }
+/* On a phone, a swipe settles on a column. */
+@media (max-width: 760px) { .today-board.boards-layout:not(.drag-active) { scroll-snap-type: x proximity; }.boards-layout .board-stack { scroll-snap-align: center; } }
 /* A column stacks boards; the openings between them grow to preview a drop. */
 .board-stack { flex: 0 0 310px; min-width: 0; display: flex; flex-direction: column; }
 .boards-layout .board-drop-slot { flex: 0 0 10px; border-radius: 8px; transition: flex-basis .18s ease; }

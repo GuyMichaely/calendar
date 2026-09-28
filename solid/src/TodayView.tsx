@@ -539,9 +539,11 @@ export function TodayView(props: TodayViewProps) {
   const dragBoard = (key: string) => (event: PointerEvent) => {
     if (props.view !== "boards" || event.button !== 0) return;
     const handle = event.currentTarget as HTMLElement, card = handle.closest<HTMLElement>(".board-card");
+    // With touch, a long press starts the drag so a swipe across the boards still scrolls.
+    const touch = event.pointerType === "touch";
     const x0 = event.clientX, y0 = event.clientY;
-    let x = x0, y = y0, started = false, frame = 0, ghost: HTMLElement | null = null;
-    handle.setPointerCapture(event.pointerId);
+    let x = x0, y = y0, started = false, frame = 0, ghost: HTMLElement | null = null, hold: ReturnType<typeof setTimeout> | undefined;
+    try { handle.setPointerCapture(event.pointerId); } catch { return; }
     const layout = boardLayout(props.items), shown = shownLayout();
     const changes = (drop: string) => { const target = targetOf(drop); return !!target && !sameLayout(placeBoard(layout, shown, key, target), layout); };
     const aim = () => {
@@ -576,9 +578,13 @@ export function TodayView(props: TodayViewProps) {
     };
     const move = (next: PointerEvent) => {
       x = next.clientX; y = next.clientY;
-      if (!started && Math.abs(x - x0) + Math.abs(y - y0) > 6) begin();
+      if (!started && Math.abs(x - x0) + Math.abs(y - y0) > (touch ? 8 : 6)) { if (touch) end(false); else begin(); }
     };
+    const still = (next: Event) => { if (started) next.preventDefault(); };
     const end = (drop: boolean) => {
+      clearTimeout(hold);
+      document.removeEventListener("touchmove", still);
+      document.removeEventListener("contextmenu", still, true);
       cancelAnimationFrame(frame);
       ghost?.remove();
       boardRef.style.removeProperty("--drop-h");
@@ -598,6 +604,9 @@ export function TodayView(props: TodayViewProps) {
     handle.addEventListener("pointerup", up, { once: true });
     handle.addEventListener("pointercancel", cancel, { once: true });
     document.addEventListener("keydown", escape, true);
+    document.addEventListener("touchmove", still, { passive: false });
+    document.addEventListener("contextmenu", still, true);
+    if (touch) hold = setTimeout(begin, 380);
   };
   // Boards slide to their new places too.
   const moveBoards = async (run: () => Promise<unknown>) => {
