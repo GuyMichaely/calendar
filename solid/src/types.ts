@@ -6,6 +6,7 @@ export type {
   HistoryEntry,
   Item,
   PushedDown,
+  Repeat,
   SleepState,
   Task,
   TaskState,

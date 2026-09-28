@@ -21,7 +21,7 @@ import { attachmentMarkdown } from "./markdown";
 import { DialogShell } from "./DialogShell";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
 import { eventFromDraft, taskFromDraft, type TaskDraft } from "./item-changes";
-import type { Attachment, CalendarEvent, Item, Task, TimeWindow } from "./types";
+import type { Attachment, CalendarEvent, Item, Repeat, Task, TimeWindow } from "./types";
 
 export type EditorRequest = {
   item: Task | CalendarEvent | null;
@@ -134,6 +134,9 @@ export function ItemEditor(props: {
   const [deadlineInput, setDeadlineInput] = createSignal(isoToLocalInput(task?.deadline));
   // Pushed down, until a date if one is set (otherwise until lifted).
   const [pushed, setPushed] = createSignal(!!initialPush?.pushed);
+  // Repeats ("" for not repeating), and a dependent task's automatic start.
+  const [repeatUnit, setRepeatUnit] = createSignal<string>(task?.repeat?.unit || "");
+  const [startWhen, setStartWhen] = createSignal<string>(task?.startWhen?.on || "");
   const [eventStart, setEventStart] = createSignal(defaults.start);
   const [eventEnd, setEventEnd] = createSignal(defaults.end);
   const [pendingFiles, setPendingFiles] = createSignal<File[]>([]);
@@ -317,6 +320,8 @@ export function ItemEditor(props: {
         windowId: choice && choice !== "custom" ? choice : null,
         schedule: choice === "custom" ? task?.availabilitySchedule ?? null : null,
         relativeDates,
+        repeat: repeatUnit() ? { unit: repeatUnit() as Repeat["unit"], every: Math.max(1, Math.round(Number(data.get("repeatEvery")) || 1)), until: localInputToIso(data.get("repeatUntil")), untilDone: data.get("repeatUntilDone") === "on", ifMissed: data.get("repeatMissed") === "keep" ? "keep" : "skip" } : null,
+        ...(dormant() ? { startWhen: startWhen() === "parent-done" ? { on: "parent-done" as const } : startWhen() === "not-yet" ? { on: "not-yet" as const, after: localInputToIso(data.get("startAfter")) } : null, stopParent: data.get("stopParent") === "on" } : {}),
       }, { ...context, parentId: props.request.parentId, dormant: dormant() });
     } else {
       if (!eventStart() && !eventEnd()) { setSaveError("Choose when the event starts."); return false; }
@@ -581,6 +586,31 @@ export function ItemEditor(props: {
               {/* One option: pushed down until the date if one is set, else until lifted. */}
               <div class="field"><label class="field-label-row field-check"><input type="checkbox" checked={pushed()} onChange={event => { setPushed(event.currentTarget.checked); syncDirty(); }} /><span>Push down</span></label>
                 <DateTimeField name="pushUntil" label="Pushed down until" placeholder="Until you lift it" value={pushUntil} disabled={!pushed()} onChange={syncDirty} /></div>
+              {/* Repeats: all controls always shown (disabled until it repeats) so nothing shifts. */}
+              <div class="field full-span repeat-field"><span>Repeat</span>
+                <div class="repeat-controls">
+                  <select name="repeatUnit" aria-label="Repeats" value={repeatUnit()} onChange={event => { setRepeatUnit(event.currentTarget.value); syncDirty(); }}>
+                    <option value="">Doesn't repeat</option><option value="day">Daily</option><option value="weekday">Weekdays</option><option value="week">Weekly</option><option value="month">Monthly</option>
+                  </select>
+                  <label class="repeat-every">every <input name="repeatEvery" type="number" min="1" step="1" aria-label="Repeat every" value={task?.repeat?.every ?? 1} disabled={!repeatUnit()} /></label>
+                  <select name="repeatMissed" aria-label="If an occurrence is missed" title="What happens when an occurrence passes without being done" value={task?.repeat?.ifMissed ?? "skip"} disabled={!repeatUnit()}>
+                    <option value="skip">If missed: skip it</option><option value="keep">If missed: keep until done</option>
+                  </select>
+                  <div class="repeat-until"><DateTimeField name="repeatUntil" label="Repeat until" placeholder="Repeats until…" value={isoToLocalInput(task?.repeat?.until)} disabled={!repeatUnit()} onChange={syncDirty} /></div>
+                  <label class="field-check" title="Each time: Not yet (see it again next time) or It happened (finished for good)"><input type="checkbox" name="repeatUntilDone" checked={!!task?.repeat?.untilDone} disabled={!repeatUnit()} /> Check in until it happens</label>
+                </div>
+              </div>
+              <Show when={dormant()}>
+                <div class="field full-span repeat-field"><span>Starts</span>
+                  <div class="repeat-controls">
+                    <select aria-label="Starts" value={startWhen()} onChange={event => { setStartWhen(event.currentTarget.value); syncDirty(); }}>
+                      <option value="">When I start it</option><option value="parent-done">When “{parentTask()?.title || "its parent"}” is done</option><option value="not-yet">On a “Not yet” for “{parentTask()?.title || "its parent"}”</option>
+                    </select>
+                    <div class="repeat-until"><DateTimeField name="startAfter" label="On or after" placeholder="On or after…" value={isoToLocalInput(task?.startWhen?.on === "not-yet" ? task.startWhen.after : null)} disabled={startWhen() !== "not-yet"} onChange={syncDirty} /></div>
+                    <label class="field-check"><input type="checkbox" name="stopParent" checked={task?.stopParent !== false} disabled={startWhen() !== "not-yet"} /> Finish “{parentTask()?.title || "its parent"}” when this starts</label>
+                  </div>
+                </div>
+              </Show>
             </div>
           </div>
         </Show>

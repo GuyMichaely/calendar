@@ -58,6 +58,13 @@ export type Task = BaseItem & {
   warnAt?: string | null;
   // How its finished subtasks show while it's open: dimmed ("show") or folded into "+N completed" (default).
   completedSubtasks?: "show" | null;
+  // Repeats: its Can start and Due are the current occurrence's (see solid/src/repeats.ts).
+  repeat?: Repeat | null;
+  // A dependent task that starts by itself: when its parent task is done, or on a
+  // "Not yet" check-in on the parent on or after a date.
+  startWhen?: { on: "parent-done" } | { on: "not-yet"; after: string | null } | null;
+  // With a "not-yet" start: whether starting it also finishes the parent (default yes).
+  stopParent?: boolean | null;
   completedAt?: string | null;
   history?: HistoryEntry[];
   // Only top-level tasks use this; subtasks appear wherever their parent task is.
@@ -93,6 +100,17 @@ export type Group = BaseItem & {
   // Its place in the Boards view's layout (built-in boards included): column, then row.
   layoutColumn?: number;
   layoutRow?: number;
+};
+
+export type Repeat = {
+  unit: "day" | "weekday" | "week" | "month";
+  every: number;
+  // The last day an occurrence can start; null repeats indefinitely.
+  until: string | null;
+  // A check-in: each occurrence is "Not yet" or "It happened" (which finishes it for good).
+  untilDone: boolean;
+  // A missed occurrence rolls on to the next ("skip") or stays, overdue, until done ("keep").
+  ifMissed: "skip" | "keep";
 };
 
 export type PushedDown = {

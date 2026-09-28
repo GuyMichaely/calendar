@@ -68,6 +68,10 @@ export type TaskDraft = {
   warnHours: number | null;
   // Legacy exact warning time, kept while the editor leaves it chosen.
   warnAt: string | null;
+  repeat?: Task["repeat"];
+  // A dormant dependent task's automatic start, and whether it finishes its parent.
+  startWhen?: Task["startWhen"];
+  stopParent?: boolean;
   windowId: string | null;
   // Legacy inline hours, kept while no named window replaces them.
   schedule: AvailabilitySchedule | null;
@@ -126,6 +130,8 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
     attachments: draft.attachments,
     dependentOf: dormant ? task!.dependentOf : null,
     relativeDates: dormant && Object.keys(relativeDates).length ? relativeDates : null,
+    ...(draft.repeat !== undefined ? { repeat: draft.repeat } : {}),
+    ...(dormant && draft.startWhen !== undefined ? { startWhen: draft.startWhen, stopParent: draft.startWhen?.on === "not-yet" ? draft.stopParent ?? true : null } : {}),
     availableFrom: draft.availableFrom,
     deadline: draft.deadline,
     warnHours: draft.deadline ? draft.warnHours : null,

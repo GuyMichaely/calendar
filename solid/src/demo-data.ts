@@ -30,14 +30,15 @@ export function demoItems(now = new Date()): Item[] {
     group("demo-jobs", "Jobs"), group("demo-learning", "Learning"),
 
     // Ordinary tasks, one of each kind of timing.
-    task("demo-card", "Pay credit card", { groupId: "demo-finances", deadline: hours(20) }),
+    task("demo-card", "Pay credit card", { groupId: "demo-finances", availableFrom: days(-29), deadline: hours(20), repeat: { unit: "month", every: 1, until: null, untilDone: false, ifMissed: "keep" } }),
     task("demo-registration", "Renew car registration", { groupId: "demo-home", deadline: days(-1) }),
     task("demo-refill", "Call pharmacy about refill", { groupId: "demo-health", windowId: "demo-pharmacy" }),
     task("demo-dispute", "Dispute charge with bank", { groupId: "demo-finances", windowId: "demo-business" }),
     task("demo-isp", "Call internet provider support", { groupId: "demo-home", windowId: "demo-support" }),
-    task("demo-balance", "Check credit balance", { groupId: "demo-finances", notes: "Requested a refund of the credit balance; it should show by the 9th." }),
-    task("demo-followup", "Call to follow up on refund", { groupId: "demo-finances", dependentOf: "demo-balance", windowId: "demo-business", relativeDates: { deadline: 2 } }),
-    task("demo-mail", "Check the mail", { groupId: "demo-home" }),
+    // A check-in: each day "Not yet" or "It happened"; a "Not yet" from day 10 on starts the follow-up call.
+    task("demo-balance", "Check credit balance", { groupId: "demo-finances", availableFrom: days(0), notes: "Requested a refund of the credit balance; it should show within ten days.", repeat: { unit: "day", every: 1, until: null, untilDone: true, ifMissed: "skip" } }),
+    task("demo-followup", "Call to follow up on refund", { groupId: "demo-finances", dependentOf: "demo-balance", windowId: "demo-business", relativeDates: { deadline: 2 }, startWhen: { on: "not-yet", after: days(10) }, stopParent: true }),
+    task("demo-mail", "Check the mail", { groupId: "demo-home", availableFrom: days(0), repeat: { unit: "weekday", every: 1, until: null, untilDone: false, ifMissed: "skip" } }),
     task("demo-photos", "Reorganize photos", { groupId: "demo-home", pushedDown: { until: null, at: created } }),
     task("demo-goggles", "Buy new swim goggles", { groupId: "demo-home", pushedDown: { until: null, at: created } }),
     task("demo-reading", "Read about index funds", { groupId: "demo-learning", pushedDown: { until: null, at: created } }),

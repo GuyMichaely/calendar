@@ -189,7 +189,13 @@ export function App() {
   const addDependent = (parent: Task, title: string) => attempt(() => store.addDependent(parent, title), "Could not add dependent task.");
   const setCompletedSubtasks = async (task: Task, value: Task["completedSubtasks"]) => { await attempt(() => store.patchTask(task, { completedSubtasks: value }), "Could not change how its completed subtasks show."); };
   const reopenTask = async (task: Task) => { await attempt(() => store.reopenTask(task), "Could not reopen the task.", "Reopened"); };
-  const completeTask = async (task: Task) => { await attempt(() => store.completeTask(task), "Could not complete task.", "Task completed"); };
+  // Checking off a repeating task finishes this occurrence; a check-in's tick means "It happened".
+  const completeTask = async (task: Task) => {
+    if (task.repeat && !task.repeat.untilDone) { await attempt(() => store.advanceTask(task, "occurrence-done"), "Could not check off the task.", "Done for now; it'll be back next time"); return; }
+    await attempt(() => store.completeTask(task), "Could not complete task.", task.repeat?.untilDone ? "It happened" : "Task completed");
+  };
+  const finishTask = async (task: Task) => { await attempt(() => store.completeTask(task), "Could not finish the task.", "Finished for good"); };
+  const notYet = async (task: Task) => { await attempt(() => store.advanceTask(task, "not-yet"), "Could not record the check-in.", "Checked: not yet"); };
   const dropTask = (task: Task, drop: TaskDrop) => attempt(() =>
     drop.kind === "dependent" ? store.makeDependent(task, drop.owner)
       : store.moveTask(task, drop.kind === "inside" ? { parent: drop.parent } : drop.kind === "group" ? { groupId: drop.groupId } : { ref: drop.ref, before: drop.kind === "before" }),
@@ -312,7 +318,7 @@ export function App() {
             <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
               view={view() === "boards" ? "boards" : "today"} showBoard={prefs.showBoard()} showTags={prefs.showTags()} pullTimed={prefs.pullTimed()} onPullTimedChange={prefs.setPullTimed} onLayoutBoards={layout => groupChange(() => store.layoutBoards(layout))} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
-              liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} registerMotion={next => { motion = next; return () => { if (motion === next) motion = null; }; }} />
+              liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onFinish={finishTask} onNotYet={notYet} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} registerMotion={next => { motion = next; return () => { if (motion === next) motion = null; }; }} />
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
                 <Show when={detailRequest() || lastRequest} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>

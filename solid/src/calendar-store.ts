@@ -18,6 +18,7 @@ import {
   undoLabel,
 } from "../../site/storage.js";
 import { startedTask } from "./dependencies";
+import { advancedTask } from "./repeats";
 import { boardLayoutPatches, type BoardLayout } from "./board-order";
 import { boardColumns, boardEntries, groupPlacement, layoutPatches, placeGroups as placeInLayout, reorderPatches, taskPlacePatches, taskSiblings, ungroupPatches, type BoardTarget } from "./group-board";
 import { completedTask, dependentGroupId, liftedTask, reopenedTask, newGroup, newTask, newWindow, patchedItem, pushedTask } from "./item-changes";
@@ -49,6 +50,21 @@ export function createCalendarStore(options: { onChanged: () => void }) {
   };
   const batch = <T>(label: string, run: () => Promise<T>) => change(() => historyBatch(label, run));
   const patchGroup = (group: Group, patch: Partial<Group>) => putItem(patchedItem(group, patch, new Date()), group);
+  // Dependent tasks that start by themselves: when their parent is done, or on a "Not yet"
+  // on it on or after their date (optionally finishing the parent then).
+  const startFollowUps = async (owner: Task, event: "done" | "not-yet", now: Date) => {
+    for (const task of items()) {
+      if (task.kind !== "task" || task.dependentOf !== owner.id || task.state === "completed" || !task.startWhen) continue;
+      const when = task.startWhen;
+      const fires = when.on === "parent-done" ? event === "done" : event === "not-yet" && (!when.after || now >= new Date(when.after));
+      if (!fires) continue;
+      await putItem(startedTask(task, now), task);
+      if (when.on === "not-yet" && task.stopParent !== false) {
+        const current = await getItem(owner.id);
+        if (current?.kind === "task" && current.state !== "completed") await putItem({ ...completedTask(current, now), history: [...(current.history || []), { at: now.toISOString(), type: "completed", byFollowUp: task.id }] }, current);
+      }
+    }
+  };
 
   // Unsaved editor text that the board renders immediately (before the debounced save).
   const [liveEdits, setLiveEdits] = createSignal(new Map<string, Partial<Task>>());
@@ -74,7 +90,18 @@ export function createCalendarStore(options: { onChanged: () => void }) {
     addSubtask: (parent: Task, title: string) => change(() => putItem(newTask({ title, parentId: parent.id }, new Date()))),
     addDependent: (parent: Task, title: string) => change(() => putItem(newTask({ title, dependentOf: parent.id, groupId: dependentGroupId(items(), parent) }, new Date()))),
     patchTask: (task: Task, patch: Partial<Task>) => change(() => putItem(patchedItem(task, patch, new Date()), task)),
-    completeTask: (task: Task) => change(() => putItem(completedTask(task, new Date()), task)),
+    /** Finished for good (for a check-in, "It happened"); dependent tasks set to start then do. */
+    completeTask: (task: Task) => batch(`Complete “${task.title}”`, async () => {
+      const now = new Date();
+      await putItem(completedTask(task, now), task);
+      await startFollowUps(task, "done", now);
+    }),
+    /** A repeating task's occurrence done, or a check-in's "Not yet": it moves to its next occurrence. */
+    advanceTask: (task: Task, type: "occurrence-done" | "not-yet") => batch(type === "not-yet" ? `“Not yet” for “${task.title}”` : `Done for now: “${task.title}”`, async () => {
+      const now = new Date();
+      await putItem(advancedTask(task, now, { type }), task);
+      if (type === "not-yet") await startFollowUps(task, "not-yet", now);
+    }),
     reopenTask: (task: Task) => change(() => putItem(reopenedTask(task, new Date()), task)),
     pushDown: (task: Task, until: Date | null) => change(() => putItem(pushedTask(task, until, new Date()), task)),
     lift: (task: Task) => change(() => putItem(liftedTask(task, new Date()), task)),

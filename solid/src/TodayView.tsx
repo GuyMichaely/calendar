@@ -3,6 +3,7 @@ import { Icon } from "./Icon";
 import { ancestors, buildSections, pushedDownInfo, SECTION_ORDER, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
 import { boardLayout, placeBoard, sameLayout, userBoards, type BoardLayout, type BoardTarget } from "./board-order";
 import { taskSchedule, windowsById } from "./windows";
+import { describeRepeat, lastCheckIn } from "./repeats";
 // The same search as the calendar: title, notes, tags, and attachment names.
 import { textMatches } from "../../site/domain.js";
 import type { Item, Task } from "./types";
@@ -32,6 +33,10 @@ export type TodayViewProps = {
   liveEdits: () => Map<string, Partial<Task>>;
   onEdit: (task: Task) => void;
   onComplete: (task: Task) => Promise<void>;
+  // A repeating task finished for good (not just this occurrence).
+  onFinish: (task: Task) => Promise<void>;
+  // A check-in's "Not yet": recorded, and on to its next occurrence.
+  onNotYet: (task: Task) => Promise<void>;
   onAddTask: (groupId: string | null, title: string) => Promise<boolean>;
   onPushDown: (task: Task, until: Date | null) => Promise<void>;
   onLift: (task: Task) => Promise<void>;
@@ -149,7 +154,8 @@ export function TodayView(props: TodayViewProps) {
 
   const [startPrompt, setStartPrompt] = createSignal<{ owner: Task; dependents: Task[] } | null>(null);
   const complete = async (task: Task) => {
-    const dependents = props.items.filter((item): item is Task => item.kind === "task" && item.dependentOf === task.id);
+    // Ones set to start by themselves aren't offered; finishing starts them.
+    const dependents = props.items.filter((item): item is Task => item.kind === "task" && item.dependentOf === task.id && !item.startWhen);
     await moving([task.id], () => props.onComplete(task));
     if (dependents.length) setStartPrompt({ owner: task, dependents });
   };
@@ -186,6 +192,15 @@ export function TodayView(props: TodayViewProps) {
     else if (placement.pushed) result.push({ label: "Pushed down with its parent" });
     return result;
   };
+  // How it repeats, and a check-in's last "Not yet".
+  const repeatChips = (task: Task): Chip[] => {
+    if (!task.repeat || task.state === "completed") return [];
+    const until = task.repeat.until ? ` until ${when(new Date(task.repeat.until), props.now)}` : "";
+    const chips: Chip[] = [{ label: `↻ ${describeRepeat(task.repeat)}${until}`, kind: "calm" }];
+    const checked = task.repeat.untilDone ? lastCheckIn(task) : null;
+    if (checked) chips.push({ label: `Not yet as of ${when(checked, props.now)}` });
+    return chips;
+  };
   const tagChips = (task: Task): Chip[] => props.showTags ? (task.tags || []).map(tag => ({ label: `#${tag}`, kind: "tag" as const })) : [];
 
   const boardTitle = (id: string | null) => id ? boards().find(board => board.id === id)?.title || "" : "";
@@ -202,13 +217,14 @@ export function TodayView(props: TodayViewProps) {
         style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
         onClick={event => { if (!(event.target as Element).closest("button, .task-menu")) props.onEdit(task()); }}>
         <Show when={!done()} fallback={<button class="complete-button checked" aria-label={`Reopen ${task().title || "Untitled task"}`} title={reopenTitle(task())} onClick={() => void reopen(task())}><svg class="check-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 12 10 15.5 17.5 4" /></svg></button>}>
-          <button class="complete-button" aria-label={`Complete ${task().title}`} onClick={() => void complete(task())} />
+          <button class="complete-button" aria-label={task().repeat?.untilDone ? `It happened: ${task().title}` : `Complete ${task().title}`} title={task().repeat?.untilDone ? "It happened (finishes it)" : task().repeat ? "Done for now (it repeats)" : undefined} onClick={() => void complete(task())} />
         </Show>
         <span class="today-copy">
           <span class="today-title">{props.liveEdits().get(task().id)?.title ?? task().title ?? ""}<Show when={!(props.liveEdits().get(task().id)?.title ?? task().title)}>Untitled task</Show></span>
-          <span class="today-chips"><For each={[...chips(rowProps.node), ...tagChips(task())]}>{chip => <span class={`today-chip ${chip.kind || ""}`} title={chip.title}>{chip.label}</span>}</For></span>
+          <span class="today-chips"><For each={[...chips(rowProps.node), ...repeatChips(task()), ...tagChips(task())]}>{chip => <span class={`today-chip ${chip.kind || ""}`} title={chip.title}>{chip.label}</span>}</For></span>
         </span>
         <Show when={label()}><span class="today-group">{label()}</span></Show>
+        <Show when={!done() && task().repeat?.untilDone}><button type="button" class="today-checkin" title="Checked, and it hasn't happened yet: see it again next time" onClick={() => void moving([task().id], () => props.onNotYet(task()))}>Not yet</button></Show>
         <RowMenu task={task()} done={done()} finished={rowProps.node.finished?.length ? rowProps.node.showFinished ? "show" : "fold" : null} />
       </div>
       <Rows nodes={rowProps.node.children} depth={rowProps.depth + 1} label={false} runKey={`${rowProps.runKey}/${task().id}`} />
@@ -268,6 +284,9 @@ export function TodayView(props: TodayViewProps) {
             </>}>
               <button role="menuitem" onClick={act(() => moving([id()], () => props.onLift(menuProps.task)))}>Lift back up</button>
             </Show>
+          </Show>
+          <Show when={!menuProps.done && menuProps.task.repeat && !menuProps.task.repeat.untilDone}>
+            <button role="menuitem" onClick={act(() => moving([id()], () => props.onFinish(menuProps.task)))}>Finish for good</button>
           </Show>
           <Show when={menuProps.finished}>
             <button role="menuitem" onClick={act(() => props.onCompletedSubtasks(menuProps.task, menuProps.finished === "show" ? null : "show"))}>{menuProps.finished === "show" ? "Fold completed subtasks" : "Show completed subtasks"}</button>

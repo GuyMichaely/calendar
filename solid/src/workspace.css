@@ -800,3 +800,12 @@ main:has(.groups-panel) > .tasks-workspace { flex: 1; min-height: 0; grid-templa
 .notes-link-field { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .notes-link-field input { flex: 1; min-width: 0; background: var(--surface-3); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
 .notes-richtext a { color: var(--accent-strong); text-decoration: underline; cursor: text; }
+.today-checkin { flex: none; border: 1px solid var(--line); border-radius: 99px; background: transparent; padding: 2px 9px; font-size: 11px; color: var(--muted); }
+.today-checkin:hover { border-color: var(--accent); color: var(--accent-strong); }
+.repeat-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 12px; color: var(--muted); }
+.repeat-controls > select { width: auto; }
+.repeat-every { display: inline-flex; align-items: center; gap: 6px; }
+.repeat-every input { width: 64px !important; }
+.repeat-until { min-width: 190px; flex: 1; }
+.repeat-controls .field-check { display: inline-flex; align-items: center; gap: 6px; }
+.repeat-controls .field-check input { width: auto; }

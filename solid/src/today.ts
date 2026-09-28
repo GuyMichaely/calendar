@@ -1,5 +1,6 @@
 import { isDormant } from "./dependencies";
 import { nextOpening, openingOn, taskSchedule } from "./windows";
+import { occurrenceTask } from "./repeats";
 import type { Item, Task, TimeWindow } from "./types";
 
 /*
@@ -184,7 +185,7 @@ export function buildSections(items: Item[], now: Date, options: { mode: Subtask
   };
   const placementFor = (task: Task): Placement => done.get(task.id)
     ? { section: "completed", pushed: false }
-    : placeTask(inherited(task, chainOf.get(task.id)!, now), now, windows);
+    : placeTask(inherited(occurrenceTask(task, now), chainOf.get(task.id)!.map(ancestor => occurrenceTask(ancestor, now)), now), now, windows);
   // Placed tasks: everything except open containers. A search or group filter keeps a
   // task when it or one of its containers matches.
   const placed = tasks.filter(task => !openContainer(task) && !withOpenParent(task))
