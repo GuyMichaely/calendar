@@ -22,12 +22,13 @@ export function createPreferences() {
   const [calendarSleepMode, setCalendarSleepMode] = stored<CalendarSleepMode>("calendar.calendarSleepMode", raw => raw === "ignore" ? "ignore" : "respect", value => value);
   // "on" or "off" overrides the device's reduced-motion setting; null follows it.
   const [animations, setAnimations] = stored<string | null>("calendar.animations", raw => raw, value => value);
-  // Today view layouts, switchable to compare.
+  // How the Agenda and Boards views show tasks.
   const choice = <T extends string>(key: string, options: readonly T[]) => stored<T>(key, raw => options.includes(raw as T) ? raw as T : options[0], value => value);
   // Settings → Display: a task's board and tags on its row (both on unless turned off).
   const shown = (key: string) => stored(key, raw => raw !== "0", value => value ? null : "0");
   const [showBoard, setShowBoard] = shown("calendar.rows.showBoard");
   const [showTags, setShowTags] = shown("calendar.rows.showTags");
+  const [pullTimed, setPullTimed] = flag("calendar.boards.pullTimed");
   const [subtaskMode, setSubtaskMode] = choice("calendar.today.subtasks", ["context", "nested"] as const);
   // Pretend time: milliseconds added to the real clock (0 = real time).
   const [timeOffset, setTimeOffset] = stored("calendar.timeOffset", raw => Number(raw) || 0, value => value ? String(value) : null);
@@ -41,6 +42,7 @@ export function createPreferences() {
     animations, setAnimations,
     showBoard, setShowBoard,
     showTags, setShowTags,
+    pullTimed, setPullTimed,
     subtaskMode, setSubtaskMode,
     timeOffset, setTimeOffset,
     pollSeconds, setPollSeconds,

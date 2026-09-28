@@ -15,7 +15,7 @@ export function WindowSettings(props: {
   const windows = createMemo(() => props.items.filter((item): item is TimeWindow => item.kind === "window").sort((a, b) => a.title.localeCompare(b.title)));
   const users = (window: TimeWindow) => props.items.filter(item => item.kind === "task" && item.state !== "completed" && item.windowId === window.id).length;
   return <section class="window-settings" aria-label="Windows">
-    <p class="field-hint">A window is when tasks can be done, like business hours. Tasks pick one by name; Today lists them as closing or opening today.</p>
+    <p class="field-hint">A window is when tasks can be done, like business hours. Tasks pick one by name; the Agenda lists them as closing or opening today.</p>
     <For each={windows().map(window => window.id)}>{id => {
       const window = () => windows().find(entry => entry.id === id)!;
       return <Show when={windows().some(entry => entry.id === id)}>
@@ -48,7 +48,7 @@ export function BoardSettings(props: {
 }) {
   const boards = createMemo(() => userBoards(props.items));
   return <section class="group-settings" aria-label="Boards">
-    <p class="field-hint">Boards file tasks by where or how you do them. Today shows every task by urgency with its board's name; the Boards view gives each board a column (drag a column's heading to move it).</p>
+    <p class="field-hint">Boards file tasks by where or how you do them. The Agenda shows every task by urgency with its board's name; the Boards view gives each board a column (drag a column's heading to move it).</p>
     <For each={boards()}>{board =>
       <div class="group-editor">
         <input aria-label="Board name" value={board.title} onChange={event => { const title = event.currentTarget.value.trim(); if (title && title !== board.title) void props.onRename(board, title); else event.currentTarget.value = board.title; }} />

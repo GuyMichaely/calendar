@@ -1,7 +1,7 @@
 import type { Group, Item, Task, TimeWindow } from "./types";
 
 /*
- * Sample calendar for trying the Today view locally: one set mixing ordinary tasks with
+ * Sample calendar for trying the Agenda locally: one set mixing ordinary tasks with
  * subtasks that sit beside their parent, in a different section, or several levels
  * deep. Times are relative to now so every section has entries.
  */

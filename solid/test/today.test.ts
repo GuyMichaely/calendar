@@ -154,6 +154,9 @@ test("Boards: a task stays on its board whatever its urgency; subtasks follow th
   const byId = new Map(items.map(item => [item.id, item]));
   const boards = buildSections(items, now, { ...all, showCompleted: true, mode: "context", boardOf: entry => taskGroupId(entry, byId) });
   expect(shape(boards)).toEqual({ firm: ["loose"], support: ["call", ["(idea)", ["own"]]], notes: [["(idea)", ["step"]]], completed: ["done"] });
-  // Today: everything by urgency.
+  // Pulling timed tasks off boards: the due call joins Firm; the rest stay on their boards.
+  const pulled = buildSections(items, now, { ...all, showCompleted: true, mode: "context", boardOf: (entry, placement) => placement.section === "available" ? taskGroupId(entry, byId) : null });
+  expect(shape(pulled)).toEqual({ firm: ["call", "loose"], support: [["(idea)", ["own"]]], notes: [["(idea)", ["step"]]], completed: ["done"] });
+  // Agenda: everything by urgency.
   expect(shape(buildSections(items, now, { ...all, mode: "context" })).firm).toEqual(["call", "loose"]);
 });

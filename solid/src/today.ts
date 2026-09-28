@@ -3,7 +3,7 @@ import { nextOpening, openingOn, taskSchedule } from "./windows";
 import type { Item, Task, TimeWindow } from "./types";
 
 /*
- * The Today view puts every task in exactly one section, by the first rule that fits:
+ * The Agenda puts every task in exactly one section, by the first rule that fits:
  * due and past its warning time (Firm); a window open now (Closing today) or opening
  * later today (Opens later today); can't start yet (Upcoming); else Available. Pushed-down tasks stay in their section, at the bottom.
  */
@@ -154,7 +154,7 @@ export function openWork(items: Item[]) {
  * section instead of its urgency section, most urgent first; finished tasks stay in
  * Completed. Tasks on no board are sectioned as usual.
  */
-export function buildSections(items: Item[], now: Date, options: { mode: SubtaskMode; showCompleted: boolean; include: (task: Task) => boolean; boardOf?: (task: Task) => string | null }): Section[] {
+export function buildSections(items: Item[], now: Date, options: { mode: SubtaskMode; showCompleted: boolean; include: (task: Task) => boolean; boardOf?: (task: Task, placement: Placement) => string | null }): Section[] {
   const byId = new Map(items.map(item => [item.id, item]));
   const windows = new Map(items.filter((item): item is TimeWindow => item.kind === "window").map(item => [item.id, item]));
   // Dependent tasks that haven't started live in their parent's editor, not in the lists.
@@ -201,7 +201,7 @@ export function buildSections(items: Item[], now: Date, options: { mode: Subtask
   const rank = (id: string) => { const index = SECTION_ORDER.indexOf(id as SectionId); return index < 0 ? SECTION_ORDER.indexOf("available") : index; };
   // A board mixes urgencies: pushed down last, then by urgency section, then as within one.
   const compareAcross = (a: Entry, b: Entry) => (a.placement.pushed === b.placement.pushed ? 0 : a.placement.pushed ? 1 : -1) || rank(a.placement.section) - rank(b.placement.section) || compareTasks(a, b);
-  const boardKey = (entry: Entry) => entry.placement.section === "completed" ? null : options.boardOf?.(entry.task) ?? null;
+  const boardKey = (entry: Entry) => entry.placement.section === "completed" ? null : options.boardOf?.(entry.task, entry.placement) ?? null;
   const onBoards = placed.filter(entry => boardKey(entry)), rest = placed.filter(entry => !boardKey(entry));
 
   // Spread out: each task in its own section, under headers for its containers.

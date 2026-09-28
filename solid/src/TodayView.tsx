@@ -5,7 +5,7 @@ import { boardOrder, reorderedBoards, userBoards } from "./board-order";
 import { taskSchedule, windowsById } from "./windows";
 import type { Item, Task } from "./types";
 
-// Today lists the urgency sections; Boards shows your boards and the built-in ones as columns.
+// Agenda lists the urgency sections; Boards shows your boards and the built-in ones as columns.
 export type TaskView = "today" | "boards";
 
 export type TodayViewProps = {
@@ -19,6 +19,10 @@ export type TodayViewProps = {
   showTags: boolean;
   subtaskMode: SubtaskMode;
   onSubtaskModeChange: (value: SubtaskMode) => void;
+  // Boards: move a board's tasks that are Firm, closing or opening today, or upcoming into
+  // those built-in columns; the rest (just Available) stay on their board.
+  pullTimed: boolean;
+  onPullTimedChange: (value: boolean) => void;
   // Compact folds each run of pushed-down sibling tasks into one expandable row.
   compact: boolean;
   onCompactChange: (value: boolean) => void;
@@ -48,7 +52,7 @@ const SECTION_LABELS: Record<SectionId, { title: string; hint?: string }> = {
   upcoming: { title: "Upcoming", hint: "can't start yet, or window not open today" },
   completed: { title: "Completed" },
 };
-// In Today, these start collapsed.
+// In the Agenda, these start collapsed.
 const COLLAPSED_AT_FIRST = new Set<SectionId>(["upcoming", "completed"]);
 const MOTION_MS = 320;
 
@@ -90,11 +94,11 @@ export function TodayView(props: TodayViewProps) {
     const filter = groupFilter();
     return buildSections(props.items, props.now, {
       mode: props.subtaskMode,
-      // Completed tasks are always listed (in Today, their section starts collapsed).
+      // Completed tasks are always listed (in the Agenda, their section starts collapsed).
       showCompleted: true,
       include: task => textMatches(task, props.query) && (props.view === "boards" || !filter || (taskGroupId(task, byId()) ?? "none") === filter),
       // In Boards, a task stays on its board whatever its urgency.
-      boardOf: props.view === "boards" ? task => taskGroupId(task, byId()) : undefined,
+      boardOf: props.view === "boards" ? (task, placement) => props.pullTimed && placement.section !== "available" ? null : taskGroupId(task, byId()) : undefined,
     });
   });
   const [collapsed, setCollapsed] = createSignal(new Set<string>(COLLAPSED_AT_FIRST));
@@ -357,7 +361,7 @@ export function TodayView(props: TodayViewProps) {
       </div>}
     </Show>
     <div class="today-heading">
-      <h1>{props.view === "boards" ? "Boards" : "Today"}</h1>
+      <h1>{props.view === "boards" ? "Boards" : "Agenda"}</h1>
       <span class="today-date">{props.now.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · {clock(props.now)}</span>
       <span class="spacer" />
       <label class="today-subtasks" title={"Keep together: each task with subtasks shows once, in the section of its most urgent subtask, with the rest dimmed.\nSpread out: every subtask shows in its own section, under a dimmed row for its parent."}>
@@ -367,6 +371,9 @@ export function TodayView(props: TodayViewProps) {
           <option value="context">Spread out</option>
         </select>
       </label>
+      <Show when={props.view === "boards"}>
+        <label class="check-row" title="Tasks on a board that are Firm, closing or opening today, or upcoming move to that column; the rest stay on their board"><input type="checkbox" checked={props.pullTimed} onChange={event => props.onPullTimedChange(event.currentTarget.checked)} />Pull timed tasks off boards</label>
+      </Show>
       <label class="check-row" title="Fold pushed-down tasks beside each other into one row you can open"><input type="checkbox" checked={props.compact} onChange={event => props.onCompactChange(event.currentTarget.checked)} />Compact</label>
       <Show when={props.view === "today"}>
         <label class="today-filter"><span class="visually-hidden">Board</span>

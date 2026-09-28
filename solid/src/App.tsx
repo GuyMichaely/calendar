@@ -24,7 +24,7 @@ import { animationsEnabled } from "./settings";
 import type { CalendarEvent, Group, Item, Task, View } from "./types";
 
 function readView(): View { return location.hash === "#calendar" ? "calendar" : /^#boards(\/|$)/.test(location.hash) ? "boards" : "tasks"; }
-// Today lives at #tasks and Boards at #boards; a selected task follows a slash.
+// Agenda lives at #tasks and Boards at #boards; a selected task follows a slash.
 function readSelectedTask() { const match = /^#(?:tasks|boards)\/(.+)$/.exec(location.hash); return match ? decodeURIComponent(match[1]) : null; }
 function tasksHash(id: string | null, view: View = readView()) { const base = view === "boards" ? "#boards" : "#tasks"; return id ? `${base}/${encodeURIComponent(id)}` : base; }
 function editableTarget(target: EventTarget | null) { return target instanceof Element && !!target.closest("input, textarea, select, [contenteditable='true']"); }
@@ -311,7 +311,7 @@ export function App() {
             <div class="tasks-workspace" classList={{ split: paneOpen() }} data-animations={animations() ? "on" : "off"}>
             <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
-              view={view() === "boards" ? "boards" : "today"} showBoard={prefs.showBoard()} showTags={prefs.showTags()} onOrderBoards={order => groupChange(() => store.orderBoards(order))} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
+              view={view() === "boards" ? "boards" : "today"} showBoard={prefs.showBoard()} showTags={prefs.showTags()} pullTimed={prefs.pullTimed()} onPullTimedChange={prefs.setPullTimed} onOrderBoards={order => groupChange(() => store.orderBoards(order))} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
               liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} registerMotion={next => { motion = next; return () => { if (motion === next) motion = null; }; }} />
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
