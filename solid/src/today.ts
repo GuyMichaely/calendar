@@ -222,9 +222,16 @@ export function buildSections(items: Item[], now: Date, options: { mode: Subtask
     // Keep together: each family once, in its most urgent section.
     const families = new Map<string, typeof placed>();
     for (const entry of placed) { const top = chainOf.get(entry.task.id)![0] || entry.task; families.set(top.id, [...(families.get(top.id) || []), entry]); }
-    // Subtasks keep their manual order under their parent.
-    const kids = (task: Task, path: Set<string>) => (childrenOf.get(task.id) || []).filter(child => shown.has(child.id) && !path.has(child.id))
-      .sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity) || a.createdAt.localeCompare(b.createdAt));
+    // Subtasks with due dates come first, soonest first (a container by its soonest due
+    // subtask); the rest, and ties, keep their manual order.
+    const shownKids = (task: Task, path: Set<string>) => (childrenOf.get(task.id) || []).filter(child => shown.has(child.id) && !path.has(child.id));
+    const dueCache = new Map<string, number>();
+    const dueOf = (task: Task, path: Set<string>): number => {
+      if (!dueCache.has(task.id)) dueCache.set(task.id, Math.min(placementOf.get(task.id)?.due?.getTime() ?? Infinity, ...shownKids(task, path).map(child => dueOf(child, new Set(path).add(child.id)))));
+      return dueCache.get(task.id)!;
+    };
+    const kids = (task: Task, path: Set<string>) => shownKids(task, path)
+      .sort((a, b) => dueOf(a, new Set(path).add(a.id)) - dueOf(b, new Set(path).add(b.id)) || byOrder(a, b));
     const rank = (id: SectionId) => SECTION_ORDER.indexOf(id);
     for (const [topId, entries] of families) {
       const open = entries.filter(entry => entry.placement.section !== "completed");

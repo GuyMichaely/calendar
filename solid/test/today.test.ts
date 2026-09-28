@@ -71,7 +71,8 @@ test("a task with open subtasks is a container: placed only through its subtasks
   expect(shape(spread)).toEqual({ firm: [["(parent)", [["(child-window)", ["grand-child"]]]]], available: [["(parent)", ["child-now"]], "solo"] });
   const together = buildSections(items, now, { ...all, mode: "nested" });
   // The family goes to its most urgent section (the grandchild's Firm); less urgent tasks are dimmed.
-  expect(shape(together)).toEqual({ firm: [["(parent)", ["~child-now", ["(child-window)", ["grand-child"]]]]], available: ["solo"] });
+  // (The branch with a due task comes first.)
+  expect(shape(together)).toEqual({ firm: [["(parent)", [["(child-window)", ["grand-child"]], "~child-now"]]], available: ["solo"] });
   expect(together.find(entry => entry.id === "firm")!.count).toBe(1);
 });
 
@@ -124,4 +125,16 @@ test("the subtask samples differ between the two settings as their notes describ
     closing: ["(Renew passport)", "~Fill out form DS-82", "Get passport photos", "~Mail the application"],
     available: ["(Plan birthday dinner)", "Pick a restaurant", "Send invites", "(File tax return)", "Gather W-2s", "~File the return", "Water the plants"],
   });
+});
+
+test("subtasks with due dates come first, soonest first; the rest keep their manual order", () => {
+  const items: Item[] = [task("parent"),
+    task("plain", { parentId: "parent", sortOrder: 0 }),
+    task("later", { parentId: "parent", sortOrder: 1, deadline: local(12, 9) }),
+    task("sooner", { parentId: "parent", sortOrder: 2, deadline: local(10, 9) }),
+    task("also-plain", { parentId: "parent", sortOrder: 3 }),
+  ];
+  for (const mode of ["nested", "context"] as const) {
+    expect(shape(buildSections(items, now, { ...all, mode }))).toEqual({ available: [["(parent)", ["sooner", "later", "plain", "also-plain"]]] });
+  }
 });
