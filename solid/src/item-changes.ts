@@ -119,7 +119,8 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
     notes: draft.notes,
     state: draft.state,
     parentId: parent,
-    groupId: parent ? task?.groupId ?? null : draft.groupId,
+    // A subtask with no board of its own follows its parent's.
+    groupId: draft.groupId,
     completedAt: closed ? task?.completedAt || at : null,
     tags: draft.tags,
     attachments: draft.attachments,

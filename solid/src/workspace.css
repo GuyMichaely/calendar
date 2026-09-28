@@ -784,3 +784,9 @@ main:has(.groups-panel) > .tasks-workspace { flex: 1; min-height: 0; grid-templa
 .today-run { display: flex; align-items: center; gap: 6px; }
 .today-run .section-chevron { font-size: 15px; transition: transform .15s; }
 .today-run[aria-expanded="true"] .section-chevron { transform: rotate(90deg); }
+.today-panel.columns .today-section-heading { cursor: grab; touch-action: none; }
+.today-panel.columns .today-section.column-dragging { opacity: .45; }
+.today-panel.columns .today-section.drop-before { box-shadow: -7px 0 0 -4px var(--accent); }
+.today-panel.columns .today-section.drop-after { box-shadow: 7px 0 0 -4px var(--accent); }
+.today-column-empty { margin: 8px 10px; color: var(--muted); font-size: 11px; }
+.today-chip.tag { background: transparent; border: 1px solid var(--line); }

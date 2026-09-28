@@ -98,7 +98,8 @@ function compareTasks(a: { task: Task; placement: Placement }, b: { task: Task; 
 export type TreeNode = { task: Task; container: boolean; muted?: boolean; placement?: Placement; children: TreeNode[]; finished?: TreeNode[]; showFinished?: boolean };
 export type SubtaskMode = "context" | "nested";
 
-export type Section = { id: SectionId; trees: TreeNode[]; count: number };
+// A section is one of the urgency sections, or (in the Boards view) a board's id.
+export type Section = { id: string; trees: TreeNode[]; count: number };
 
 function taskParent(task: Task, byId: Map<string, Item>) {
   const parent = task.parentId ? byId.get(task.parentId) : undefined;
@@ -148,7 +149,12 @@ export function openWork(items: Item[]) {
   return items.filter((item): item is Task => item.kind === "task" && !isDormant(item, byId) && !effectivelyDone(item, byId) && !parents.has(item.id));
 }
 
-export function buildSections(items: Item[], now: Date, options: { mode: SubtaskMode; showCompleted: boolean; include: (task: Task) => boolean }): Section[] {
+/**
+ * `boardOf` (the Boards view) puts every open task that's on a board in that board's
+ * section instead of its urgency section, most urgent first; finished tasks stay in
+ * Completed. Tasks on no board are sectioned as usual.
+ */
+export function buildSections(items: Item[], now: Date, options: { mode: SubtaskMode; showCompleted: boolean; include: (task: Task) => boolean; boardOf?: (task: Task) => string | null }): Section[] {
   const byId = new Map(items.map(item => [item.id, item]));
   const windows = new Map(items.filter((item): item is TimeWindow => item.kind === "window").map(item => [item.id, item]));
   // Dependent tasks that haven't started live in their parent's editor, not in the lists.
@@ -189,23 +195,29 @@ export function buildSections(items: Item[], now: Date, options: { mode: Subtask
   const shown = new Set(placed.flatMap(entry => [entry.task.id, ...chainOf.get(entry.task.id)!.map(ancestor => ancestor.id)]));
   const count = (nodes: TreeNode[]): number => nodes.reduce((total, node) => total + (node.container || node.muted ? 0 : 1) + count(node.children), 0);
   // Every tree remembers the task that decides its place in the section order.
-  const bySection = new Map<SectionId, { tree: TreeNode; lead: { task: Task; placement: Placement } }[]>();
-  const add = (section: SectionId, tree: TreeNode, lead: { task: Task; placement: Placement }) => bySection.set(section, [...(bySection.get(section) || []), { tree, lead }]);
+  type Entry = { task: Task; placement: Placement };
+  const bySection = new Map<string, { tree: TreeNode; lead: Entry }[]>();
+  const add = (section: string, tree: TreeNode, lead: Entry) => bySection.set(section, [...(bySection.get(section) || []), { tree, lead }]);
+  const rank = (id: string) => { const index = SECTION_ORDER.indexOf(id as SectionId); return index < 0 ? SECTION_ORDER.indexOf("available") : index; };
+  // A board mixes urgencies: pushed down last, then by urgency section, then as within one.
+  const compareAcross = (a: Entry, b: Entry) => (a.placement.pushed === b.placement.pushed ? 0 : a.placement.pushed ? 1 : -1) || rank(a.placement.section) - rank(b.placement.section) || compareTasks(a, b);
+  const boardKey = (entry: Entry) => entry.placement.section === "completed" ? null : options.boardOf?.(entry.task) ?? null;
+  const onBoards = placed.filter(entry => boardKey(entry)), rest = placed.filter(entry => !boardKey(entry));
 
-  if (options.mode === "context") {
-    // Spread out: each task in its own section, under headers for its containers.
-    for (const id of SECTION_ORDER) {
-      const entries = placed.filter(entry => entry.placement.section === id).sort(compareTasks);
-      const inSection = new Set(entries.map(entry => entry.task.id));
+  // Spread out: each task in its own section, under headers for its containers.
+  const spread = (entries: Entry[], keyOf: (entry: Entry) => string, compare: (a: Entry, b: Entry) => number) => {
+    for (const key of new Set(entries.map(keyOf))) {
+      const list = entries.filter(entry => keyOf(entry) === key).sort(compare);
+      const inSection = new Set(list.map(entry => entry.task.id));
       const nodes = new Map<string, TreeNode>();
-      for (const entry of entries) {
+      for (const entry of list) {
         let siblings: TreeNode[] | null = null;
         for (const ancestor of chainOf.get(entry.task.id)!) {
           let node = nodes.get(ancestor.id);
           if (!node) {
             node = { task: ancestor, container: !inSection.has(ancestor.id), placement: placementOf.get(ancestor.id), children: [] };
             nodes.set(ancestor.id, node);
-            if (siblings) siblings.push(node); else add(id, node, entry);
+            if (siblings) siblings.push(node); else add(key, node, entry);
           }
           siblings = node.children;
         }
@@ -213,16 +225,20 @@ export function buildSections(items: Item[], now: Date, options: { mode: Subtask
         if (existing) { existing.container = false; existing.placement = entry.placement; continue; }
         const node: TreeNode = { task: entry.task, container: false, placement: entry.placement, children: [] };
         nodes.set(entry.task.id, node);
-        if (siblings) siblings.push(node); else add(id, node, entry);
+        if (siblings) siblings.push(node); else add(key, node, entry);
       }
     }
-  } else {
+  };
+
+  if (options.mode === "context") spread(rest, entry => entry.placement.section, compareTasks);
+  else {
     // Keep together: each family once, in its most urgent section.
-    const families = new Map<string, typeof placed>();
-    for (const entry of placed) { const top = chainOf.get(entry.task.id)![0] || entry.task; families.set(top.id, [...(families.get(top.id) || []), entry]); }
+    const families = new Map<string, Entry[]>();
+    for (const entry of rest) { const top = chainOf.get(entry.task.id)![0] || entry.task; families.set(top.id, [...(families.get(top.id) || []), entry]); }
+    const inRest = new Set(rest.flatMap(entry => [entry.task.id, ...chainOf.get(entry.task.id)!.map(ancestor => ancestor.id)]));
     // Subtasks with due dates come first, soonest first (a container by its soonest due
     // subtask); the rest, and ties, keep their manual order.
-    const shownKids = (task: Task, path: Set<string>) => (childrenOf.get(task.id) || []).filter(child => shown.has(child.id) && !path.has(child.id));
+    const shownKids = (task: Task, path: Set<string>) => (childrenOf.get(task.id) || []).filter(child => shown.has(child.id) && inRest.has(child.id) && !path.has(child.id));
     const dueCache = new Map<string, number>();
     const dueOf = (task: Task, path: Set<string>): number => {
       if (!dueCache.has(task.id)) dueCache.set(task.id, Math.min(placementOf.get(task.id)?.due?.getTime() ?? Infinity, ...shownKids(task, path).map(child => dueOf(child, new Set(path).add(child.id)))));
@@ -230,7 +246,6 @@ export function buildSections(items: Item[], now: Date, options: { mode: Subtask
     };
     const kids = (task: Task, path: Set<string>) => shownKids(task, path)
       .sort((a, b) => dueOf(a, new Set(path).add(a.id)) - dueOf(b, new Set(path).add(b.id)) || byOrder(a, b));
-    const rank = (id: SectionId) => SECTION_ORDER.indexOf(id);
     for (const [topId, entries] of families) {
       const open = entries.filter(entry => entry.placement.section !== "completed");
       const pool = open.length ? open : entries;
@@ -246,11 +261,13 @@ export function buildSections(items: Item[], now: Date, options: { mode: Subtask
       add(section, grow(byId.get(topId) as Task, new Set([topId])), lead);
     }
   }
+  spread(onBoards, entry => boardKey(entry)!, compareAcross);
 
   const sections: Section[] = [];
-  for (const id of SECTION_ORDER) {
-    const entries = (bySection.get(id) || []).sort((a, b) => compareTasks(a.lead, b.lead));
-    if (!entries.length) continue;
+  const keys = [...SECTION_ORDER.filter(id => bySection.has(id)), ...[...bySection.keys()].filter(id => !SECTION_ORDER.includes(id as SectionId))];
+  for (const id of keys) {
+    const builtIn = SECTION_ORDER.includes(id as SectionId);
+    const entries = bySection.get(id)!.sort((a, b) => builtIn ? compareTasks(a.lead, b.lead) : compareAcross(a.lead, b.lead));
     const walk = (node: TreeNode): void => { finish(node); node.children.forEach(walk); };
     entries.forEach(entry => walk(entry.tree));
     sections.push({ id, trees: entries.map(entry => entry.tree), count: count(entries.map(entry => entry.tree)) });
@@ -258,9 +275,11 @@ export function buildSections(items: Item[], now: Date, options: { mode: Subtask
   return sections;
 }
 
-/** The group a task is filed under: its top-level ancestor's. */
+/** The board a task is on: its own, else the nearest one above it. (Boards are stored as groups.) */
 export function taskGroupId(task: Task, byId: Map<string, Item>) {
-  const top = ancestors(task, byId)[0] || task;
-  const group = top.groupId ? byId.get(top.groupId) : undefined;
-  return group?.kind === "group" ? group.id : null;
+  for (const entry of [task, ...ancestors(task, byId).reverse()]) {
+    const board = entry.groupId ? byId.get(entry.groupId) : undefined;
+    if (board?.kind === "group" && !board.builtin) return board.id;
+  }
+  return null;
 }

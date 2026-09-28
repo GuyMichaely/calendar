@@ -1,5 +1,5 @@
 import { For, Show, createMemo } from "solid-js";
-import { groupOptions } from "./group-board";
+import { userBoards } from "./board-order";
 import { WEEKDAYS, describeSchedule } from "./windows";
 import type { Group, Item, TimeWindow } from "./types";
 
@@ -39,33 +39,22 @@ export function WindowSettings(props: {
   </section>;
 }
 
-/** Groups form a tree; tasks are filed under one from their editor. */
-export function GroupSettings(props: {
+/** Boards: each task is on at most one, chosen in its editor (subtasks follow their parent's unless set). */
+export function BoardSettings(props: {
   items: Item[];
   onCreate: () => Promise<unknown>;
-  onRename: (group: Group, title: string) => Promise<unknown>;
-  onMove: (group: Group, parentId: string | null) => Promise<unknown>;
-  onDelete: (group: Group) => Promise<unknown>;
+  onRename: (board: Group, title: string) => Promise<unknown>;
+  onDelete: (board: Group) => Promise<unknown>;
 }) {
-  const options = createMemo(() => groupOptions(props.items));
-  // A group can't move into itself or its own subgroups.
-  const inside = (group: Group) => {
-    const ids = new Set([group.id]);
-    for (const option of options()) if (option.group.parentId && ids.has(option.group.parentId)) ids.add(option.group.id);
-    return ids;
-  };
-  return <section class="group-settings" aria-label="Groups">
-    <p class="field-hint">Groups file tasks by project. Today can show them as labels or headings, and filter to one.</p>
-    <For each={options()}>{option =>
-      <div class="group-editor" style={{ "padding-left": `${option.depth * 18}px` }}>
-        <input aria-label="Group name" value={option.group.title} onChange={event => { const title = event.currentTarget.value.trim(); if (title && title !== option.group.title) void props.onRename(option.group, title); else event.currentTarget.value = option.group.title; }} />
-        <select aria-label={`Parent of ${option.group.title}`} value={option.group.parentId || ""} onChange={event => void props.onMove(option.group, event.currentTarget.value || null)}>
-          <option value="">Top level</option>
-          <For each={options().filter(entry => !inside(option.group).has(entry.group.id))}>{entry => <option value={entry.group.id}>In {"— ".repeat(entry.depth)}{entry.group.title}</option>}</For>
-        </select>
-        <button type="button" class="text-button danger-text" title="Its tasks and subgroups move up a level" onClick={() => void props.onDelete(option.group)}>Delete</button>
+  const boards = createMemo(() => userBoards(props.items));
+  return <section class="group-settings" aria-label="Boards">
+    <p class="field-hint">Boards file tasks by where or how you do them. Today shows every task by urgency with its board's name; the Boards view gives each board a column (drag a column's heading to move it).</p>
+    <For each={boards()}>{board =>
+      <div class="group-editor">
+        <input aria-label="Board name" value={board.title} onChange={event => { const title = event.currentTarget.value.trim(); if (title && title !== board.title) void props.onRename(board, title); else event.currentTarget.value = board.title; }} />
+        <button type="button" class="text-button danger-text" title="Its tasks are left on no board" onClick={() => void props.onDelete(board)}>Delete</button>
       </div>}
     </For>
-    <button type="button" class="secondary-button" onClick={() => void props.onCreate()}>+ New group</button>
+    <button type="button" class="secondary-button" onClick={() => void props.onCreate()}>+ New board</button>
   </section>;
 }

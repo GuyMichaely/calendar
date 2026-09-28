@@ -1,21 +1,22 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Icon } from "./Icon";
-import { groupOptions } from "./group-board";
-import { ancestors, buildSections, pushedDownInfo, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
+import { ancestors, buildSections, pushedDownInfo, SECTION_ORDER, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
+import { boardOrder, reorderedBoards, userBoards } from "./board-order";
 import { taskSchedule, windowsById } from "./windows";
-import type { Group, Item, Task } from "./types";
+import type { Item, Task } from "./types";
 
-export type GroupLayout = "labels" | "headings";
-// Sections stacked in one list, or side by side as columns (a design being compared).
-export type TaskLayout = "list" | "columns";
+// Today lists the urgency sections; Boards shows your boards and the built-in ones as columns.
+export type TaskView = "today" | "boards";
 
 export type TodayViewProps = {
   items: Item[];
   query: string;
   now: Date;
   selectedId: string | null;
-  groupLayout: GroupLayout;
-  layout: TaskLayout;
+  view: TaskView;
+  // Settings → Display: a task's board and tags on its row.
+  showBoard: boolean;
+  showTags: boolean;
   subtaskMode: SubtaskMode;
   onSubtaskModeChange: (value: SubtaskMode) => void;
   // Compact folds each run of pushed-down sibling tasks into one expandable row.
@@ -33,6 +34,8 @@ export type TodayViewProps = {
   // Whether a task's finished subtasks show dimmed ("show") or fold into "+N completed" (null).
   onCompletedSubtasks: (task: Task, value: Task["completedSubtasks"]) => Promise<void>;
   onStartDependent: (task: Task, completeParent: boolean) => Promise<void>;
+  // The Boards view's columns in a new order (every board's key: a section id or a board id).
+  onOrderBoards: (order: string[]) => Promise<void>;
   // Lets the app animate changes made elsewhere (undo and redo) the same way.
   registerMotion?: (motion: (run: () => Promise<unknown>) => Promise<void>) => () => void;
 };
@@ -45,7 +48,7 @@ const SECTION_LABELS: Record<SectionId, { title: string; hint?: string }> = {
   upcoming: { title: "Upcoming", hint: "can't start yet, or window not open today" },
   completed: { title: "Completed" },
 };
-// In the list, these start collapsed.
+// In Today, these start collapsed.
 const COLLAPSED_AT_FIRST = new Set<SectionId>(["upcoming", "completed"]);
 const MOTION_MS = 320;
 
@@ -75,26 +78,28 @@ function idsIn(nodes: TreeNode[]): string[] {
   return nodes.flatMap(node => [node.task.id, ...idsIn(node.children), ...idsIn(node.finished || [])]);
 }
 
-type Chip = { label: string; kind?: "danger" | "warn" | "calm"; title?: string };
+type Chip = { label: string; kind?: "danger" | "warn" | "calm" | "tag"; title?: string };
 
 export function TodayView(props: TodayViewProps) {
   const byId = createMemo(() => new Map(props.items.map(item => [item.id, item])));
   const windows = createMemo(() => windowsById(props.items));
-  const groups = createMemo(() => groupOptions(props.items));
+  const boards = createMemo(() => userBoards(props.items));
   // "" is every group; "none" is tasks without one.
   const [groupFilter, setGroupFilter] = createSignal("");
   const sections = createMemo(() => {
     const filter = groupFilter();
     return buildSections(props.items, props.now, {
       mode: props.subtaskMode,
-      // Completed tasks are always listed (in the list, their section starts collapsed).
+      // Completed tasks are always listed (in Today, their section starts collapsed).
       showCompleted: true,
-      include: task => textMatches(task, props.query) && (!filter || (taskGroupId(task, byId()) ?? "none") === filter),
+      include: task => textMatches(task, props.query) && (props.view === "boards" || !filter || (taskGroupId(task, byId()) ?? "none") === filter),
+      // In Boards, a task stays on its board whatever its urgency.
+      boardOf: props.view === "boards" ? task => taskGroupId(task, byId()) : undefined,
     });
   });
-  const [collapsed, setCollapsed] = createSignal(new Set(COLLAPSED_AT_FIRST));
-  const isCollapsed = (id: SectionId) => props.layout === "list" && collapsed().has(id);
-  const toggleSection = (id: SectionId) => setCollapsed(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const [collapsed, setCollapsed] = createSignal(new Set<string>(COLLAPSED_AT_FIRST));
+  const isCollapsed = (id: string) => props.view === "today" && collapsed().has(id);
+  const toggleSection = (id: string) => setCollapsed(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   // Compact: which folded runs of pushed-down tasks are open, by where they sit.
   const [openRuns, setOpenRuns] = createSignal(new Set<string>());
   const toggleRun = (key: string) => setOpenRuns(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; });
@@ -179,12 +184,9 @@ export function TodayView(props: TodayViewProps) {
     else if (placement.pushed) result.push({ label: "Pushed down with its parent" });
     return result;
   };
+  const tagChips = (task: Task): Chip[] => props.showTags ? (task.tags || []).map(tag => ({ label: `#${tag}`, kind: "tag" as const })) : [];
 
-  const groupTitle = (id: string | null) => {
-    if (!id) return "";
-    const option = groups().find(entry => entry.group.id === id);
-    return option?.group.title || "";
-  };
+  const boardTitle = (id: string | null) => id ? boards().find(board => board.id === id)?.title || "" : "";
 
   const isPushed = (node: TreeNode) => node.placement ? node.placement.pushed && node.placement.section !== "completed" : pushedDownInfo(node.task, props.now).pushed;
 
@@ -192,7 +194,7 @@ export function TodayView(props: TodayViewProps) {
     const task = () => rowProps.node.task;
     // Finished itself or through a container: a ticked box that reopens it.
     const done = () => rowProps.node.placement?.section === "completed";
-    const label = () => rowProps.label && props.groupLayout === "labels" ? groupTitle(taskGroupId(task(), byId())) : "";
+    const label = () => rowProps.label && props.showBoard ? boardTitle(taskGroupId(task(), byId())) : "";
     return <>
       <div class="today-row" title={rowProps.node.muted ? "Its own timing is less urgent; shown here with its family" : rowProps.node.container ? "Holds these subtasks; checking it off finishes all of them" : undefined} classList={{ container: rowProps.node.container, muted: !!rowProps.node.muted, pushed: isPushed(rowProps.node), selected: props.selectedId === task().id }}
         style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
@@ -202,7 +204,7 @@ export function TodayView(props: TodayViewProps) {
         </Show>
         <span class="today-copy">
           <span class="today-title">{props.liveEdits().get(task().id)?.title ?? task().title ?? ""}<Show when={!(props.liveEdits().get(task().id)?.title ?? task().title)}>Untitled task</Show></span>
-          <span class="today-chips"><For each={chips(rowProps.node)}>{chip => <span class={`today-chip ${chip.kind || ""}`} title={chip.title}>{chip.label}</span>}</For></span>
+          <span class="today-chips"><For each={[...chips(rowProps.node), ...tagChips(task())]}>{chip => <span class={`today-chip ${chip.kind || ""}`} title={chip.title}>{chip.label}</span>}</For></span>
         </span>
         <Show when={label()}><span class="today-group">{label()}</span></Show>
         <RowMenu task={task()} done={done()} finished={rowProps.node.finished?.length ? rowProps.node.showFinished ? "show" : "fold" : null} />
@@ -274,30 +276,77 @@ export function TodayView(props: TodayViewProps) {
     </span>;
   };
 
-  // With group headings, a section's trees are split by the group of their top task.
-  // The section's trees come most urgent first (each family placed by its most urgent
-  // task), so a heading's place is that of its most urgent task.
-  const grouped = (section: Section) => {
-    if (props.groupLayout !== "headings") return [{ id: "", title: "", trees: section.trees }];
-    const buckets = new Map<string | null, TreeNode[]>();
-    for (const tree of section.trees) { const id = taskGroupId(tree.task, byId()); buckets.set(id, [...(buckets.get(id) || []), tree]); }
-    return [...buckets].map(([id, trees]) => ({ id: id || "none", title: id ? groupPath(id) : "No group", trees }));
-  };
-  const groupPath = (id: string) => {
-    const names: string[] = [];
-    for (let group = byId().get(id) as Group | undefined, guard = 0; group?.kind === "group" && guard < 20; group = byId().get(group.parentId || "") as Group | undefined, guard++) names.unshift(group.title);
-    return names.join(" › ");
-  };
 
   const [draft, setDraft] = createSignal("");
   const add = async () => {
     const title = draft().trim();
     if (!title) return;
     const filter = groupFilter();
-    if (await props.onAddTask(filter && filter !== "none" ? filter : null, title)) setDraft(value => value.trim() === title ? "" : value);
+    if (await props.onAddTask(props.view === "today" && filter && filter !== "none" ? filter : null, title)) setDraft(value => value.trim() === title ? "" : value);
   };
 
-  return <section class="panel today-panel" classList={{ columns: props.layout === "columns" }}>
+  // Boards: every board's column in the saved order. Your boards always show; a built-in
+  // one only when it has tasks.
+  const columns = createMemo(() => {
+    const found = new Map(sections().map(section => [section.id, section]));
+    return boardOrder(props.items)
+      .filter(key => found.has(key) || !SECTION_ORDER.includes(key as SectionId))
+      .map(key => found.get(key) ?? { id: key, trees: [], count: 0 });
+  });
+  const shownSections = () => props.view === "boards" ? columns() : sections();
+  const titleOf = (id: string) => SECTION_LABELS[id as SectionId]?.title ?? boardTitle(id);
+  const hintOf = (id: string) => SECTION_LABELS[id as SectionId]?.hint;
+  const isBoard = (id: string) => !SECTION_ORDER.includes(id as SectionId);
+
+  // Dragging a column's heading moves it; it lands beside the column it's dropped next to.
+  const [dragKey, setDragKey] = createSignal<string | null>(null);
+  const [dropAt, setDropAt] = createSignal<number | null>(null);
+  const others = () => columns().map(column => column.id).filter(key => key !== dragKey());
+  const dragColumn = (key: string) => (event: PointerEvent) => {
+    if (props.view !== "boards" || event.button !== 0) return;
+    const handle = event.currentTarget as HTMLElement;
+    const x0 = event.clientX;
+    let started = false, frame = 0, x = x0;
+    handle.setPointerCapture(event.pointerId);
+    const aim = () => {
+      const box = boardRef.getBoundingClientRect();
+      if (x > box.right - 48) boardRef.scrollLeft += 18; else if (x < box.left + 48) boardRef.scrollLeft -= 18;
+      const rest = [...boardRef.querySelectorAll<HTMLElement>(".today-section[data-section]")].filter(element => element.dataset.section !== key);
+      setDropAt(rest.filter(element => { const r = element.getBoundingClientRect(); return r.left + r.width / 2 < x; }).length);
+      frame = requestAnimationFrame(aim);
+    };
+    const move = (next: PointerEvent) => {
+      x = next.clientX;
+      if (!started && Math.abs(x - x0) > 6) { started = true; setDragKey(key); frame = requestAnimationFrame(aim); }
+    };
+    const end = (drop: boolean) => {
+      cancelAnimationFrame(frame);
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", cancel);
+      const at = dropAt(), visible = columns().map(column => column.id);
+      setDragKey(null); setDropAt(null);
+      if (drop && started && at != null) void moveColumns(() => props.onOrderBoards(reorderedBoards(boardOrder(props.items), visible, key, at)));
+    };
+    const up = () => end(true);
+    const cancel = () => end(false);
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up, { once: true });
+    handle.addEventListener("pointercancel", cancel, { once: true });
+  };
+  // Columns slide to their new places too.
+  const moveColumns = async (run: () => Promise<unknown>) => {
+    const columnsNow = () => new Map([...boardRef.querySelectorAll<HTMLElement>(".today-section[data-section]")].map(element => [element.dataset.section!, element]));
+    const before = new Map([...columnsNow()].map(([key, element]) => [key, element.getBoundingClientRect()]));
+    await run();
+    if (!boardRef.closest('[data-animations="on"]')) return;
+    for (const [key, element] of columnsNow()) {
+      const old = before.get(key), box = element.getBoundingClientRect();
+      if (old && Math.abs(old.left - box.left) > 1) element.animate([{ transform: `translateX(${old.left - box.left}px)` }, { transform: "none" }], { duration: MOTION_MS, easing: "cubic-bezier(.2, .8, .2, 1)" });
+    }
+  };
+
+  return <section class="panel today-panel" classList={{ columns: props.view === "boards" }}>
     <Show when={startPrompt()}>{prompt =>
       <div class="start-prompt" role="status">
         <span>Completed “{prompt().owner.title || "Untitled task"}”. Start a dependent task?</span>
@@ -308,7 +357,7 @@ export function TodayView(props: TodayViewProps) {
       </div>}
     </Show>
     <div class="today-heading">
-      <h1>Today</h1>
+      <h1>{props.view === "boards" ? "Boards" : "Today"}</h1>
       <span class="today-date">{props.now.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · {clock(props.now)}</span>
       <span class="spacer" />
       <label class="today-subtasks" title={"Keep together: each task with subtasks shows once, in the section of its most urgent subtask, with the rest dimmed.\nSpread out: every subtask shows in its own section, under a dimmed row for its parent."}>
@@ -319,34 +368,37 @@ export function TodayView(props: TodayViewProps) {
         </select>
       </label>
       <label class="check-row" title="Fold pushed-down tasks beside each other into one row you can open"><input type="checkbox" checked={props.compact} onChange={event => props.onCompactChange(event.currentTarget.checked)} />Compact</label>
-      <label class="today-filter"><span class="visually-hidden">Group</span>
-        <select value={groupFilter()} onChange={event => setGroupFilter(event.currentTarget.value)}>
-          <option value="">All groups</option>
-          <For each={groups()}>{option => <option value={option.group.id}>{"— ".repeat(option.depth)}{option.group.title}</option>}</For>
-          <option value="none">No group</option>
-        </select>
-      </label>
+      <Show when={props.view === "today"}>
+        <label class="today-filter"><span class="visually-hidden">Board</span>
+          <select value={groupFilter()} onChange={event => setGroupFilter(event.currentTarget.value)}>
+            <option value="">All boards</option>
+            <For each={boards()}>{board => <option value={board.id}>{board.title}</option>}</For>
+            <option value="none">No board</option>
+          </select>
+        </label>
+      </Show>
     </div>
     <form class="quick-capture today-add" onSubmit={event => { event.preventDefault(); void add(); }}>
       <Icon name="plus" size={17} />
       <input placeholder="Add a task" aria-label="Add a task" value={draft()} onInput={event => setDraft(event.currentTarget.value)} />
     </form>
     <div class="today-board" ref={boardRef}>
-      <Show when={sections().length} fallback={<p class="today-empty">{props.query ? "No tasks match your search." : "Nothing needs you right now."}</p>}>
-        <For each={sections().map(entry => entry.id)}>{sectionId => <Show when={sections().find(entry => entry.id === sectionId)}>{current => { const id = current().id;
-          return <section class="today-section" data-section={id}>
-            <button class="today-section-heading" aria-expanded={!isCollapsed(id)} disabled={props.layout === "columns"} data-holds={isCollapsed(id) ? idsIn(current().trees).join(" ") : undefined} onClick={() => toggleSection(id)}>
-              <Show when={props.layout === "list"}><span class="section-chevron" aria-hidden="true">›</span></Show>
-              <strong>{SECTION_LABELS[id].title}</strong>
+      <Show when={shownSections().length} fallback={<p class="today-empty">{props.query ? "No tasks match your search." : "Nothing needs you right now."}</p>}>
+        <For each={shownSections().map(entry => entry.id)}>{sectionId => <Show when={shownSections().find(entry => entry.id === sectionId)}>{current => { const id = current().id;
+          return <section class="today-section" data-section={id} classList={{ "column-dragging": dragKey() === id, "drop-before": dragKey() != null && others()[dropAt() ?? -1] === id, "drop-after": dragKey() != null && dropAt() === others().length && others().at(-1) === id }}>
+            <button class="today-section-heading" aria-expanded={!isCollapsed(id)} title={props.view === "boards" ? "Drag to move this board" : undefined} data-holds={isCollapsed(id) ? idsIn(current().trees).join(" ") : undefined}
+              onPointerDown={dragColumn(id)} onClick={() => { if (props.view === "today") toggleSection(id); }}>
+              <Show when={props.view === "today"}><span class="section-chevron" aria-hidden="true">›</span></Show>
+              <strong>{titleOf(id)}</strong>
               <span class="section-count">{current().count}</span>
-              <Show when={SECTION_LABELS[id].hint}><span class="today-hint">{SECTION_LABELS[id].hint}</span></Show>
+              <Show when={hintOf(id)}><span class="today-hint">{hintOf(id)}</span></Show>
             </button>
             <Show when={!isCollapsed(id)}>
               <div class="today-rows">
-                <For each={grouped(current()).map(bucket => bucket.id)}>{bucketId => <Show when={grouped(current()).find(bucket => bucket.id === bucketId)}>{bucket => <>
-                  <Show when={bucket().title}><div class="today-group-heading">{bucket().title}</div></Show>
-                  <Rows nodes={bucket().trees} depth={0} label runKey={`${id}:${bucketId}`} />
-                </>}</Show>}</For>
+                <Show when={current().trees.length} fallback={<p class="today-column-empty">No tasks on this board.</p>}>
+                  {/* A board's own rows don't repeat its name. */}
+                  <Rows nodes={current().trees} depth={0} label={!isBoard(id)} runKey={id} />
+                </Show>
               </div>
             </Show>
           </section>; }}</Show>}
@@ -354,20 +406,4 @@ export function TodayView(props: TodayViewProps) {
       </Show>
     </div>
   </section>;
-}
-
-const Segmented = <T extends string>(props: { label: string; value: T; options: [T, string][]; onChange: (value: T) => void }) =>
-  <span class="today-toggle" role="group" aria-label={props.label}><span>{props.label}</span>
-    <For each={props.options}>{([value, text]) => <button type="button" aria-pressed={props.value === value} onClick={() => props.onChange(value)}>{text}</button>}</For>
-  </span>;
-
-/** The prototype's layout switches, shown in the top bar while comparing designs. */
-export function DesignToggles(props: {
-  groupLayout: GroupLayout; onGroupLayoutChange: (value: GroupLayout) => void;
-  layout: TaskLayout; onLayoutChange: (value: TaskLayout) => void;
-}) {
-  return <div class="design-toggles" aria-label="Layout options">
-    <Segmented label="Groups" value={props.groupLayout} options={[["labels", "Labels"], ["headings", "Headings"]]} onChange={props.onGroupLayoutChange} />
-    <Segmented label="Layout" value={props.layout} options={[["list", "List"], ["columns", "Columns"]]} onChange={props.onLayoutChange} />
-  </div>;
 }

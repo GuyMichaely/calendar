@@ -36,9 +36,9 @@ test("a dependent task goes in the group of its parent's top-level task", () => 
   expect(dependentGroupId(items, items[1] as Task)).toBe("work");
 });
 
-test("a new task from a draft records its creation; a subtask ignores the chosen group", () => {
+test("a new task from a draft records its creation; a subtask can have a board of its own", () => {
   const created = taskFromDraft(draft({ groupId: "home" }), { id: "n", previous: null, now, parentId: "p", dormant: false });
-  expect(created).toMatchObject({ id: "n", parentId: "p", groupId: null, createdAt: now.toISOString(), history: [{ type: "created" }] });
+  expect(created).toMatchObject({ id: "n", parentId: "p", groupId: "home", createdAt: now.toISOString(), history: [{ type: "created" }] });
 });
 
 test("editing a task records state and push-down changes", () => {

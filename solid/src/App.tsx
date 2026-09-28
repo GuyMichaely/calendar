@@ -12,8 +12,8 @@ import { createCalendarStore } from "./calendar-store";
 import { createPreferences } from "./preferences";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
 import { type TaskDrop } from "./GroupsView";
-import { DesignToggles, TodayView, when } from "./TodayView";
-import { GroupSettings, WindowSettings } from "./SettingsPanels";
+import { TodayView, when } from "./TodayView";
+import { BoardSettings, WindowSettings } from "./SettingsPanels";
 import { windowsById } from "./windows";
 import { effectivelyDone, openWork } from "./today";
 import { SAMPLE_PREFIX, demoItems, sampleSubtaskItems } from "./demo-data";
@@ -23,15 +23,15 @@ import { ToastStack, type ToastMessage } from "./ToastStack";
 import { animationsEnabled } from "./settings";
 import type { CalendarEvent, Group, Item, Task, View } from "./types";
 
-function readView(): View { return location.hash === "#calendar" ? "calendar" : "tasks"; }
-// The task list lives at #tasks; a selected task follows a slash.
-function readSelectedTask() { const match = /^#tasks\/(.+)$/.exec(location.hash); return match ? decodeURIComponent(match[1]) : null; }
-function tasksHash(id: string | null) { return id ? `#tasks/${encodeURIComponent(id)}` : "#tasks"; }
+function readView(): View { return location.hash === "#calendar" ? "calendar" : /^#boards(\/|$)/.test(location.hash) ? "boards" : "tasks"; }
+// Today lives at #tasks and Boards at #boards; a selected task follows a slash.
+function readSelectedTask() { const match = /^#(?:tasks|boards)\/(.+)$/.exec(location.hash); return match ? decodeURIComponent(match[1]) : null; }
+function tasksHash(id: string | null, view: View = readView()) { const base = view === "boards" ? "#boards" : "#tasks"; return id ? `${base}/${encodeURIComponent(id)}` : base; }
 function editableTarget(target: EventTarget | null) { return target instanceof Element && !!target.closest("input, textarea, select, [contenteditable='true']"); }
 function errorMessage(error: unknown, fallback: string) { return error instanceof Error && error.message ? error.message : fallback; }
 
 export function App() {
-  if (!/^#(tasks|calendar)$/.test(location.hash) && !readSelectedTask()) history.replaceState(null, "", "#tasks");
+  if (!/^#(tasks|boards|calendar)$/.test(location.hash) && !readSelectedTask()) history.replaceState(null, "", "#tasks");
   const backendUrl = configuredBackendUrl();
   const prefs = createPreferences();
   // Changes sync once saved locally; remote changes reload the items once merged.
@@ -93,7 +93,7 @@ export function App() {
   const [shortcuts, setShortcuts] = createSignal<Shortcuts>(loadShortcuts());
   const [shortcutsDirty, setShortcutsDirty] = createSignal(false);
   const [showSettings, setShowSettings] = createSignal(false);
-  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations" | "windows" | "groups">("data");
+  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations" | "windows" | "boards" | "display">("data");
   const [pendingImport, setPendingImport] = createSignal<{ text: string; added: number; updated: number } | null>(null);
   const [importing, setImporting] = createSignal(false);
   let toastSequence = 0;
@@ -126,7 +126,7 @@ export function App() {
   const signOutRemote = () => attempt(remote.signOut, "Could not sign out.", "Signed out");
   const navigate = (next: View) => {
     setView(next);
-    const hash = next === "tasks" ? tasksHash(selectedTaskId()) : `#${next}`;
+    const hash = next === "calendar" ? "#calendar" : tasksHash(selectedTaskId(), next);
     if (location.hash !== hash) history.pushState(null, "", hash);
   };
   const editorParents: string[] = [];
@@ -173,7 +173,7 @@ export function App() {
     if (id === selectedTaskId()) return;
     if (flushDetail && !(await flushDetail())) return;
     setSelectedTaskId(id);
-    const hash = view() === "tasks" ? tasksHash(id) : location.hash;
+    const hash = view() === "calendar" ? location.hash : tasksHash(id, view());
     if (location.hash !== hash) history[replace ? "replaceState" : "pushState"](null, "", hash);
   };
   const closeDetail = async () => {
@@ -223,7 +223,7 @@ export function App() {
   };
   // Undo and redo move rows the way the change itself did.
   let motion: ((run: () => Promise<unknown>) => Promise<void>) | null = null;
-  const withMotion = async (run: () => Promise<unknown>) => { if (motion && view() === "tasks") await motion(run); else await run(); };
+  const withMotion = async (run: () => Promise<unknown>) => { if (motion && view() !== "calendar") await motion(run); else await run(); };
   const applyUndo = async () => { let label: string | null = null; await withMotion(async () => { label = await store.undo(); }); if (label !== null) showToast(`Undo${label ? ` ${label}` : ""}`); };
   const applyRedo = async () => { let label: string | null = null; await withMotion(async () => { label = await store.redo(); }); if (label !== null) showToast(`Redo${label ? ` ${label}` : ""}`); };
   const exportBackup = async () => {
@@ -260,10 +260,10 @@ export function App() {
     const syncLocation = () => {
       setView(readView());
       const id = readSelectedTask();
-      if (readView() !== "tasks" || id === selectedTaskId()) return;
+      if (readView() === "calendar" || id === selectedTaskId()) return;
       const previous = selectedTaskId();
       void (async () => {
-        if (flushDetail && !(await flushDetail())) { history.pushState(null, "", tasksHash(previous)); return; }
+        if (flushDetail && !(await flushDetail())) { history.pushState(null, "", tasksHash(previous, view())); return; }
         setSelectedTaskId(id);
       })();
     };
@@ -297,8 +297,7 @@ export function App() {
     }} />}>
       <div class="app-shell">
         <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = ""; }} />
-        <WorkspaceShell notice={<TimeControl now={clock()} pretending={!!prefs.timeOffset()} onSet={pretend} onStep={ms => pretend(new Date(appNow().getTime() + ms))} onReset={() => pretend(null)} />} toolbar={view() === "tasks" ? <DesignToggles groupLayout={prefs.groupLayout()} onGroupLayoutChange={prefs.setGroupLayout}
-            layout={prefs.taskLayout()} onLayoutChange={prefs.setTaskLayout} /> : undefined}
+        <WorkspaceShell notice={<TimeControl now={clock()} pretending={!!prefs.timeOffset()} onSet={pretend} onStep={ms => pretend(new Date(appNow().getTime() + ms))} onReset={() => pretend(null)} />}
           view={view()} openCount={openCount()} query={query()} onQuery={setQuery}
           onNavigate={(next) => { navigate(next); window.scrollTo({top: 0, behavior: "instant"}); }}
           onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
@@ -308,11 +307,11 @@ export function App() {
           syncDetail={remote.error() || (remote.lastSyncedAt() ? `Last synced at ${remote.lastSyncedAt()!.toLocaleTimeString()}` : "Your edits are saved in this browser. Open Settings to connect another device.")}
           identity={remote.session()?.authenticated ? remote.identityLabel() : ""}
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
-          <Show when={view() === "tasks"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} sleepMode={prefs.calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={prefs.setCalendarSleepMode} hideSleeping={prefs.hideSleeping()} onHideSleepingChange={prefs.setHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
+          <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} sleepMode={prefs.calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={prefs.setCalendarSleepMode} hideSleeping={prefs.hideSleeping()} onHideSleepingChange={prefs.setHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
             <div class="tasks-workspace" classList={{ split: paneOpen() }} data-animations={animations() ? "on" : "off"}>
             <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
-              groupLayout={prefs.groupLayout()} layout={prefs.taskLayout()} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
+              view={view() === "boards" ? "boards" : "today"} showBoard={prefs.showBoard()} showTags={prefs.showTags()} onOrderBoards={order => groupChange(() => store.orderBoards(order))} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
               liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} registerMotion={next => { motion = next; return () => { if (motion === next) motion = null; }; }} />
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
@@ -334,15 +333,22 @@ export function App() {
             <div class="settings-tabs" role="tablist" aria-label="Settings sections">
               <button role="tab" aria-selected={settingsTab() === "data"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("data"); }}>Data</button>
               <button role="tab" aria-selected={settingsTab() === "windows"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("windows"); }}>Windows</button>
-              <button role="tab" aria-selected={settingsTab() === "groups"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("groups"); }}>Groups</button>
+              <button role="tab" aria-selected={settingsTab() === "boards"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("boards"); }}>Boards</button>
+              <button role="tab" aria-selected={settingsTab() === "display"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("display"); }}>Display</button>
               <button role="tab" aria-selected={settingsTab() === "animations"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("animations"); }}>Animations</button>
               <button class="keyboard-settings-tab" role="tab" aria-selected={settingsTab() === "keyboard"} onClick={() => setSettingsTab("keyboard")}>Keyboard shortcuts</button>
             </div>
             <Show when={settingsTab() === "windows"}>
               <WindowSettings items={items()} onCreate={fields => windowChange(() => store.createWindow(fields))} onUpdate={(window, patch) => windowChange(() => store.updateWindow(window, patch))} onDelete={window => windowChange(() => store.deleteWindow(window))} />
             </Show>
-            <Show when={settingsTab() === "groups"}>
-              <GroupSettings items={items()} onCreate={() => createGroup(null)} onRename={(group, title) => groupChange(() => store.renameGroup(group, title))} onMove={(group, parentId) => groupChange(() => store.moveGroup(group, parentId))} onDelete={deleteGroup} />
+            <Show when={settingsTab() === "boards"}>
+              <BoardSettings items={items()} onCreate={() => createGroup(null)} onRename={(group, title) => groupChange(() => store.renameGroup(group, title))} onDelete={deleteGroup} />
+            </Show>
+            <Show when={settingsTab() === "display"}>
+              <section class="appearance-settings" aria-label="Display">
+                <label class="animation-setting"><span><strong>Show board on rows</strong><small>A task's board name at the right of its row.</small></span><input aria-label="Show board on rows" type="checkbox" role="switch" checked={prefs.showBoard()} onChange={event => prefs.setShowBoard(event.currentTarget.checked)} /></label>
+                <label class="animation-setting"><span><strong>Show tags on rows</strong><small>A task's tags beside its other details.</small></span><input aria-label="Show tags on rows" type="checkbox" role="switch" checked={prefs.showTags()} onChange={event => prefs.setShowTags(event.currentTarget.checked)} /></label>
+              </section>
             </Show>
             <Show when={settingsTab() === "animations"}>
             <section class="appearance-settings" aria-label="Appearance">

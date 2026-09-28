@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildSections, placeTask, pushedDownInfo, warnTime, type Section } from "../src/today";
+import { buildSections, placeTask, pushedDownInfo, taskGroupId, warnTime, type Section } from "../src/today";
 import { describeSchedule, nextOpening } from "../src/windows";
 import type { Item, Task, TimeWindow } from "../src/types";
 
@@ -141,4 +141,19 @@ test("subtasks with due dates come first, soonest first; the rest keep their man
   for (const mode of ["nested", "context"] as const) {
     expect(shape(buildSections(items, now, { ...all, mode }))).toEqual({ available: [["(parent)", ["sooner", "later", "plain", "also-plain"]]] });
   }
+});
+
+test("Boards: a task stays on its board whatever its urgency; subtasks follow their parent's board unless they have one", () => {
+  const board = (id: string): Item => ({ id, kind: "group", title: id, parentId: null, createdAt: at, updatedAt: at });
+  const items: Item[] = [board("support"), board("notes"),
+    task("call", { groupId: "support", deadline: local(6, 20) }),
+    task("idea", { groupId: "notes" }), task("step", { parentId: "idea" }), task("own", { parentId: "idea", groupId: "support" }),
+    task("loose", { deadline: local(6, 20) }),
+    task("done", { groupId: "notes", state: "completed", completedAt: at }),
+  ];
+  const byId = new Map(items.map(item => [item.id, item]));
+  const boards = buildSections(items, now, { ...all, showCompleted: true, mode: "context", boardOf: entry => taskGroupId(entry, byId) });
+  expect(shape(boards)).toEqual({ firm: ["loose"], support: ["call", ["(idea)", ["own"]]], notes: [["(idea)", ["step"]]], completed: ["done"] });
+  // Today: everything by urgency.
+  expect(shape(buildSections(items, now, { ...all, mode: "context" })).firm).toEqual(["call", "loose"]);
 });

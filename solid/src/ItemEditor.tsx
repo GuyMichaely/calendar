@@ -13,8 +13,8 @@ import {
 } from "../../site/domain.js";
 import { NotesEditor, type NotesEditorApi } from "./NotesEditor";
 import { DateTimeField } from "./DateTimeField";
-import { groupOptions } from "./group-board";
-import { pushedDownInfo } from "./today";
+import { pushedDownInfo, taskGroupId } from "./today";
+import { userBoards } from "./board-order";
 import { describeSchedule } from "./windows";
 import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
 import { attachmentMarkdown } from "./markdown";
@@ -421,8 +421,11 @@ export function ItemEditor(props: {
   };
 
   // Options are keyed by id: rebuilding <option> elements would reset the select's choice.
-  const groupChoices = createMemo(() => groupOptions(props.items));
-  const groupLabel = (id: string) => { const option = groupChoices().find(choice => choice.group.id === id); return option ? `${"— ".repeat(option.depth)}${option.group.title}` : ""; };
+  const boardChoices = createMemo(() => userBoards(props.items));
+  const boardLabel = (id: string) => boardChoices().find(board => board.id === id)?.title ?? "";
+  // A subtask with no board of its own follows its parent's.
+  const isSubtask = !!(task?.parentId || props.request.parentId);
+  const inheritedBoard = () => { const parent = props.items.find(item => item.id === (task?.parentId || props.request.parentId)); return parent?.kind === "task" ? boardLabel(taskGroupId(parent, new Map(props.items.map(item => [item.id, item]))) || "") : ""; };
   const ancestors = () => {
     const byId = new Map(props.items.map(item => [item.id, item]));
     const chain: Task[] = [], seen = new Set([itemId]);
@@ -560,7 +563,7 @@ export function ItemEditor(props: {
               <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><Show when={!props.embedded}>{completionButton(false)}</Show></div>
               {dateField("availableFrom", "Can start", <DateTimeField name="availableFrom" label="Can start" value={isoToLocalInput(task?.availableFrom)} onChange={syncDirty} />)}
               {dateField("deadline", "Due", <DateTimeField name="deadline" label="Due" value={deadlineInput()} onChange={value => { setDeadlineInput(value); syncDirty(); }} />)}
-              <Show when={!task?.parentId && !props.request.parentId}><label class="field"><span>Group</span><select name="groupId" value={task?.groupId || props.request.groupId || ""}><option value="">No group</option><For each={groupChoices().map(option => option.group.id)}>{id => <option value={id}>{groupLabel(id)}</option>}</For></select></label></Show>
+              <label class="field"><span>Board</span><select name="groupId" value={task?.groupId || props.request.groupId || ""}><option value="">{isSubtask ? `Same as parent${inheritedBoard() ? ` (${inheritedBoard()})` : ""}` : "No board"}</option><For each={boardChoices().map(board => board.id)}>{id => <option value={id}>{boardLabel(id)}</option>}</For></select></label>
               {/* Always shown (disabled without a due date) so setting one doesn't move the other fields. */}
               <label class="field" title="When this joins the Firm section, measured from its due date"><span>Firm from</span>
                 <select name="warnHours" disabled={!deadlineInput()} value={task?.warnAt ? "custom" : String(task?.warnHours ?? 24)} onChange={syncDirty}>

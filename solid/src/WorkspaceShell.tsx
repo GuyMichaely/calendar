@@ -25,6 +25,7 @@ export function WorkspaceShell(props: {
       <Show when={prototypeName}><span class="prototype-badge" title="Preview build. Shares data with the main app.">{prototypeName}</span></Show>
       <nav class="rail-nav" aria-label="Workspace">
         <button classList={{active: props.view === "tasks"}} aria-current={props.view === "tasks" ? "page" : undefined} onClick={() => props.onNavigate("tasks")}><Icon name="sun" /><span>Today</span><span class="nav-count">{props.openCount}</span></button>
+        <button classList={{active: props.view === "boards"}} aria-current={props.view === "boards" ? "page" : undefined} onClick={() => props.onNavigate("boards")}><Icon name="compact" /><span>Boards</span></button>
         <button classList={{active: props.view === "calendar"}} aria-current={props.view === "calendar" ? "page" : undefined} onClick={() => props.onNavigate("calendar")}><Icon name="calendar" /><span>Calendar</span></button>
       </nav>
       <div class="rail-bottom">
@@ -48,6 +49,7 @@ export function WorkspaceShell(props: {
     </div>
     <nav class="mobile-nav" aria-label="Primary">
       <button classList={{active: props.view === "tasks"}} aria-current={props.view === "tasks" ? "page" : undefined} onClick={() => props.onNavigate("tasks")}><Icon name="sun" /><span>Today</span></button>
+      <button classList={{active: props.view === "boards"}} aria-current={props.view === "boards" ? "page" : undefined} onClick={() => props.onNavigate("boards")}><Icon name="compact" /><span>Boards</span></button>
       <button classList={{active: props.view === "calendar"}} aria-current={props.view === "calendar" ? "page" : undefined} onClick={() => props.onNavigate("calendar")}><Icon name="calendar" /><span>Calendar</span></button>
       <button class="mobile-create" aria-label={props.view === "calendar" ? "New event" : "New task"} onClick={props.onNew}><span><Icon name="plus" /></span></button>
       <button onClick={props.onSettings}><Icon name="settings" /><span>Settings</span></button>

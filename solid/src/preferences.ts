@@ -24,8 +24,10 @@ export function createPreferences() {
   const [animations, setAnimations] = stored<string | null>("calendar.animations", raw => raw, value => value);
   // Today view layouts, switchable to compare.
   const choice = <T extends string>(key: string, options: readonly T[]) => stored<T>(key, raw => options.includes(raw as T) ? raw as T : options[0], value => value);
-  const [groupLayout, setGroupLayout] = choice("calendar.today.groups", ["labels", "headings"] as const);
-  const [taskLayout, setTaskLayout] = choice("calendar.today.layout", ["list", "columns"] as const);
+  // Settings → Display: a task's board and tags on its row (both on unless turned off).
+  const shown = (key: string) => stored(key, raw => raw !== "0", value => value ? null : "0");
+  const [showBoard, setShowBoard] = shown("calendar.rows.showBoard");
+  const [showTags, setShowTags] = shown("calendar.rows.showTags");
   const [subtaskMode, setSubtaskMode] = choice("calendar.today.subtasks", ["context", "nested"] as const);
   // Pretend time: milliseconds added to the real clock (0 = real time).
   const [timeOffset, setTimeOffset] = stored("calendar.timeOffset", raw => Number(raw) || 0, value => value ? String(value) : null);
@@ -37,8 +39,8 @@ export function createPreferences() {
     hideSleeping, setHideSleeping,
     calendarSleepMode, setCalendarSleepMode,
     animations, setAnimations,
-    groupLayout, setGroupLayout,
-    taskLayout, setTaskLayout,
+    showBoard, setShowBoard,
+    showTags, setShowTags,
     subtaskMode, setSubtaskMode,
     timeOffset, setTimeOffset,
     pollSeconds, setPollSeconds,
