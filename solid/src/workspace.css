@@ -797,3 +797,6 @@ main:has(.groups-panel) > .tasks-workspace { flex: 1; min-height: 0; grid-templa
 .today-panel.columns .today-section.dragging { opacity: .45; }
 .today-column-empty { margin: 8px 10px; color: var(--muted); font-size: 11px; }
 .today-chip.tag { background: transparent; border: 1px solid var(--line); }
+.notes-link-field { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.notes-link-field input { flex: 1; min-width: 0; background: var(--surface-3); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+.notes-richtext a { color: var(--accent-strong); text-decoration: underline; cursor: text; }

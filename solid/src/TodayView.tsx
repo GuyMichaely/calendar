@@ -3,6 +3,8 @@ import { Icon } from "./Icon";
 import { ancestors, buildSections, pushedDownInfo, SECTION_ORDER, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
 import { boardLayout, placeBoard, sameLayout, userBoards, type BoardLayout, type BoardTarget } from "./board-order";
 import { taskSchedule, windowsById } from "./windows";
+// The same search as the calendar: title, notes, tags, and attachment names.
+import { textMatches } from "../../site/domain.js";
 import type { Item, Task } from "./types";
 
 // Agenda lists the urgency sections; Boards shows your boards and the built-in ones as columns.
@@ -72,10 +74,6 @@ export function duration(ms: number) {
   return hours ? `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ""}` : `${minutes}m`;
 }
 
-function textMatches(task: Task, query: string) {
-  const needle = query.trim().toLowerCase();
-  return !needle || [task.title, task.notes || "", ...(task.tags || [])].some(value => value.toLowerCase().includes(needle));
-}
 
 /** Every task id in some trees, finished subtasks included. */
 function idsIn(nodes: TreeNode[]): string[] {
