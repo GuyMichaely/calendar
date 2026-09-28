@@ -62,6 +62,15 @@ export function App() {
     const projected = projectDependents(items(), clock());
     return { items: items().map(item => projected.get(item.id) || item), ghostIds: new Set(projected.keys()) };
   });
+  // What the top bar says about sync. Edits are always saved in this browser first.
+  const syncStatus = createMemo((): { state: "busy" | "error" | "synced" | "local"; label: string; detail: string } => {
+    if (!remote.enabled) return { state: "local", label: "Only in this browser", detail: "No sync server is set, so your edits are saved in this browser only. Settings → Data can set one, or export a backup." };
+    if (remote.busy()) return { state: "busy", label: "Syncing", detail: "Sending your edits and fetching your other devices' edits." };
+    if (remote.error()) return { state: "error", label: "Sync needs attention", detail: `${remote.error()} Your edits are still saved in this browser.` };
+    if (!remote.session()?.authenticated) return { state: "local", label: "Not signed in", detail: "Your edits are saved in this browser only. Sign in (Settings → Data) to sync them with your other devices." };
+    const last = remote.lastSyncedAt();
+    return last ? { state: "synced", label: "Synced", detail: `Synced with your other devices at ${last.toLocaleTimeString()}.` } : { state: "busy", label: "Not synced yet", detail: "Signed in; the first sync hasn't finished." };
+  });
   const openCount = createMemo(() => openWork(items()).length);
   const [calendarMonth, setCalendarMonth] = createSignal(new Date(nowAtStart.getFullYear(), nowAtStart.getMonth(), 1));
   const [editor, setEditor] = createSignal<EditorRequest | null>(null);
@@ -296,9 +305,7 @@ export function App() {
           onNavigate={(next) => { navigate(next); window.scrollTo({top: 0, behavior: "instant"}); }}
           onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
           onSettings={() => { setSettingsTab("data"); openSettings(); }}
-          syncState={remote.busy() ? "busy" : remote.error() ? "error" : remote.lastSyncedAt() ? "synced" : "local"}
-          syncLabel={remote.busy() ? "Syncing" : remote.error() ? "Sync needs attention" : remote.lastSyncedAt() ? "Synced" : "On this device"}
-          syncDetail={remote.error() || (remote.lastSyncedAt() ? `Last synced at ${remote.lastSyncedAt()!.toLocaleTimeString()}` : "Your edits are saved in this browser. Open Settings to connect another device.")}
+          syncState={syncStatus().state} syncLabel={syncStatus().label} syncDetail={syncStatus().detail}
           identity={remote.session()?.authenticated ? remote.identityLabel() : ""}
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
           <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
