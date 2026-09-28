@@ -18,7 +18,7 @@ import {
   undoLabel,
 } from "../../site/storage.js";
 import { startedTask } from "./dependencies";
-import { boardOrderPatches } from "./board-order";
+import { boardLayoutPatches, type BoardLayout } from "./board-order";
 import { boardColumns, boardEntries, groupPlacement, layoutPatches, placeGroups as placeInLayout, reorderPatches, taskPlacePatches, taskSiblings, ungroupPatches, type BoardTarget } from "./group-board";
 import { completedTask, dependentGroupId, liftedTask, reopenedTask, newGroup, newTask, newWindow, patchedItem, pushedTask } from "./item-changes";
 import type { Group, Item, Task, TimeWindow } from "./types";
@@ -135,9 +135,9 @@ export function createCalendarStore(options: { onChanged: () => void }) {
         for (const { group, patch, create } of patches) await (create ? putItem({ ...group, ...patch }) : patchGroup(group, patch));
       });
     },
-    /** Put the Boards view's columns (built-in boards included) in this order, in one undo step. */
-    orderBoards: async (order: string[]) => {
-      const patches = boardOrderPatches(items(), order);
+    /** Arrange the Boards view's boards (built-in ones included) as in this layout, in one undo step. */
+    layoutBoards: async (layout: BoardLayout) => {
+      const patches = boardLayoutPatches(items(), layout);
       if (patches.length) await batch("Reorder boards", async () => {
         for (const { group, patch, create } of patches) await (create ? putItem({ ...group, ...patch }) : patchGroup(group, patch));
       });

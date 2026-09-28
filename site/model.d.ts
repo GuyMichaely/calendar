@@ -90,8 +90,9 @@ export type Group = BaseItem & {
   boardColumn?: number;
   // Built-in board sections store only their position; they hold no tasks.
   builtin?: "available" | "upcoming" | "sleeping" | "ungrouped" | "firm" | "closing" | "later" | "completed";
-  // Its place among the boards in the Boards view (built-in boards included).
-  boardOrder?: number;
+  // Its place in the Boards view's layout (built-in boards included): column, then row.
+  layoutColumn?: number;
+  layoutRow?: number;
 };
 
 export type PushedDown = {

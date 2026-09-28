@@ -1,31 +1,43 @@
 import { expect, test } from "bun:test";
-import { boardOrder, boardOrderPatches, reorderedBoards } from "../src/board-order";
+import { boardLayout, boardLayoutPatches, placeBoard } from "../src/board-order";
 import type { Group, Item } from "../src/types";
 
 const at = "2026-09-01T00:00:00.000Z";
 const board = (id: string, extra: Partial<Group> = {}): Group => ({ id, kind: "group", title: id, parentId: null, createdAt: at, updatedAt: at, ...extra });
 
-test("boards go between Available and Upcoming until placed, in their old board-page order", () => {
-  const items: Item[] = [board("notes", { boardColumn: 2 }), board("support", { boardColumn: 1 })];
-  expect(boardOrder(items)).toEqual(["firm", "closing", "later", "available", "support", "notes", "upcoming", "completed"]);
+test("boards not yet placed get columns before Upcoming, keeping their old board-page columns", () => {
+  const items: Item[] = [board("notes", { boardColumn: 3, sortOrder: 1 }), board("ideas", { boardColumn: 3, sortOrder: 0 }), board("support", { boardColumn: 1 })];
+  expect(boardLayout(items)).toEqual([["firm", "closing", "later"], ["available"], ["support"], ["ideas", "notes"], ["upcoming"], ["completed"]]);
 });
 
-test("a drop lands next to the visible board it was dropped beside; hidden boards keep their places", () => {
-  const order = ["firm", "closing", "later", "available", "upcoming", "completed"];
-  // Firm hidden: dragging Available to the front puts it just before Closing today, so Firm stays first.
-  expect(reorderedBoards(order, ["closing", "later", "available", "upcoming", "completed"], "available", 0)).toEqual(["firm", "available", "closing", "later", "upcoming", "completed"]);
-  // Dropped after Opens later today (index 2 among the others on screen).
-  expect(reorderedBoards(order, ["closing", "later", "available", "upcoming"], "available", 2)).toEqual(["firm", "closing", "later", "available", "upcoming", "completed"]);
-  expect(reorderedBoards(order, ["firm", "closing", "available"], "firm", 3)).toEqual(["closing", "later", "available", "firm", "upcoming", "completed"]);
+test("a drop lands next to the visible board it's dropped beside; hidden boards keep their places", () => {
+  const layout = [["firm", "closing", "later"], ["available"], ["notes"], ["upcoming"], ["completed"]];
+  // Firm and Opens later today are hidden.
+  const shown = [["closing"], ["available"], ["notes"], ["upcoming"], ["completed"]];
+  // Stack Notes above Closing today: right before it, so Firm stays on top.
+  expect(placeBoard(layout, shown, "notes", { column: 0, index: 0 })).toEqual([["firm", "notes", "closing", "later"], ["available"], ["upcoming"], ["completed"]]);
+  // Below Closing today: right after it, above the hidden Opens later today.
+  expect(placeBoard(layout, shown, "notes", { column: 0, index: 1 })).toEqual([["firm", "closing", "notes", "later"], ["available"], ["upcoming"], ["completed"]]);
+  // A new column before everything, and one between Available and Notes (which changes nothing).
+  expect(placeBoard(layout, shown, "available", { newColumn: 0 })).toEqual([["available"], ["firm", "closing", "later"], ["notes"], ["upcoming"], ["completed"]]);
+  expect(placeBoard(layout, shown, "notes", { newColumn: 2 })).toEqual(layout);
+  // Pulling Opens later today's column mate out into its own column after Upcoming.
+  expect(placeBoard(layout, shown, "closing", { newColumn: 4 })).toEqual([["firm", "later"], ["available"], ["notes"], ["upcoming"], ["closing"], ["completed"]]);
 });
 
-test("storing an order writes each board's place, creating built-in rows once", () => {
+test("storing a layout writes each board's column and row, creating built-in rows once", () => {
   const items: Item[] = [board("notes")];
-  const patches = boardOrderPatches(items, ["notes", "firm", "closing", "later", "available", "upcoming", "completed"]);
-  expect(patches.map(entry => [entry.group.id, entry.patch.boardOrder, entry.create])).toEqual([
-    ["notes", 0, false], ["builtin-firm", 1, true], ["builtin-closing", 2, true], ["builtin-later", 3, true], ["builtin-available", 4, true], ["builtin-upcoming", 5, true], ["builtin-completed", 6, true],
+  const layout = [["notes", "firm"], ["closing", "later", "available"], ["upcoming", "completed"]];
+  const patches = boardLayoutPatches(items, layout);
+  expect(patches.map(entry => [entry.group.id, entry.patch.layoutColumn, entry.patch.layoutRow, entry.create])).toEqual([
+    ["notes", 0, 0, false], ["builtin-firm", 0, 1, true], ["builtin-closing", 1, 0, true], ["builtin-later", 1, 1, true], ["builtin-available", 1, 2, true], ["builtin-upcoming", 2, 0, true], ["builtin-completed", 2, 1, true],
   ]);
-  const stored: Item[] = [{ ...board("notes"), boardOrder: 0 }, ...patches.filter(entry => entry.create).map(entry => ({ ...entry.group, ...entry.patch }))];
-  expect(boardOrder(stored)).toEqual(["notes", "firm", "closing", "later", "available", "upcoming", "completed"]);
-  expect(boardOrderPatches(stored, boardOrder(stored))).toEqual([]);
+  const stored: Item[] = [{ ...board("notes"), layoutColumn: 0, layoutRow: 0 }, ...patches.filter(entry => entry.create).map(entry => ({ ...entry.group, ...entry.patch }))];
+  expect(boardLayout(stored)).toEqual(layout);
+  expect(boardLayoutPatches(stored, layout)).toEqual([]);
+});
+
+test("boards that never had a column get one each", () => {
+  const items: Item[] = [board("b", { createdAt: "2026-09-02T00:00:00.000Z" }), board("a")];
+  expect(boardLayout(items)).toEqual([["firm", "closing", "later"], ["available"], ["a"], ["b"], ["upcoming"], ["completed"]]);
 });

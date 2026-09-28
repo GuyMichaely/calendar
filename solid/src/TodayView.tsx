@@ -1,7 +1,7 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Icon } from "./Icon";
 import { ancestors, buildSections, pushedDownInfo, SECTION_ORDER, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
-import { boardOrder, reorderedBoards, userBoards } from "./board-order";
+import { boardLayout, placeBoard, sameLayout, userBoards, type BoardLayout, type BoardTarget } from "./board-order";
 import { taskSchedule, windowsById } from "./windows";
 import type { Item, Task } from "./types";
 
@@ -38,8 +38,8 @@ export type TodayViewProps = {
   // Whether a task's finished subtasks show dimmed ("show") or fold into "+N completed" (null).
   onCompletedSubtasks: (task: Task, value: Task["completedSubtasks"]) => Promise<void>;
   onStartDependent: (task: Task, completeParent: boolean) => Promise<void>;
-  // The Boards view's columns in a new order (every board's key: a section id or a board id).
-  onOrderBoards: (order: string[]) => Promise<void>;
+  // The Boards view's boards in a new layout (every board's key, a section id or a board id, by column).
+  onLayoutBoards: (layout: BoardLayout) => Promise<void>;
   // Lets the app animate changes made elsewhere (undo and redo) the same way.
   registerMotion?: (motion: (run: () => Promise<unknown>) => Promise<void>) => () => void;
 };
@@ -289,66 +289,123 @@ export function TodayView(props: TodayViewProps) {
     if (await props.onAddTask(props.view === "today" && filter && filter !== "none" ? filter : null, title)) setDraft(value => value.trim() === title ? "" : value);
   };
 
-  // Boards: every board's column in the saved order. Your boards always show; a built-in
-  // one only when it has tasks.
-  const columns = createMemo(() => {
-    const found = new Map(sections().map(section => [section.id, section]));
-    return boardOrder(props.items)
-      .filter(key => found.has(key) || !SECTION_ORDER.includes(key as SectionId))
-      .map(key => found.get(key) ?? { id: key, trees: [], count: 0 });
-  });
-  const shownSections = () => props.view === "boards" ? columns() : sections();
+  // Boards: the saved layout, leaving out built-in boards with no tasks (yours always show).
+  const found = createMemo(() => new Map(sections().map(section => [section.id, section])));
+  const isBoard = (id: string) => !SECTION_ORDER.includes(id as SectionId);
+  const shownLayout = createMemo(() => boardLayout(props.items).map(column => column.filter(key => found().has(key) || isBoard(key))).filter(column => column.length));
+  const sectionOf = (key: string): Section => found().get(key) ?? { id: key, trees: [], count: 0 };
   const titleOf = (id: string) => SECTION_LABELS[id as SectionId]?.title ?? boardTitle(id);
   const hintOf = (id: string) => SECTION_LABELS[id as SectionId]?.hint;
-  const isBoard = (id: string) => !SECTION_ORDER.includes(id as SectionId);
 
-  // Dragging a column's heading moves it; it lands beside the column it's dropped next to.
+  // Dragging a board by its heading. Where it would land shows as an opening: over a
+  // board's top or bottom half, above or below it in that column; over its outer sixths
+  // or the gaps between columns, a new column there. Spots that change nothing don't open.
   const [dragKey, setDragKey] = createSignal<string | null>(null);
-  const [dropAt, setDropAt] = createSignal<number | null>(null);
-  const others = () => columns().map(column => column.id).filter(key => key !== dragKey());
-  const dragColumn = (key: string) => (event: PointerEvent) => {
+  const [dropKey, setDropKey] = createSignal("");
+  const targetOf = (key: string): BoardTarget | null => {
+    const [kind, a, b] = key.split(":");
+    return kind === "slot" ? { column: Number(a), index: Number(b) } : kind === "column" ? { newColumn: Number(a) } : null;
+  };
+  const dragBoard = (key: string) => (event: PointerEvent) => {
     if (props.view !== "boards" || event.button !== 0) return;
-    const handle = event.currentTarget as HTMLElement;
-    const x0 = event.clientX;
-    let started = false, frame = 0, x = x0;
+    const handle = event.currentTarget as HTMLElement, card = handle.closest<HTMLElement>(".board-card");
+    const x0 = event.clientX, y0 = event.clientY;
+    let x = x0, y = y0, started = false, frame = 0, ghost: HTMLElement | null = null;
     handle.setPointerCapture(event.pointerId);
+    const layout = boardLayout(props.items), shown = shownLayout();
+    const changes = (drop: string) => { const target = targetOf(drop); return !!target && !sameLayout(placeBoard(layout, shown, key, target), layout); };
     const aim = () => {
       const box = boardRef.getBoundingClientRect();
       if (x > box.right - 48) boardRef.scrollLeft += 18; else if (x < box.left + 48) boardRef.scrollLeft -= 18;
-      const rest = [...boardRef.querySelectorAll<HTMLElement>(".today-section[data-section]")].filter(element => element.dataset.section !== key);
-      setDropAt(rest.filter(element => { const r = element.getBoundingClientRect(); return r.left + r.width / 2 < x; }).length);
+      if (ghost) ghost.style.transform = `translate(${x - x0}px, ${y - y0}px)`;
+      const hit = document.elementFromPoint(x, y);
+      // The empty space under a column counts as its bottom slot.
+      let drop = hit?.closest<HTMLElement>("[data-drop]")?.dataset.drop ?? (hit?.matches(".board-stack") ? (hit as HTMLElement).dataset.end ?? "" : "");
+      const over = drop ? null : hit?.closest<HTMLElement>(".board-card[data-column]");
+      if (over) {
+        const rect = over.getBoundingClientRect(), column = Number(over.dataset.column), row = Number(over.dataset.row);
+        const across = (x - rect.left) / rect.width;
+        drop = across < 1 / 6 ? `column:${column}` : across > 5 / 6 ? `column:${column + 1}` : (y - rect.top) / rect.height < 0.5 ? `slot:${column}:${row}` : `slot:${column}:${row + 1}`;
+      }
+      setDropKey(drop && changes(drop) ? drop : "");
+      frame = requestAnimationFrame(aim);
+    };
+    const begin = () => {
+      started = true;
+      setDragKey(key);
+      if (card) {
+        const rect = card.getBoundingClientRect();
+        ghost = card.cloneNode(true) as HTMLElement;
+        ghost.classList.add("board-card-ghost");
+        Object.assign(ghost.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, maxHeight: "50vh", overflow: "hidden", margin: "0", zIndex: "60", pointerEvents: "none" });
+        document.body.appendChild(ghost);
+        boardRef.style.setProperty("--drop-h", `${Math.min(rect.height, innerHeight * 0.5)}px`);
+        boardRef.style.setProperty("--drop-w", `${rect.width}px`);
+      }
       frame = requestAnimationFrame(aim);
     };
     const move = (next: PointerEvent) => {
-      x = next.clientX;
-      if (!started && Math.abs(x - x0) > 6) { started = true; setDragKey(key); frame = requestAnimationFrame(aim); }
+      x = next.clientX; y = next.clientY;
+      if (!started && Math.abs(x - x0) + Math.abs(y - y0) > 6) begin();
     };
     const end = (drop: boolean) => {
       cancelAnimationFrame(frame);
+      ghost?.remove();
+      boardRef.style.removeProperty("--drop-h");
+      boardRef.style.removeProperty("--drop-w");
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", up);
       handle.removeEventListener("pointercancel", cancel);
-      const at = dropAt(), visible = columns().map(column => column.id);
-      setDragKey(null); setDropAt(null);
-      if (drop && started && at != null) void moveColumns(() => props.onOrderBoards(reorderedBoards(boardOrder(props.items), visible, key, at)));
+      document.removeEventListener("keydown", escape, true);
+      const target = targetOf(dropKey());
+      setDragKey(null); setDropKey("");
+      if (drop && started && target) void moveBoards(() => props.onLayoutBoards(placeBoard(layout, shown, key, target)));
     };
     const up = () => end(true);
     const cancel = () => end(false);
+    const escape = (next: KeyboardEvent) => { if (next.key === "Escape") { next.preventDefault(); next.stopPropagation(); end(false); } };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up, { once: true });
     handle.addEventListener("pointercancel", cancel, { once: true });
+    document.addEventListener("keydown", escape, true);
   };
-  // Columns slide to their new places too.
-  const moveColumns = async (run: () => Promise<unknown>) => {
-    const columnsNow = () => new Map([...boardRef.querySelectorAll<HTMLElement>(".today-section[data-section]")].map(element => [element.dataset.section!, element]));
-    const before = new Map([...columnsNow()].map(([key, element]) => [key, element.getBoundingClientRect()]));
+  // Boards slide to their new places too.
+  const moveBoards = async (run: () => Promise<unknown>) => {
+    const cards = () => new Map([...boardRef.querySelectorAll<HTMLElement>(".board-card[data-section]")].map(element => [element.dataset.section!, element]));
+    const before = new Map([...cards()].map(([key, element]) => [key, element.getBoundingClientRect()]));
     await run();
     if (!boardRef.closest('[data-animations="on"]')) return;
-    for (const [key, element] of columnsNow()) {
+    for (const [key, element] of cards()) {
       const old = before.get(key), box = element.getBoundingClientRect();
-      if (old && Math.abs(old.left - box.left) > 1) element.animate([{ transform: `translateX(${old.left - box.left}px)` }, { transform: "none" }], { duration: MOTION_MS, easing: "cubic-bezier(.2, .8, .2, 1)" });
+      if (!old) continue;
+      const dx = old.left - box.left, dy = old.top - box.top;
+      if (Math.abs(dx) + Math.abs(dy) > 1) element.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: MOTION_MS, easing: "cubic-bezier(.2, .8, .2, 1)" });
     }
   };
+
+  // One section: in the Agenda a collapsible list section; in Boards a board you can drag.
+  const SectionBlock = (blockProps: { id: string; column?: number; row?: number }) => {
+    const id = () => blockProps.id;
+    const current = () => props.view === "boards" ? sectionOf(id()) : found().get(id()) ?? { id: id(), trees: [], count: 0 };
+    return <section class="today-section" classList={{ "board-card": props.view === "boards", dragging: dragKey() === id() }} data-section={id()} data-column={blockProps.column} data-row={blockProps.row}>
+      <button class="today-section-heading" aria-expanded={!isCollapsed(id())} title={props.view === "boards" ? "Drag to move this board" : undefined} data-holds={isCollapsed(id()) ? idsIn(current().trees).join(" ") : undefined}
+        onPointerDown={dragBoard(id())} onClick={() => { if (props.view === "today") toggleSection(id()); }}>
+        <Show when={props.view === "today"}><span class="section-chevron" aria-hidden="true">›</span></Show>
+        <strong>{titleOf(id())}</strong>
+        <span class="section-count">{current().count}</span>
+        <Show when={hintOf(id())}><span class="today-hint">{hintOf(id())}</span></Show>
+      </button>
+      <Show when={!isCollapsed(id())}>
+        <div class="today-rows">
+          <Show when={current().trees.length} fallback={<p class="today-column-empty">No tasks on this board.</p>}>
+            {/* A board's own rows don't repeat its name. */}
+            <Rows nodes={current().trees} depth={0} label={!isBoard(id())} runKey={id()} />
+          </Show>
+        </div>
+      </Show>
+    </section>;
+  };
+  const opening = (key: string, kind: "slot" | "column") => <div class={kind === "slot" ? "board-drop-slot" : "board-drop-column"} data-drop={key} classList={{ active: dropKey() === key }} />;
 
   return <section class="panel today-panel" classList={{ columns: props.view === "boards" }}>
     <Show when={startPrompt()}>{prompt =>
@@ -389,27 +446,22 @@ export function TodayView(props: TodayViewProps) {
       <Icon name="plus" size={17} />
       <input placeholder="Add a task" aria-label="Add a task" value={draft()} onInput={event => setDraft(event.currentTarget.value)} />
     </form>
-    <div class="today-board" ref={boardRef}>
-      <Show when={shownSections().length} fallback={<p class="today-empty">{props.query ? "No tasks match your search." : "Nothing needs you right now."}</p>}>
-        <For each={shownSections().map(entry => entry.id)}>{sectionId => <Show when={shownSections().find(entry => entry.id === sectionId)}>{current => { const id = current().id;
-          return <section class="today-section" data-section={id} classList={{ "column-dragging": dragKey() === id, "drop-before": dragKey() != null && others()[dropAt() ?? -1] === id, "drop-after": dragKey() != null && dropAt() === others().length && others().at(-1) === id }}>
-            <button class="today-section-heading" aria-expanded={!isCollapsed(id)} title={props.view === "boards" ? "Drag to move this board" : undefined} data-holds={isCollapsed(id) ? idsIn(current().trees).join(" ") : undefined}
-              onPointerDown={dragColumn(id)} onClick={() => { if (props.view === "today") toggleSection(id); }}>
-              <Show when={props.view === "today"}><span class="section-chevron" aria-hidden="true">›</span></Show>
-              <strong>{titleOf(id)}</strong>
-              <span class="section-count">{current().count}</span>
-              <Show when={hintOf(id)}><span class="today-hint">{hintOf(id)}</span></Show>
-            </button>
-            <Show when={!isCollapsed(id)}>
-              <div class="today-rows">
-                <Show when={current().trees.length} fallback={<p class="today-column-empty">No tasks on this board.</p>}>
-                  {/* A board's own rows don't repeat its name. */}
-                  <Rows nodes={current().trees} depth={0} label={!isBoard(id)} runKey={id} />
-                </Show>
-              </div>
-            </Show>
-          </section>; }}</Show>}
-        </For>
+    <div class="today-board" ref={boardRef} classList={{ "boards-layout": props.view === "boards", "drag-active": !!dragKey() }}>
+      <Show when={props.view === "boards"} fallback={
+        <Show when={sections().length} fallback={<p class="today-empty">{props.query ? "No tasks match your search." : "Nothing needs you right now."}</p>}>
+          <For each={sections().map(entry => entry.id)}>{id => <SectionBlock id={id} />}</For>
+        </Show>}>
+        {opening("column:0", "column")}
+        <Index each={shownLayout()}>{(column, columnIndex) => <>
+          <div class="board-stack" data-end={`slot:${columnIndex}:${column().length}`}>
+            {opening(`slot:${columnIndex}:0`, "slot")}
+            <For each={column()}>{(key, row) => <>
+              <SectionBlock id={key} column={columnIndex} row={row()} />
+              {opening(`slot:${columnIndex}:${row() + 1}`, "slot")}
+            </>}</For>
+          </div>
+          {opening(`column:${columnIndex + 1}`, "column")}
+        </>}</Index>
       </Show>
     </div>
   </section>;
