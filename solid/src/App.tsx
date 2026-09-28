@@ -14,8 +14,7 @@ import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./short
 import { type TaskDrop } from "./GroupsView";
 import { TodayView, when } from "./TodayView";
 import { BoardSettings, WindowSettings } from "./SettingsPanels";
-import { windowsById } from "./windows";
-import { effectivelyDone, openWork } from "./today";
+import { openWork } from "./today";
 import { SAMPLE_PREFIX, demoItems, sampleSubtaskItems } from "./demo-data";
 import { isDormant, projectDependents } from "./dependencies";
 import { dependentTasks } from "../../site/task-tree.js";
@@ -57,22 +56,11 @@ export function App() {
   const [clock, setClock] = createSignal(nowAtStart);
   const pretend = (target: Date | null) => { prefs.setTimeOffset(target ? target.getTime() - Date.now() : 0); setClock(appNow()); };
   // The calendar leaves out dependent tasks that haven't started, or shows them as what-if entries.
-  // The calendar reads a task's named window as the working hours it already understands.
-  const calendarItems = createMemo(() => {
-    const windows = windowsById(items());
-    const byId = new Map(items().map(item => [item.id, item]));
-    return items().filter(item => item.kind !== "window").map(item => {
-      if (item.kind !== "task") return item;
-      const window = item.windowId ? windows.get(item.windowId) : undefined;
-      // Subtasks of a finished task are done too.
-      return { ...item, ...(window ? { availabilitySchedule: { enabled: true, days: window.days, start: window.start, end: window.end } } : {}), ...(item.state !== "completed" && effectivelyDone(item, byId) ? { state: "completed" as const } : {}) };
-    });
-  });
   const calendarView = createMemo(() => {
-    const byId = new Map(calendarItems().map(item => [item.id, item]));
-    if (!prefs.showDependents()) return { items: calendarItems().filter(item => !isDormant(item, byId)), ghostIds: new Set<string>() };
-    const projected = projectDependents(calendarItems(), clock());
-    return { items: calendarItems().map(item => projected.get(item.id) || item), ghostIds: new Set(projected.keys()) };
+    const byId = new Map(items().map(item => [item.id, item]));
+    if (!prefs.showDependents()) return { items: items().filter(item => !isDormant(item, byId)), ghostIds: new Set<string>() };
+    const projected = projectDependents(items(), clock());
+    return { items: items().map(item => projected.get(item.id) || item), ghostIds: new Set(projected.keys()) };
   });
   const openCount = createMemo(() => openWork(items()).length);
   const [calendarMonth, setCalendarMonth] = createSignal(new Date(nowAtStart.getFullYear(), nowAtStart.getMonth(), 1));
@@ -313,7 +301,7 @@ export function App() {
           syncDetail={remote.error() || (remote.lastSyncedAt() ? `Last synced at ${remote.lastSyncedAt()!.toLocaleTimeString()}` : "Your edits are saved in this browser. Open Settings to connect another device.")}
           identity={remote.session()?.authenticated ? remote.identityLabel() : ""}
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
-          <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} sleepMode={prefs.calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={prefs.setCalendarSleepMode} hideSleeping={prefs.hideSleeping()} onHideSleepingChange={prefs.setHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
+          <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
             <div class="tasks-workspace" classList={{ split: paneOpen() }} data-animations={animations() ? "on" : "off"}>
             <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
