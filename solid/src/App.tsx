@@ -221,8 +221,11 @@ export function App() {
   const deleteGroup = async (group: Group) => {
     if (await attempt(() => store.deleteGroup(group), "Could not delete group.")) showToast(`Deleted “${group.title}” (Ctrl+Z to undo)`);
   };
-  const applyUndo = async () => { const label = await store.undo(); if (label !== null) showToast(`Undo${label ? ` ${label}` : ""}`); };
-  const applyRedo = async () => { const label = await store.redo(); if (label !== null) showToast(`Redo${label ? ` ${label}` : ""}`); };
+  // Undo and redo move rows the way the change itself did.
+  let motion: ((run: () => Promise<unknown>) => Promise<void>) | null = null;
+  const withMotion = async (run: () => Promise<unknown>) => { if (motion && view() === "tasks") await motion(run); else await run(); };
+  const applyUndo = async () => { let label: string | null = null; await withMotion(async () => { label = await store.undo(); }); if (label !== null) showToast(`Undo${label ? ` ${label}` : ""}`); };
+  const applyRedo = async () => { let label: string | null = null; await withMotion(async () => { label = await store.redo(); }); if (label !== null) showToast(`Redo${label ? ` ${label}` : ""}`); };
   const exportBackup = async () => {
     const text = await store.exportBackup(); const blob = new Blob([text], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
     anchor.href = url; anchor.download = `calendar-backup-${dateKey(new Date())}.json`; anchor.click(); URL.revokeObjectURL(url);
@@ -310,7 +313,7 @@ export function App() {
             <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
               groupLayout={prefs.groupLayout()} layout={prefs.taskLayout()} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
-              liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} />
+              liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} registerMotion={next => { motion = next; return () => { if (motion === next) motion = null; }; }} />
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
                 <Show when={detailRequest() || lastRequest} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>

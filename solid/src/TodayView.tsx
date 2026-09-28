@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Icon } from "./Icon";
 import { groupOptions } from "./group-board";
 import { ancestors, buildSections, pushedDownInfo, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
@@ -33,6 +33,8 @@ export type TodayViewProps = {
   // Whether a task's finished subtasks show dimmed ("show") or fold into "+N completed" (null).
   onCompletedSubtasks: (task: Task, value: Task["completedSubtasks"]) => Promise<void>;
   onStartDependent: (task: Task, completeParent: boolean) => Promise<void>;
+  // Lets the app animate changes made elsewhere (undo and redo) the same way.
+  registerMotion?: (motion: (run: () => Promise<unknown>) => Promise<void>) => () => void;
 };
 
 const SECTION_LABELS: Record<SectionId, { title: string; hint?: string }> = {
@@ -106,11 +108,12 @@ export function TodayView(props: TodayViewProps) {
     for (const element of boardRef.querySelectorAll<HTMLElement>(".today-row[data-id]")) if (!found.has(element.dataset.id!)) found.set(element.dataset.id!, element);
     return found;
   };
-  const moving = async (ids: string[], run: () => Promise<unknown>) => {
-    if (!boardRef?.closest('[data-animations="on"]')) { await run(); return; }
+  // `ids` are the rows that may fold away; "all" (for undo and redo) watches every row.
+  const moving = async (ids: string[] | "all", run: () => Promise<unknown>) => {
+    if (!boardRef?.isConnected || !boardRef.closest('[data-animations="on"]')) { await run(); return; }
     const beforeRows = rowElements();
     const before = new Map([...beforeRows].map(([id, element]) => [id, element.getBoundingClientRect()]));
-    const ghosts = ids.flatMap(id => { const element = beforeRows.get(id); return element ? [{ id, clone: element.cloneNode(true) as HTMLElement, rect: element.getBoundingClientRect() }] : []; });
+    const ghosts = (ids === "all" ? [...beforeRows.keys()] : ids).flatMap(id => { const element = beforeRows.get(id); return element ? [{ id, clone: element.cloneNode(true) as HTMLElement, rect: element.getBoundingClientRect() }] : []; });
     await run();
     const after = rowElements();
     const ease = "cubic-bezier(.2, .8, .2, 1)";
@@ -123,6 +126,8 @@ export function TodayView(props: TodayViewProps) {
     for (const ghost of ghosts) {
       if (after.has(ghost.id)) continue;
       const holder = boardRef.querySelector<HTMLElement>(`[data-holds~="${CSS.escape(ghost.id)}"]`)?.getBoundingClientRect();
+      // Off screen either way, or gone with nowhere to go on screen: nothing to show.
+      if (ghost.rect.bottom < 0 || ghost.rect.top > innerHeight) continue;
       const { clone, rect } = ghost;
       Object.assign(clone.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, margin: "0", zIndex: "50", pointerEvents: "none", background: "var(--surface)" });
       document.body.appendChild(clone);
@@ -132,6 +137,8 @@ export function TodayView(props: TodayViewProps) {
       setTimeout(() => clone.remove(), MOTION_MS + 120);
     }
   };
+
+  onMount(() => { const unregister = props.registerMotion?.(run => moving("all", run)); onCleanup(() => unregister?.()); });
 
   const [startPrompt, setStartPrompt] = createSignal<{ owner: Task; dependents: Task[] } | null>(null);
   const complete = async (task: Task) => {
@@ -190,7 +197,7 @@ export function TodayView(props: TodayViewProps) {
       <div class="today-row" title={rowProps.node.muted ? "Its own timing is less urgent; shown here with its family" : rowProps.node.container ? "Holds these subtasks; checking it off finishes all of them" : undefined} classList={{ container: rowProps.node.container, muted: !!rowProps.node.muted, pushed: isPushed(rowProps.node), selected: props.selectedId === task().id }}
         style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
         onClick={event => { if (!(event.target as Element).closest("button, .task-menu")) props.onEdit(task()); }}>
-        <Show when={!done()} fallback={<button class="complete-button checked" aria-label={`Reopen ${task().title || "Untitled task"}`} title={reopenTitle(task())} onClick={() => void reopen(task())}>✓</button>}>
+        <Show when={!done()} fallback={<button class="complete-button checked" aria-label={`Reopen ${task().title || "Untitled task"}`} title={reopenTitle(task())} onClick={() => void reopen(task())}><svg class="check-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 10.5 10.5 16 21 1.5" /></svg></button>}>
           <button class="complete-button" aria-label={`Complete ${task().title}`} onClick={() => void complete(task())} />
         </Show>
         <span class="today-copy">
