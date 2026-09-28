@@ -160,3 +160,11 @@ test("Boards: a task stays on its board whatever its urgency; subtasks follow th
   // Agenda: everything by urgency.
   expect(shape(buildSections(items, now, { ...all, mode: "context" })).firm).toEqual(["call", "loose"]);
 });
+
+test("unstarted dependent tasks wait under the task they depend on, their own dependents under them", () => {
+  const items: Item[] = [task("owner"), task("next", { dependentOf: "owner", startWhen: { on: "parent-done" } }), task("after", { dependentOf: "next" }), task("started", { dependentOf: null })];
+  const [section] = buildSections(items, now, { ...all, mode: "context" });
+  expect(section.trees.map(node => node.task.id)).toEqual(["owner", "started"]);
+  const owner = section.trees[0];
+  expect(owner.dependents!.map(node => [node.task.id, node.dependent, node.dependents?.map(child => child.task.id)])).toEqual([["next", true, ["after"]]]);
+});

@@ -96,7 +96,8 @@ function compareTasks(a: { task: Task; placement: Placement }, b: { task: Task; 
 // A finished subtask of an open task isn't placed on its own: it goes with its parent,
 // either dimmed below its open subtasks or folded into "+N completed", as the parent's
 // `completedSubtasks` says. Show completed only governs the Completed section.
-export type TreeNode = { task: Task; container: boolean; muted?: boolean; placement?: Placement; children: TreeNode[]; finished?: TreeNode[]; showFinished?: boolean };
+// Unstarted dependent tasks go with their parent task too (`dependents`), folded at first.
+export type TreeNode = { task: Task; container: boolean; muted?: boolean; placement?: Placement; children: TreeNode[]; finished?: TreeNode[]; showFinished?: boolean; dependents?: TreeNode[]; dependent?: boolean };
 export type SubtaskMode = "context" | "nested";
 
 // A section is one of the urgency sections, or (in the Boards view) a board's id.
@@ -176,11 +177,20 @@ export function buildSections(items: Item[], now: Date, options: { mode: Subtask
     children: (childrenOf.get(task.id) || []).filter(child => !path.has(child.id)).sort(byOrder).map(child => doneTree(child, new Set(path).add(child.id))) });
   // An open task's finished subtasks, attached to the first row shown for it.
   const attached = new Set<string>();
+  const dormantOf = new Map<string, Task[]>();
+  for (const item of items) if (item.kind === "task" && isDormant(item, byId) && item.state !== "completed") dormantOf.set(item.dependentOf!, [...(dormantOf.get(item.dependentOf!) || []), item]);
+  // A dependent's own dependents wait under it.
+  const waitingTree = (task: Task, path: Set<string>): TreeNode => {
+    const next = (dormantOf.get(task.id) || []).filter(child => !path.has(child.id)).sort(byOrder);
+    return { task, container: false, dependent: true, children: [], ...(next.length ? { dependents: next.map(child => waitingTree(child, new Set(path).add(child.id))) } : {}) };
+  };
   const finish = (node: TreeNode): TreeNode => {
     if (done.get(node.task.id) || attached.has(node.task.id)) return node;
+    const waiting = (dormantOf.get(node.task.id) || []).sort(byOrder);
+    if (waiting.length) node.dependents = waiting.map(task => waitingTree(task, new Set([node.task.id, task.id])));
     const finished = (childrenOf.get(node.task.id) || []).filter(child => child.state === "completed").sort(byOrder);
-    if (!finished.length) return node;
     attached.add(node.task.id);
+    if (!finished.length) return node;
     return Object.assign(node, { finished: finished.map(child => doneTree(child, new Set([node.task.id, child.id]))), showFinished: node.task.completedSubtasks === "show" });
   };
   const placementFor = (task: Task): Placement => done.get(task.id)

@@ -82,7 +82,7 @@ export function duration(ms: number) {
 
 /** Every task id in some trees, finished subtasks included. */
 function idsIn(nodes: TreeNode[]): string[] {
-  return nodes.flatMap(node => [node.task.id, ...idsIn(node.children), ...idsIn(node.finished || [])]);
+  return nodes.flatMap(node => [node.task.id, ...idsIn(node.children), ...idsIn(node.finished || []), ...idsIn(node.dependents || [])]);
 }
 
 type Chip = { label: string; kind?: "danger" | "warn" | "calm" | "tag"; title?: string };
@@ -205,10 +205,43 @@ export function TodayView(props: TodayViewProps) {
 
   const boardTitle = (id: string | null) => id ? boards().find(board => board.id === id)?.title || "" : "";
 
+  // Which tasks' waiting dependents are open (for this session).
+  const [openWaiting, setOpenWaiting] = createSignal(new Set<string>());
+  const toggleWaiting = (id: string) => setOpenWaiting(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const quoted = (task?: Task) => `“${task?.title || "Untitled task"}”`;
+  /** What starts a dependent task. */
+  const startsWhen = (task: Task): Chip => {
+    const owner = quoted(byId().get(task.dependentOf || "") as Task | undefined);
+    const when_ = task.startWhen;
+    if (when_?.on === "parent-done") return { label: `Starts when ${owner} is done`, kind: "calm" };
+    if (when_?.on === "not-yet") return { label: when_.after ? `Starts on a Not yet from ${when(new Date(when_.after), props.now)}` : "Starts on the next Not yet", kind: "calm", title: `A “Not yet” on ${owner}` };
+    return { label: `Offered when ${owner} is done`, title: "Finishing it asks whether to start this" };
+  };
+
   const isPushed = (node: TreeNode) => node.placement ? node.placement.pushed && node.placement.section !== "completed" : pushedDownInfo(node.task, props.now).pushed;
 
   const Row = (rowProps: { node: TreeNode; depth: number; label: boolean; runKey: string }): JSX.Element => {
     const task = () => rowProps.node.task;
+    const waiting = () => rowProps.node.dependents || [];
+    const waitingOpen = () => openWaiting().has(task().id);
+    const waitingList = () => <Show when={waiting().length}>
+      <button type="button" class="today-fold today-waiting" aria-expanded={waitingOpen()} data-holds={waitingOpen() ? undefined : idsIn(waiting()).join(" ")} style={{ "padding-left": `${39 + rowProps.depth * 20}px` }} title="Tasks that start after this one" onClick={() => toggleWaiting(task().id)}>
+        <span class="section-chevron" aria-hidden="true">›</span>{waiting().length} waiting to start
+      </button>
+      <Show when={waitingOpen()}><For each={waiting()}>{node => <Row node={node} depth={rowProps.depth + 1} label={false} runKey={`${rowProps.runKey}/${task().id}/waiting`} />}</For></Show>
+    </Show>;
+    if (rowProps.node.dependent) return <>
+      <div class="today-row dependent" classList={{ selected: props.selectedId === task().id }} style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
+        onClick={event => { if (!(event.target as Element).closest("button, .task-menu")) props.onEdit(task()); }}>
+        <span class="waiting-mark" aria-hidden="true" />
+        <span class="today-copy">
+          <span class="today-title">{props.liveEdits().get(task().id)?.title ?? task().title ?? ""}<Show when={!(props.liveEdits().get(task().id)?.title ?? task().title)}>Untitled task</Show></span>
+          <span class="today-chips"><For each={[startsWhen(task()), ...tagChips(task())]}>{chip => <span class={`today-chip ${chip.kind || ""}`} title={chip.title}>{chip.label}</span>}</For></span>
+        </span>
+        <button type="button" class="today-checkin" title="Start it now" onClick={() => void moving([task().id], () => props.onStartDependent(task(), false))}>Start</button>
+      </div>
+      {waitingList()}
+    </>;
     // Finished itself or through a container: a ticked box that reopens it.
     const done = () => rowProps.node.placement?.section === "completed";
     const label = () => rowProps.label && props.showBoard ? boardTitle(taskGroupId(task(), byId())) : "";
@@ -234,6 +267,7 @@ export function TodayView(props: TodayViewProps) {
           <Rows nodes={rowProps.node.finished!} depth={rowProps.depth + 1} label={false} runKey={`${rowProps.runKey}/${task().id}/finished`} />
         </Show>
       </Show>
+      {waitingList()}
     </>;
   };
   // Rows are keyed by task, so a change re-renders only the rows it touches. In compact

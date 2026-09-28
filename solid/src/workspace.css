@@ -790,9 +790,12 @@ main:has(.groups-panel) > .tasks-workspace { flex: 1; min-height: 0; grid-templa
 .today-panel.columns .today-section-heading { padding: 6px 6px 8px; }
 .today-panel.columns .today-hint { display: none; }
 .today-panel.columns .today-row:hover { background: var(--surface-2); }
-.today-run { display: flex; align-items: center; gap: 6px; }
-.today-run .section-chevron { font-size: 15px; transition: transform .15s; }
-.today-run[aria-expanded="true"] .section-chevron { transform: rotate(90deg); }
+.today-run, .today-waiting { display: flex; align-items: center; gap: 6px; }
+.today-run .section-chevron, .today-waiting .section-chevron { font-size: 15px; transition: transform .15s; }
+.today-run[aria-expanded="true"] .section-chevron, .today-waiting[aria-expanded="true"] .section-chevron { transform: rotate(90deg); }
+/* A dependent task waiting to start: dimmed, with a dashed circle where its box will be. */
+.today-row.dependent .today-copy { opacity: .6; }
+.waiting-mark { flex: 0 0 19px; width: 19px; height: 19px; box-sizing: border-box; border: 1.3px dashed var(--control-border); border-radius: 50%; }
 .today-panel.columns .today-section-heading { cursor: grab; touch-action: none; }
 .today-panel.columns .today-section.dragging { opacity: .45; }
 .today-column-empty { margin: 8px 10px; color: var(--muted); font-size: 11px; }
