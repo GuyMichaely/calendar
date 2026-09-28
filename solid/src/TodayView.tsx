@@ -45,6 +45,8 @@ export type TodayViewProps = {
   // Whether a task's finished subtasks show dimmed ("show") or fold into "+N completed" (null).
   onCompletedSubtasks: (task: Task, value: Task["completedSubtasks"]) => Promise<void>;
   onStartDependent: (task: Task, completeParent: boolean) => Promise<void>;
+  // Dragging a task: under another task, or onto a board (null: no board), out of its parent.
+  onMoveTask: (task: Task, to: { parent: Task } | { groupId: string | null }) => Promise<unknown>;
   // The Boards view's boards in a new layout (every board's key, a section id or a board id, by column).
   onLayoutBoards: (layout: BoardLayout) => Promise<void>;
   // Lets the app animate changes made elsewhere (undo and redo) the same way.
@@ -246,8 +248,8 @@ export function TodayView(props: TodayViewProps) {
     const done = () => rowProps.node.placement?.section === "completed";
     const label = () => rowProps.label && props.showBoard ? boardTitle(taskGroupId(task(), byId())) : "";
     return <>
-      <div class="today-row" title={rowProps.node.muted ? "Its own timing is less urgent; shown here with its family" : rowProps.node.container ? "Holds these subtasks; checking it off finishes all of them" : undefined} classList={{ container: rowProps.node.container, muted: !!rowProps.node.muted, pushed: isPushed(rowProps.node), selected: props.selectedId === task().id }}
-        style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
+      <div class="today-row" title={rowProps.node.muted ? "Its own timing is less urgent; shown here with its family" : rowProps.node.container ? "Holds these subtasks; checking it off finishes all of them" : undefined} classList={{ container: rowProps.node.container, muted: !!rowProps.node.muted, pushed: isPushed(rowProps.node), selected: props.selectedId === task().id, "drag-source": draggingId() === task().id }}
+        style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1} onPointerDown={event => dragTask(task())(event)}
         onClick={event => { if (!(event.target as Element).closest("button, .task-menu")) props.onEdit(task()); }}>
         <Show when={!done()} fallback={<button class="complete-button checked" aria-label={`Reopen ${task().title || "Untitled task"}`} title={reopenTitle(task())} onClick={() => void reopen(task())}><svg class="check-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 12 10 15.5 17.5 4" /></svg></button>}>
           <button class="complete-button" aria-label={task().repeat?.untilDone ? `It happened: ${task().title}` : `Complete ${task().title}`} title={task().repeat?.untilDone ? "It happened (finishes it)" : task().repeat ? "Done for now (it repeats)" : undefined} onClick={() => void complete(task())} />
@@ -287,6 +289,109 @@ export function TodayView(props: TodayViewProps) {
         <Show when={open()}><Keyed nodes={folded()} depth={rowsProps.depth} label={rowsProps.label} runKey={rowsProps.runKey} /></Show>
       </Show>
     </>;
+  };
+
+  // Dragging a task (not reordering): drop it on another task to make it a subtask there,
+  // on a board to move it to that board, or (in the Agenda) off any task to take it out of
+  // its parent. With touch, a long press starts the drag so a swipe still scrolls.
+  const [draggingId, setDraggingId] = createSignal<string | null>(null);
+  type TaskTarget = { to: { parent: Task } | { groupId: string | null }; hint: string; element: HTMLElement };
+  const taskTargetAt = (task: Task, x: number, y: number): TaskTarget | null => {
+    const hit = document.elementFromPoint(x, y);
+    if (!hit || !boardRef.contains(hit)) return null;
+    const own = taskGroupId(task, byId());
+    const row = hit.closest<HTMLElement>(".today-row[data-id]:not(.dependent)");
+    if (row) {
+      const parent = byId().get(row.dataset.id!) as Task | undefined;
+      // Not itself, its own parent already, or anything under it.
+      if (!parent || parent.id === task.id || parent.id === task.parentId || ancestors(parent, byId()).some(entry => entry.id === task.id)) return null;
+      return { to: { parent }, hint: `Make a subtask of “${parent.title || "Untitled task"}”`, element: row };
+    }
+    const section = hit.closest<HTMLElement>(".today-section[data-section]");
+    if (!section) return null;
+    const key = section.dataset.section!;
+    if (props.view === "boards" && isBoard(key)) {
+      if (key === own && !task.parentId) return null;
+      return { to: { groupId: key }, hint: key === own ? "Move out of its parent" : `Move to ${boardTitle(key)}`, element: section };
+    }
+    if (props.view === "boards" && key === "available") {
+      if (!own && !task.parentId) return null;
+      return { to: { groupId: null }, hint: own ? "Take it off its board" : "Move out of its parent", element: section };
+    }
+    // Agenda: out of its parent, keeping the board it had through it.
+    if (props.view === "today" && task.parentId) return { to: { groupId: own }, hint: "Move out of its parent", element: section };
+    return null;
+  };
+  const dragTask = (task: Task) => (event: PointerEvent) => {
+    if (event.button !== 0 || (event.target as Element).closest("button, input, .task-menu")) return;
+    const handle = event.currentTarget as HTMLElement;
+    const touch = event.pointerType === "touch";
+    const x0 = event.clientX, y0 = event.clientY;
+    let x = x0, y = y0, started = false, frame = 0, ghost: HTMLElement | null = null, hint: HTMLElement | null = null, target: TaskTarget | null = null;
+    let hold: ReturnType<typeof setTimeout> | undefined;
+    const aim = () => {
+      if (y < 60) scrollBy(0, -14); else if (y > innerHeight - 40) scrollBy(0, 14);
+      if (props.view === "boards") { const box = boardRef.getBoundingClientRect(); if (x > box.right - 48) boardRef.scrollLeft += 16; else if (x < box.left + 48) boardRef.scrollLeft -= 16; }
+      const next = taskTargetAt(task, x, y);
+      if (next?.element !== target?.element) { target?.element.classList.remove("task-drop-target"); next?.element.classList.add("task-drop-target"); }
+      target = next;
+      if (ghost) ghost.style.transform = `translate(${x - x0}px, ${y - y0}px)`;
+      if (hint) { hint.textContent = target?.hint ?? ""; hint.hidden = !target; hint.style.transform = `translate(${x + 14}px, ${y + 16}px)`; }
+      frame = requestAnimationFrame(aim);
+    };
+    const begin = () => {
+      if (started) return;
+      started = true;
+      setDraggingId(task.id);
+      const rect = handle.getBoundingClientRect();
+      ghost = handle.cloneNode(true) as HTMLElement;
+      ghost.classList.add("task-drag-ghost");
+      Object.assign(ghost.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, margin: "0", zIndex: "60", pointerEvents: "none" });
+      hint = document.createElement("div");
+      hint.className = "task-drag-hint";
+      hint.hidden = true;
+      document.body.append(ghost, hint);
+      document.body.classList.add("task-dragging");
+      frame = requestAnimationFrame(aim);
+    };
+    const move = (next: PointerEvent) => {
+      x = next.clientX; y = next.clientY;
+      const far = Math.abs(x - x0) + Math.abs(y - y0) > 8;
+      if (!started && far) { if (touch) end(false); else begin(); }
+    };
+    // While a touch drag is on, the page doesn't scroll under the finger.
+    const still = (next: Event) => { if (started) next.preventDefault(); };
+    const end = (drop: boolean) => {
+      clearTimeout(hold);
+      cancelAnimationFrame(frame);
+      ghost?.remove(); hint?.remove();
+      target?.element.classList.remove("task-drop-target");
+      document.body.classList.remove("task-dragging");
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", cancel);
+      document.removeEventListener("keydown", escape, true);
+      document.removeEventListener("touchmove", still);
+      document.removeEventListener("contextmenu", still, true);
+      setDraggingId(null);
+      if (!started) return;
+      // The click that ends a drag doesn't also open the task.
+      addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => removeEventListener("click", swallow, { capture: true }), 0);
+      if (drop && target) { const to = target.to; void moving([task.id], () => props.onMoveTask(task, to)); }
+    };
+    const swallow = (next: Event) => { next.stopPropagation(); next.preventDefault(); };
+    const up = () => end(true);
+    const cancel = () => end(false);
+    const escape = (next: KeyboardEvent) => { if (next.key === "Escape") { next.preventDefault(); next.stopPropagation(); end(false); } };
+    try { handle.setPointerCapture(event.pointerId); } catch { return; }
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up, { once: true });
+    handle.addEventListener("pointercancel", cancel, { once: true });
+    document.addEventListener("keydown", escape, true);
+    document.addEventListener("touchmove", still, { passive: false });
+    document.addEventListener("contextmenu", still, true);
+    if (touch) hold = setTimeout(begin, 380);
   };
 
   const RowMenu = (menuProps: { task: Task; done: boolean; finished: "show" | "fold" | null }) => {
@@ -434,6 +539,21 @@ export function TodayView(props: TodayViewProps) {
     }
   };
 
+  // Boards: a task added at the bottom of a board goes on that board (on Available, on none).
+  // The field stays ready for the next one; Escape leaves it.
+  const BoardAdd = (addProps: { boardId: string | null }) => {
+    const [title, setTitle] = createSignal("");
+    const submit = async () => {
+      const text = title().trim();
+      if (text && await props.onAddTask(addProps.boardId, text)) setTitle(value => value.trim() === text ? "" : value);
+    };
+    return <form class="board-add" onSubmit={event => { event.preventDefault(); void submit(); }}>
+      <Icon name="plus" size={14} />
+      <input placeholder="Add a task" aria-label={`Add a task to ${addProps.boardId ? boardTitle(addProps.boardId) : "no board"}`} value={title()} onInput={event => setTitle(event.currentTarget.value)}
+        onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); setTitle(""); event.currentTarget.blur(); } }} />
+    </form>;
+  };
+
   // One section: in the Agenda a collapsible list section; in Boards a board you can drag.
   const SectionBlock = (blockProps: { id: string; column?: number; row?: number }) => {
     const id = () => blockProps.id;
@@ -452,6 +572,7 @@ export function TodayView(props: TodayViewProps) {
             {/* A board's own rows don't repeat its name. */}
             <Rows nodes={current().trees} depth={0} label={!isBoard(id())} runKey={id()} />
           </Show>
+          <Show when={props.view === "boards" && (isBoard(id()) || id() === "available")}><BoardAdd boardId={isBoard(id()) ? id() : null} /></Show>
         </div>
       </Show>
     </section>;

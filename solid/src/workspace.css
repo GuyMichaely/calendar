@@ -716,6 +716,14 @@ main:has(.groups-panel) > .tasks-workspace { flex: 1; min-height: 0; grid-templa
 .today-group-heading { margin: 10px 0 2px; padding-left: 10px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .3px; }
 .today-row { display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 5px 6px 5px 10px; border-radius: 6px; cursor: pointer; }
 .today-row:hover { background: var(--surface); }
+.today-row { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+/* Dragging a task: its row stays put, faded; where it would go is outlined, with a hint by the pointer. */
+.today-row.drag-source { opacity: .35; }
+.task-drag-ghost { background: var(--surface); box-shadow: var(--shadow); opacity: .92; }
+.task-drag-hint { position: fixed; left: 0; top: 0; z-index: 61; pointer-events: none; max-width: 260px; padding: 4px 9px; border-radius: 7px; background: var(--text); color: var(--bg); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.today-row.task-drop-target { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.today-section.task-drop-target { border-radius: 10px; box-shadow: 0 0 0 2px var(--accent); }
+body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .today-row.selected { background: var(--surface-2); box-shadow: inset 3px 0 var(--accent); }
 .today-row .complete-button, .today-row .complete-indicator { margin-top: 0; }
 .today-copy { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; }
@@ -785,6 +793,9 @@ main:has(.groups-panel) > .tasks-workspace { flex: 1; min-height: 0; grid-templa
 .boards-layout.drag-active .board-drop-slot.active { flex-basis: var(--drop-h, 56px); }
 .boards-layout.drag-active .board-drop-column.active { flex-basis: var(--drop-w, 56px); }
 .boards-layout.drag-active, .boards-layout.drag-active * { cursor: grabbing; user-select: none; }
+.board-add { display: flex; align-items: center; gap: 8px; margin-top: 2px; padding: 4px 10px; border-radius: 6px; color: var(--muted); }
+.board-add:focus-within { background: var(--surface-2); color: var(--text); }
+.board-add input { flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; font-size: 12px; padding: 4px 0; outline: none; }
 .board-card-ghost { box-shadow: var(--shadow); opacity: .95; }
 .today-panel.columns .today-section { min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 4px 6px 8px; }
 .today-panel.columns .today-section-heading { padding: 6px 6px 8px; }
