@@ -731,10 +731,10 @@ main:has(.groups-panel) > .tasks-workspace { flex: 1; min-height: 0; grid-templa
 /* A container heads its subtasks: quieter than a task, but still checkable. */
 .today-row.container { min-height: 32px; }
 .today-row.container .today-title { color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .2px; }
-/* A finished task: the circle stays plain and a green tick sweeps out past its top right. */
+/* A finished task: the circle stays plain, with a green tick that just clears its top right. */
 .complete-button.checked { position: relative; overflow: visible; }
 .complete-button.checked:hover { background: transparent; }
-.check-mark { position: absolute; left: -1px; top: -8px; width: 25px; height: 25px; overflow: visible; fill: none; stroke: var(--ready); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.check-mark { position: absolute; left: -1px; top: -3px; width: 21px; height: 21px; overflow: visible; fill: none; stroke: var(--ready); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .complete-button.checked:hover .check-mark { stroke: var(--accent-strong); }
 .today-chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .today-chip { font-size: 10.5px; line-height: 1.5; padding: 1px 7px; border-radius: 99px; background: var(--surface-2); color: var(--muted); white-space: nowrap; }

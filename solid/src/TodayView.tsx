@@ -197,7 +197,7 @@ export function TodayView(props: TodayViewProps) {
       <div class="today-row" title={rowProps.node.muted ? "Its own timing is less urgent; shown here with its family" : rowProps.node.container ? "Holds these subtasks; checking it off finishes all of them" : undefined} classList={{ container: rowProps.node.container, muted: !!rowProps.node.muted, pushed: isPushed(rowProps.node), selected: props.selectedId === task().id }}
         style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
         onClick={event => { if (!(event.target as Element).closest("button, .task-menu")) props.onEdit(task()); }}>
-        <Show when={!done()} fallback={<button class="complete-button checked" aria-label={`Reopen ${task().title || "Untitled task"}`} title={reopenTitle(task())} onClick={() => void reopen(task())}><svg class="check-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 10.5 10.5 16 21 1.5" /></svg></button>}>
+        <Show when={!done()} fallback={<button class="complete-button checked" aria-label={`Reopen ${task().title || "Untitled task"}`} title={reopenTitle(task())} onClick={() => void reopen(task())}><svg class="check-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 12 10 15.5 17.5 4" /></svg></button>}>
           <button class="complete-button" aria-label={`Complete ${task().title}`} onClick={() => void complete(task())} />
         </Show>
         <span class="today-copy">
@@ -275,12 +275,13 @@ export function TodayView(props: TodayViewProps) {
   };
 
   // With group headings, a section's trees are split by the group of their top task.
+  // The section's trees come most urgent first (each family placed by its most urgent
+  // task), so a heading's place is that of its most urgent task.
   const grouped = (section: Section) => {
     if (props.groupLayout !== "headings") return [{ id: "", title: "", trees: section.trees }];
-    const order = [...groups().map(entry => entry.group.id), null];
     const buckets = new Map<string | null, TreeNode[]>();
     for (const tree of section.trees) { const id = taskGroupId(tree.task, byId()); buckets.set(id, [...(buckets.get(id) || []), tree]); }
-    return order.filter(id => buckets.has(id)).map(id => ({ id: id || "none", title: id ? groupPath(id) : "No group", trees: buckets.get(id)! }));
+    return [...buckets].map(([id, trees]) => ({ id: id || "none", title: id ? groupPath(id) : "No group", trees }));
   };
   const groupPath = (id: string) => {
     const names: string[] = [];
