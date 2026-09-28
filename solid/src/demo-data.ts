@@ -32,17 +32,17 @@ export function demoItems(now = new Date()): Item[] {
     // Ordinary tasks, one of each kind of timing.
     task("demo-card", "Pay credit card", { groupId: "demo-finances", deadline: hours(20) }),
     task("demo-registration", "Renew car registration", { groupId: "demo-home", deadline: days(-1) }),
-    task("demo-refill", "Call pharmacy about refill", { groupId: "demo-health", windowId: "demo-pharmacy", takes: 15 }),
-    task("demo-dispute", "Dispute charge with bank", { groupId: "demo-finances", windowId: "demo-business", takes: 60 }),
-    task("demo-isp", "Call internet provider support", { groupId: "demo-home", windowId: "demo-support", takes: 30 }),
+    task("demo-refill", "Call pharmacy about refill", { groupId: "demo-health", windowId: "demo-pharmacy" }),
+    task("demo-dispute", "Dispute charge with bank", { groupId: "demo-finances", windowId: "demo-business" }),
+    task("demo-isp", "Call internet provider support", { groupId: "demo-home", windowId: "demo-support" }),
     task("demo-balance", "Check credit balance", { groupId: "demo-finances", notes: "Requested a refund of the credit balance; it should show by the 9th." }),
     task("demo-followup", "Call to follow up on refund", { groupId: "demo-finances", dependentOf: "demo-balance", windowId: "demo-business", relativeDates: { deadline: 2 } }),
     task("demo-mail", "Check the mail", { groupId: "demo-home" }),
     task("demo-photos", "Reorganize photos", { groupId: "demo-home", pushedDown: { until: null, at: created } }),
-    task("demo-goggles", "Buy new swim goggles", { groupId: "demo-home", anytime: true }),
-    task("demo-reading", "Read about index funds", { groupId: "demo-learning", anytime: true }),
+    task("demo-goggles", "Buy new swim goggles", { groupId: "demo-home", pushedDown: { until: null, at: created } }),
+    task("demo-reading", "Read about index funds", { groupId: "demo-learning", pushedDown: { until: null, at: created } }),
     task("demo-dentist", "Schedule dentist cleaning", { groupId: "demo-health", availableFrom: days(3) }),
-    task("demo-cover", "Draft cover letter", { groupId: "demo-jobs", takes: 120, deadline: days(5) }),
+    task("demo-cover", "Draft cover letter", { groupId: "demo-jobs", deadline: days(5) }),
 
     // Subtasks in the same section as their parent: they nest as usual.
     task("demo-dinner", "Plan birthday dinner", { groupId: "demo-home" }),
@@ -52,7 +52,7 @@ export function demoItems(now = new Date()): Item[] {
     // Siblings spread across sections: the parent shows as context wherever they land.
     task("demo-passport", "Renew passport", { groupId: "demo-home" }),
     task("demo-form", "Fill out form DS-82", { parentId: "demo-passport" }),
-    task("demo-photo", "Get passport photos", { parentId: "demo-passport", windowId: "demo-pharmacy", takes: 20 }),
+    task("demo-photo", "Get passport photos", { parentId: "demo-passport", windowId: "demo-pharmacy" }),
     task("demo-mail-form", "Mail the application", { parentId: "demo-passport", availableFrom: days(2) }),
 
     // A deep chain: the grandchild is due soon, so it shows under Firm with two context rows.
@@ -91,7 +91,7 @@ export function sampleSubtaskItems(now = new Date()): Item[] {
     // Siblings with three different timings.
     task("passport", "Renew passport", { groupId: group, notes: "Spread out: its subtasks spread to Closing today and Upcoming. Keep together: the whole tree moves to Closing today, with the other two dimmed." }),
     task("form", "Fill out form DS-82", { parentId: parent("passport") }),
-    task("photos", "Get passport photos", { parentId: parent("passport"), windowId: "sample-window", takes: 20 }),
+    task("photos", "Get passport photos", { parentId: parent("passport"), windowId: "sample-window" }),
     task("mail", "Mail the application", { parentId: parent("passport"), availableFrom: days(2) }),
     // Three levels: the grandchild is due soon.
     task("move", "Apartment move", { groupId: group, notes: "Spread out: the due grandchild shows under Firm below its two containers. Keep together: the same, as one family." }),

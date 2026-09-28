@@ -5,25 +5,27 @@ import { ancestors, buildSections, pushedDownInfo, taskGroupId, type Placement, 
 import { taskSchedule, windowsById } from "./windows";
 import type { Group, Item, Task } from "./types";
 
-export type TaskScope = "today" | "upcoming" | "anytime";
 export type GroupLayout = "labels" | "headings";
-export type LaterPlacement = "below" | "separate";
+// Sections stacked in one list, or side by side as columns (a design being compared).
+export type TaskLayout = "list" | "columns";
 
 export type TodayViewProps = {
   items: Item[];
   query: string;
   now: Date;
-  scope: TaskScope;
   selectedId: string | null;
   groupLayout: GroupLayout;
-  laterPlacement: LaterPlacement;
+  layout: TaskLayout;
   subtaskMode: SubtaskMode;
   onSubtaskModeChange: (value: SubtaskMode) => void;
+  // Compact folds each run of pushed-down sibling tasks into one expandable row.
+  compact: boolean;
+  onCompactChange: (value: boolean) => void;
   // Unsaved editor text shows on the row as it's typed.
   liveEdits: () => Map<string, Partial<Task>>;
   onEdit: (task: Task) => void;
   onComplete: (task: Task) => Promise<void>;
-  onAddTask: (groupId: string | null, title: string, extra: Partial<Task>) => Promise<boolean>;
+  onAddTask: (groupId: string | null, title: string) => Promise<boolean>;
   onPushDown: (task: Task, until: Date | null) => Promise<void>;
   onLift: (task: Task) => Promise<void>;
   onDeleteTask: (task: Task) => Promise<void>;
@@ -38,17 +40,12 @@ const SECTION_LABELS: Record<SectionId, { title: string; hint?: string }> = {
   closing: { title: "Closing today", hint: "window open now" },
   later: { title: "Opens later today" },
   available: { title: "Available" },
-  anytime: { title: "Anytime", hint: "no timing" },
   upcoming: { title: "Upcoming", hint: "can't start yet, or window not open today" },
   completed: { title: "Completed" },
 };
-// Sections each scope shows; with Upcoming and Anytime below Today, Today shows all of them.
-const SCOPE_SECTIONS: Record<TaskScope, SectionId[]> = {
-  today: ["firm", "closing", "later", "available", "completed"],
-  upcoming: ["upcoming"],
-  anytime: ["anytime"],
-};
-const COLLAPSED_BELOW = new Set<SectionId>(["anytime", "upcoming", "completed"]);
+// In the list, these start collapsed.
+const COLLAPSED_AT_FIRST = new Set<SectionId>(["upcoming", "completed"]);
+const MOTION_MS = 320;
 
 const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 const clock = (date: Date) => date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -71,6 +68,11 @@ function textMatches(task: Task, query: string) {
   return !needle || [task.title, task.notes || "", ...(task.tags || [])].some(value => value.toLowerCase().includes(needle));
 }
 
+/** Every task id in some trees, finished subtasks included. */
+function idsIn(nodes: TreeNode[]): string[] {
+  return nodes.flatMap(node => [node.task.id, ...idsIn(node.children), ...idsIn(node.finished || [])]);
+}
+
 type Chip = { label: string; kind?: "danger" | "warn" | "calm"; title?: string };
 
 export function TodayView(props: TodayViewProps) {
@@ -81,23 +83,60 @@ export function TodayView(props: TodayViewProps) {
   const [groupFilter, setGroupFilter] = createSignal("");
   const sections = createMemo(() => {
     const filter = groupFilter();
-    const all = buildSections(props.items, props.now, {
+    return buildSections(props.items, props.now, {
       mode: props.subtaskMode,
-      // Completed tasks are always listed (their section starts collapsed).
+      // Completed tasks are always listed (in the list, their section starts collapsed).
       showCompleted: true,
       include: task => textMatches(task, props.query) && (!filter || (taskGroupId(task, byId()) ?? "none") === filter),
     });
-    const wanted = props.laterPlacement === "below" && props.scope === "today" ? [...SCOPE_SECTIONS.today.slice(0, 4), "anytime", "upcoming", "completed"] : SCOPE_SECTIONS[props.scope];
-    return wanted.map(id => all.find(section => section.id === id)).filter((section): section is Section => !!section);
   });
-  const [collapsed, setCollapsed] = createSignal(new Set(COLLAPSED_BELOW));
-  const isCollapsed = (id: SectionId) => props.scope === "today" && collapsed().has(id);
+  const [collapsed, setCollapsed] = createSignal(new Set(COLLAPSED_AT_FIRST));
+  const isCollapsed = (id: SectionId) => props.layout === "list" && collapsed().has(id);
   const toggleSection = (id: SectionId) => setCollapsed(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  // Compact: which folded runs of pushed-down tasks are open, by where they sit.
+  const [openRuns, setOpenRuns] = createSignal(new Set<string>());
+  const toggleRun = (key: string) => setOpenRuns(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+
+  // Rows glide from where they were to where a change puts them. A row that ends up
+  // folded away (a collapsed section, "+N completed", a run of pushed tasks) flies into
+  // whatever holds it, which names its tasks in data-holds.
+  let boardRef!: HTMLDivElement;
+  const rowElements = () => {
+    const found = new Map<string, HTMLElement>();
+    for (const element of boardRef.querySelectorAll<HTMLElement>(".today-row[data-id]")) if (!found.has(element.dataset.id!)) found.set(element.dataset.id!, element);
+    return found;
+  };
+  const moving = async (ids: string[], run: () => Promise<unknown>) => {
+    if (!boardRef?.closest('[data-animations="on"]')) { await run(); return; }
+    const beforeRows = rowElements();
+    const before = new Map([...beforeRows].map(([id, element]) => [id, element.getBoundingClientRect()]));
+    const ghosts = ids.flatMap(id => { const element = beforeRows.get(id); return element ? [{ id, clone: element.cloneNode(true) as HTMLElement, rect: element.getBoundingClientRect() }] : []; });
+    await run();
+    const after = rowElements();
+    const ease = "cubic-bezier(.2, .8, .2, 1)";
+    for (const [id, element] of after) {
+      const old = before.get(id);
+      if (!old) { element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MOTION_MS, easing: "ease-out" }); continue; }
+      const box = element.getBoundingClientRect(), dx = old.left - box.left, dy = old.top - box.top;
+      if (Math.abs(dx) + Math.abs(dy) > 1) element.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: MOTION_MS, easing: ease });
+    }
+    for (const ghost of ghosts) {
+      if (after.has(ghost.id)) continue;
+      const holder = boardRef.querySelector<HTMLElement>(`[data-holds~="${CSS.escape(ghost.id)}"]`)?.getBoundingClientRect();
+      const { clone, rect } = ghost;
+      Object.assign(clone.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, margin: "0", zIndex: "50", pointerEvents: "none", background: "var(--surface)" });
+      document.body.appendChild(clone);
+      const dx = holder ? holder.left + 20 - rect.left : 0, dy = holder ? holder.top + holder.height / 2 - (rect.top + rect.height / 2) : 0;
+      clone.animate([{ transform: "none", opacity: 1 }, { transform: `translate(${dx}px, ${dy}px) scale(.7)`, opacity: 0 }], { duration: MOTION_MS + 80, easing: ease, fill: "forwards" });
+      // Timed, not on the animation's end: a hidden page pauses animations.
+      setTimeout(() => clone.remove(), MOTION_MS + 120);
+    }
+  };
 
   const [startPrompt, setStartPrompt] = createSignal<{ owner: Task; dependents: Task[] } | null>(null);
   const complete = async (task: Task) => {
     const dependents = props.items.filter((item): item is Task => item.kind === "task" && item.dependentOf === task.id);
-    await props.onComplete(task);
+    await moving([task.id], () => props.onComplete(task));
     if (dependents.length) setStartPrompt({ owner: task, dependents });
   };
 
@@ -105,7 +144,7 @@ export function TodayView(props: TodayViewProps) {
   // was finished reopens that task instead, which brings its whole family back.
   const finishedAbove = (task: Task) => task.state === "completed" ? task : [...ancestors(task, byId())].reverse().find(ancestor => ancestor.state === "completed") || task;
   const reopenTitle = (task: Task) => { const owner = finishedAbove(task); return owner === task ? "Reopen" : `Done with “${owner.title || "Untitled task"}”: reopen it`; };
-  const reopen = (task: Task) => props.onReopen(finishedAbove(task));
+  const reopen = (task: Task) => { const owner = finishedAbove(task); return moving([owner.id, task.id], () => props.onReopen(owner)); };
 
   const chips = (node: TreeNode): Chip[] => {
     const task = node.task, placement: Placement | undefined = node.placement, now = props.now;
@@ -125,12 +164,9 @@ export function TodayView(props: TodayViewProps) {
     else if (placement.due) result.push({ label: `Due ${when(placement.due, now)}` });
     if (placement.section === "closing" && placement.closes) {
       const left = placement.closes.getTime() - now.getTime();
-      const short = left < 3_600_000 || (task.takes != null && task.takes * 60_000 > left);
-      result.push({ label: `Closes ${clock(placement.closes)} · ${duration(left)} left`, kind: short ? "warn" : "calm", title: windowName });
-      if (task.takes != null && task.takes * 60_000 > left) result.push({ label: `Takes ~${duration(task.takes * 60_000)}: won't fit`, kind: "danger" });
+      result.push({ label: `Closes ${clock(placement.closes)} · ${duration(left)} left`, kind: left < 3_600_000 ? "warn" : "calm", title: windowName });
     } else if (placement.section === "later" && placement.opens) result.push({ label: `Opens ${clock(placement.opens)}`, title: windowName });
     else if (placement.section === "upcoming") result.push({ label: placement.next ? `${windowed ? "Opens" : "Starts"} ${when(placement.next, now)}` : "No opening in the next two weeks", title: windowName });
-    if (task.takes != null && !(placement.section === "closing" && placement.closes && task.takes * 60_000 > placement.closes.getTime() - now.getTime())) result.push({ label: `~${duration(task.takes * 60_000)}` });
     const pushed = pushedDownInfo(task, now);
     if (pushed.pushed) result.push({ label: pushed.until ? `Pushed down until ${when(pushed.until, now)}` : "Pushed down" });
     else if (placement.pushed) result.push({ label: "Pushed down with its parent" });
@@ -143,14 +179,15 @@ export function TodayView(props: TodayViewProps) {
     return option?.group.title || "";
   };
 
-  const Row = (rowProps: { node: TreeNode; depth: number; label: boolean }): JSX.Element => {
+  const isPushed = (node: TreeNode) => node.placement ? node.placement.pushed && node.placement.section !== "completed" : pushedDownInfo(node.task, props.now).pushed;
+
+  const Row = (rowProps: { node: TreeNode; depth: number; label: boolean; runKey: string }): JSX.Element => {
     const task = () => rowProps.node.task;
-    const pushed = () => !!rowProps.node.placement?.pushed && rowProps.node.placement.section !== "completed";
-    // Finished itself or through a container: listed under Completed, no checkbox.
+    // Finished itself or through a container: a ticked box that reopens it.
     const done = () => rowProps.node.placement?.section === "completed";
     const label = () => rowProps.label && props.groupLayout === "labels" ? groupTitle(taskGroupId(task(), byId())) : "";
     return <>
-      <div class="today-row" title={rowProps.node.muted ? "Its own timing is less urgent; shown here with its family" : rowProps.node.container ? "Holds these subtasks; checking it off finishes all of them" : undefined} classList={{ container: rowProps.node.container, muted: !!rowProps.node.muted, pushed: pushed(), selected: props.selectedId === task().id }}
+      <div class="today-row" title={rowProps.node.muted ? "Its own timing is less urgent; shown here with its family" : rowProps.node.container ? "Holds these subtasks; checking it off finishes all of them" : undefined} classList={{ container: rowProps.node.container, muted: !!rowProps.node.muted, pushed: isPushed(rowProps.node), selected: props.selectedId === task().id }}
         style={{ "padding-left": `${10 + rowProps.depth * 20}px` }} data-task-card="true" data-id={task().id} tabIndex={-1}
         onClick={event => { if (!(event.target as Element).closest("button, .task-menu")) props.onEdit(task()); }}>
         <Show when={!done()} fallback={<button class="complete-button checked" aria-label={`Reopen ${task().title || "Untitled task"}`} title={reopenTitle(task())} onClick={() => void reopen(task())}>✓</button>}>
@@ -163,17 +200,33 @@ export function TodayView(props: TodayViewProps) {
         <Show when={label()}><span class="today-group">{label()}</span></Show>
         <RowMenu task={task()} done={done()} finished={rowProps.node.finished?.length ? rowProps.node.showFinished ? "show" : "fold" : null} />
       </div>
-      <Rows nodes={rowProps.node.children} depth={rowProps.depth + 1} label={false} />
+      <Rows nodes={rowProps.node.children} depth={rowProps.depth + 1} label={false} runKey={`${rowProps.runKey}/${task().id}`} />
       <Show when={rowProps.node.finished?.length}>
         <Show when={rowProps.node.showFinished} fallback={
-          <button type="button" class="today-fold" style={{ "padding-left": `${39 + rowProps.depth * 20}px` }} title="Show them dimmed here (remembered for this task)" onClick={() => void props.onCompletedSubtasks(task(), "show")}>+{rowProps.node.finished!.length} completed</button>}>
-          <Rows nodes={rowProps.node.finished!} depth={rowProps.depth + 1} label={false} />
+          <button type="button" class="today-fold" data-holds={idsIn(rowProps.node.finished!).join(" ")} style={{ "padding-left": `${39 + rowProps.depth * 20}px` }} title="Show them dimmed here (remembered for this task)" onClick={() => void props.onCompletedSubtasks(task(), "show")}>+{rowProps.node.finished!.length} completed</button>}>
+          <Rows nodes={rowProps.node.finished!} depth={rowProps.depth + 1} label={false} runKey={`${rowProps.runKey}/${task().id}/finished`} />
         </Show>
       </Show>
     </>;
   };
-  const Rows = (rowsProps: { nodes: TreeNode[]; depth: number; label: boolean }) =>
-    <For each={rowsProps.nodes.map(node => node.task.id)}>{id => <Show when={rowsProps.nodes.find(node => node.task.id === id)}>{node => <Row node={node()} depth={rowsProps.depth} label={rowsProps.label} />}</Show>}</For>;
+  // Rows are keyed by task, so a change re-renders only the rows it touches. In compact
+  // mode the pushed-down ones fold into a row of their own.
+  const Keyed = (keyedProps: { nodes: TreeNode[]; depth: number; label: boolean; runKey: string }) =>
+    <For each={keyedProps.nodes.map(node => node.task.id)}>{id => <Show when={keyedProps.nodes.find(node => node.task.id === id)}>{node => <Row node={node()} depth={keyedProps.depth} label={keyedProps.label} runKey={keyedProps.runKey} />}</Show>}</For>;
+  const Rows = (rowsProps: { nodes: TreeNode[]; depth: number; label: boolean; runKey: string }) => {
+    const shown = () => props.compact ? rowsProps.nodes.filter(node => !isPushed(node)) : rowsProps.nodes;
+    const folded = () => props.compact ? rowsProps.nodes.filter(isPushed) : [];
+    const open = () => openRuns().has(rowsProps.runKey);
+    return <>
+      <Keyed nodes={shown()} depth={rowsProps.depth} label={rowsProps.label} runKey={rowsProps.runKey} />
+      <Show when={folded().length}>
+        <button type="button" class="today-fold today-run" aria-expanded={open()} data-holds={open() ? undefined : idsIn(folded()).join(" ")} style={{ "padding-left": `${10 + rowsProps.depth * 20}px` }} onClick={() => toggleRun(rowsProps.runKey)}>
+          <span class="section-chevron" aria-hidden="true">›</span>{folded().length} pushed down
+        </button>
+        <Show when={open()}><Keyed nodes={folded()} depth={rowsProps.depth} label={rowsProps.label} runKey={rowsProps.runKey} /></Show>
+      </Show>
+    </>;
+  };
 
   const RowMenu = (menuProps: { task: Task; done: boolean; finished: "show" | "fold" | null }) => {
     const [open, setOpen] = createSignal(false);
@@ -188,20 +241,21 @@ export function TodayView(props: TodayViewProps) {
     const act = (run: () => unknown) => () => { setOpen(false); void run(); };
     const pushed = () => pushedDownInfo(menuProps.task, props.now).pushed;
     const tomorrow = () => { const date = new Date(props.now); date.setDate(date.getDate() + 1); date.setHours(0, 0, 0, 0); return date; };
+    const id = () => menuProps.task.id;
     return <span class="task-menu" ref={root}>
       <button class="icon-button task-menu-button" aria-label={`Actions for ${menuProps.task.title || "Untitled task"}`} aria-haspopup="menu" aria-expanded={open()} onClick={() => setOpen(value => !value)}>⋮</button>
       <Show when={open()}>
         <div class="task-menu-list" role="menu">
           <button role="menuitem" onClick={act(() => props.onEdit(menuProps.task))}>Open details</button>
           <Show when={menuProps.task.state === "completed"}>
-            <button role="menuitem" onClick={act(() => props.onReopen(menuProps.task))}>Reopen</button>
+            <button role="menuitem" onClick={act(() => moving([id()], () => props.onReopen(menuProps.task)))}>Reopen</button>
           </Show>
           <Show when={!menuProps.done}>
             <Show when={pushed()} fallback={<>
-              <button role="menuitem" onClick={act(() => props.onPushDown(menuProps.task, null))}>Push down</button>
-              <button role="menuitem" onClick={act(() => props.onPushDown(menuProps.task, tomorrow()))}>Push down until tomorrow</button>
+              <button role="menuitem" onClick={act(() => moving([id()], () => props.onPushDown(menuProps.task, null)))}>Push down</button>
+              <button role="menuitem" onClick={act(() => moving([id()], () => props.onPushDown(menuProps.task, tomorrow())))}>Push down until tomorrow</button>
             </>}>
-              <button role="menuitem" onClick={act(() => props.onLift(menuProps.task))}>Lift back up</button>
+              <button role="menuitem" onClick={act(() => moving([id()], () => props.onLift(menuProps.task)))}>Lift back up</button>
             </Show>
           </Show>
           <Show when={menuProps.finished}>
@@ -232,11 +286,10 @@ export function TodayView(props: TodayViewProps) {
     const title = draft().trim();
     if (!title) return;
     const filter = groupFilter();
-    if (await props.onAddTask(filter && filter !== "none" ? filter : null, title, props.scope === "anytime" ? { anytime: true } : {})) setDraft(value => value.trim() === title ? "" : value);
+    if (await props.onAddTask(filter && filter !== "none" ? filter : null, title)) setDraft(value => value.trim() === title ? "" : value);
   };
 
-  const heading = () => props.scope === "today" ? "Today" : props.scope === "upcoming" ? "Upcoming" : "Anytime";
-  return <section class="panel today-panel">
+  return <section class="panel today-panel" classList={{ columns: props.layout === "columns" }}>
     <Show when={startPrompt()}>{prompt =>
       <div class="start-prompt" role="status">
         <span>Completed “{prompt().owner.title || "Untitled task"}”. Start a dependent task?</span>
@@ -247,7 +300,7 @@ export function TodayView(props: TodayViewProps) {
       </div>}
     </Show>
     <div class="today-heading">
-      <h1>{heading()}</h1>
+      <h1>Today</h1>
       <span class="today-date">{props.now.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · {clock(props.now)}</span>
       <span class="spacer" />
       <label class="today-subtasks" title={"Keep together: each task with subtasks shows once, in the section of its most urgent subtask, with the rest dimmed.\nSpread out: every subtask shows in its own section, under a dimmed row for its parent."}>
@@ -257,6 +310,7 @@ export function TodayView(props: TodayViewProps) {
           <option value="context">Spread out</option>
         </select>
       </label>
+      <label class="check-row" title="Fold pushed-down tasks beside each other into one row you can open"><input type="checkbox" checked={props.compact} onChange={event => props.onCompactChange(event.currentTarget.checked)} />Compact</label>
       <label class="today-filter"><span class="visually-hidden">Group</span>
         <select value={groupFilter()} onChange={event => setGroupFilter(event.currentTarget.value)}>
           <option value="">All groups</option>
@@ -267,30 +321,30 @@ export function TodayView(props: TodayViewProps) {
     </div>
     <form class="quick-capture today-add" onSubmit={event => { event.preventDefault(); void add(); }}>
       <Icon name="plus" size={17} />
-      <input placeholder={props.scope === "anytime" ? "Add an anytime task" : "Add a task"} aria-label="Add a task" value={draft()} onInput={event => setDraft(event.currentTarget.value)} />
+      <input placeholder="Add a task" aria-label="Add a task" value={draft()} onInput={event => setDraft(event.currentTarget.value)} />
     </form>
-    <Show when={sections().length} fallback={<p class="today-empty">{props.query ? "No tasks match your search." : props.scope === "today" ? "Nothing needs you right now." : "Nothing here."}</p>}>
-      {/* Everything is keyed by id, so a change re-renders only the rows it touches
-          (rebuilding every row on each change could jump the page's scroll). */}
-      <For each={sections().map(entry => entry.id)}>{sectionId => <Show when={sections().find(entry => entry.id === sectionId)}>{current => { const section = current();
-        return <section class="today-section" data-section={section.id}>
-          <button class="today-section-heading" aria-expanded={!isCollapsed(section.id)} disabled={props.scope !== "today"} onClick={() => toggleSection(section.id)}>
-            <Show when={props.scope === "today"}><span class="section-chevron" aria-hidden="true">›</span></Show>
-            <strong>{SECTION_LABELS[section.id].title}</strong>
-            <span class="section-count">{current().count}</span>
-            <Show when={SECTION_LABELS[section.id].hint}><span class="today-hint">{SECTION_LABELS[section.id].hint}</span></Show>
-          </button>
-          <Show when={!isCollapsed(section.id)}>
-            <div class="today-rows">
-              <For each={grouped(current()).map(bucket => bucket.id)}>{bucketId => <Show when={grouped(current()).find(bucket => bucket.id === bucketId)}>{bucket => <>
-                <Show when={bucket().title}><div class="today-group-heading">{bucket().title}</div></Show>
-                <Rows nodes={bucket().trees} depth={0} label />
-              </>}</Show>}</For>
-            </div>
-          </Show>
-        </section>; }}</Show>}
-      </For>
-    </Show>
+    <div class="today-board" ref={boardRef}>
+      <Show when={sections().length} fallback={<p class="today-empty">{props.query ? "No tasks match your search." : "Nothing needs you right now."}</p>}>
+        <For each={sections().map(entry => entry.id)}>{sectionId => <Show when={sections().find(entry => entry.id === sectionId)}>{current => { const id = current().id;
+          return <section class="today-section" data-section={id}>
+            <button class="today-section-heading" aria-expanded={!isCollapsed(id)} disabled={props.layout === "columns"} data-holds={isCollapsed(id) ? idsIn(current().trees).join(" ") : undefined} onClick={() => toggleSection(id)}>
+              <Show when={props.layout === "list"}><span class="section-chevron" aria-hidden="true">›</span></Show>
+              <strong>{SECTION_LABELS[id].title}</strong>
+              <span class="section-count">{current().count}</span>
+              <Show when={SECTION_LABELS[id].hint}><span class="today-hint">{SECTION_LABELS[id].hint}</span></Show>
+            </button>
+            <Show when={!isCollapsed(id)}>
+              <div class="today-rows">
+                <For each={grouped(current()).map(bucket => bucket.id)}>{bucketId => <Show when={grouped(current()).find(bucket => bucket.id === bucketId)}>{bucket => <>
+                  <Show when={bucket().title}><div class="today-group-heading">{bucket().title}</div></Show>
+                  <Rows nodes={bucket().trees} depth={0} label runKey={`${id}:${bucketId}`} />
+                </>}</Show>}</For>
+              </div>
+            </Show>
+          </section>; }}</Show>}
+        </For>
+      </Show>
+    </div>
   </section>;
 }
 
@@ -302,10 +356,10 @@ const Segmented = <T extends string>(props: { label: string; value: T; options: 
 /** The prototype's layout switches, shown in the top bar while comparing designs. */
 export function DesignToggles(props: {
   groupLayout: GroupLayout; onGroupLayoutChange: (value: GroupLayout) => void;
-  laterPlacement: LaterPlacement; onLaterPlacementChange: (value: LaterPlacement) => void;
+  layout: TaskLayout; onLayoutChange: (value: TaskLayout) => void;
 }) {
   return <div class="design-toggles" aria-label="Layout options">
     <Segmented label="Groups" value={props.groupLayout} options={[["labels", "Labels"], ["headings", "Headings"]]} onChange={props.onGroupLayoutChange} />
-    <Segmented label="Upcoming/Anytime" value={props.laterPlacement} options={[["below", "Below Today"], ["separate", "Separate"]]} onChange={props.onLaterPlacementChange} />
+    <Segmented label="Layout" value={props.layout} options={[["list", "List"], ["columns", "Columns"]]} onChange={props.onLayoutChange} />
   </div>;
 }

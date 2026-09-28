@@ -132,9 +132,8 @@ export function ItemEditor(props: {
   // A named window, "custom" for legacy inline hours, or "" for any time.
   const [windowChoice, setWindowChoice] = createSignal(task?.windowId || (task?.availabilitySchedule?.enabled ? "custom" : ""));
   const [deadlineInput, setDeadlineInput] = createSignal(isoToLocalInput(task?.deadline));
-  const [pushMode, setPushMode] = createSignal<"normal" | "until" | "indefinite">(
-    initialPush?.pushed ? (initialPush.until ? "until" : "indefinite") : "normal",
-  );
+  // Pushed down, until a date if one is set (otherwise until lifted).
+  const [pushed, setPushed] = createSignal(!!initialPush?.pushed);
   const [eventStart, setEventStart] = createSignal(defaults.start);
   const [eventEnd, setEventEnd] = createSignal(defaults.end);
   const [pendingFiles, setPendingFiles] = createSignal<File[]>([]);
@@ -309,15 +308,14 @@ export function ItemEditor(props: {
       item = taskFromDraft({
         ...shared,
         state: taskState(),
-        pushedDown: pushMode() === "until" ? { mode: "until", until: localInputToIso(data.get("pushUntil")) } : { mode: pushMode() as "normal" | "indefinite" },
+        pushedDown: !pushed() ? { mode: "normal" } : localInputToIso(data.get("pushUntil")) ? { mode: "until", until: localInputToIso(data.get("pushUntil")) } : { mode: "indefinite" },
         groupId: String(data.get("groupId") || "") || null,
         availableFrom: localInputToIso(data.get("availableFrom")),
         deadline: localInputToIso(data.get("deadline")),
-        warnAt: localInputToIso(data.get("warnAt")),
+        warnHours: data.get("warnHours") && data.get("warnHours") !== "custom" ? Number(data.get("warnHours")) : null,
+        warnAt: data.get("warnHours") === "custom" ? task?.warnAt ?? null : null,
         windowId: choice && choice !== "custom" ? choice : null,
         schedule: choice === "custom" ? task?.availabilitySchedule ?? null : null,
-        takes: Number(data.get("takes")) || null,
-        anytime: data.get("anytime") === "on",
         relativeDates,
       }, { ...context, parentId: props.request.parentId, dormant: dormant() });
     } else {
@@ -400,10 +398,11 @@ export function ItemEditor(props: {
     }
   };
 
-  const pushUntil = isoToLocalInput(initialPush?.until || tomorrowMidnight(now()));
+  const pushUntil = isoToLocalInput(initialPush?.until);
   const windowList = createMemo(() => props.items.filter((item): item is TimeWindow => item.kind === "window").sort((a, b) => a.title.localeCompare(b.title)));
-  const takesOptions = [[5, "5 min"], [15, "15 min"], [30, "30 min"], [45, "45 min"], [60, "1 hour"], [90, "1½ hours"], [120, "2 hours"], [180, "3 hours"], [240, "4 hours"]] as [number, string][];
-  if (task?.takes && !takesOptions.some(([minutes]) => minutes === task.takes)) takesOptions.push([task.takes, `${task.takes} min`]);
+  // How long before it's due a task joins Firm.
+  const warnOptions: [number, string][] = [[1, "1 hour before"], [3, "3 hours before"], [12, "12 hours before"], [24, "1 day before"], [48, "2 days before"], [72, "3 days before"], [168, "1 week before"]];
+  if (task?.warnHours && !warnOptions.some(([hours]) => hours === task.warnHours)) warnOptions.push([task.warnHours, `${task.warnHours} hours before`]);
   const removeAttachment = (attachment: Attachment) => {
     setRemovedAttachments(current => new Set([...current, attachment.id]));
     syncDirty();
@@ -562,18 +561,23 @@ export function ItemEditor(props: {
               {dateField("availableFrom", "Can start", <DateTimeField name="availableFrom" label="Can start" value={isoToLocalInput(task?.availableFrom)} onChange={syncDirty} />)}
               {dateField("deadline", "Due", <DateTimeField name="deadline" label="Due" value={deadlineInput()} onChange={value => { setDeadlineInput(value); syncDirty(); }} />)}
               <Show when={!task?.parentId && !props.request.parentId}><label class="field"><span>Group</span><select name="groupId" value={task?.groupId || props.request.groupId || ""}><option value="">No group</option><For each={groupChoices().map(option => option.group.id)}>{id => <option value={id}>{groupLabel(id)}</option>}</For></select></label></Show>
-              <Show when={deadlineInput()}><div class="field"><span>Warn from</span><DateTimeField name="warnAt" label="Warn from" value={isoToLocalInput(task?.warnAt)} onChange={syncDirty} /><small class="field-hint">When it joins Firm. Empty: 24 hours before it's due.</small></div></Show>
-              <label class="field"><span>Window<Show when={props.onManageWindows}> <button type="button" class="inline-link" onClick={() => props.onManageWindows?.()}>Manage</button></Show></span>
-                <select name="windowId" value={windowChoice()} onChange={event => { setWindowChoice(event.currentTarget.value); syncDirty(); }}>
+              {/* Always shown (disabled without a due date) so setting one doesn't move the other fields. */}
+              <label class="field" title="When this joins the Firm section, measured from its due date"><span>Firm from</span>
+                <select name="warnHours" disabled={!deadlineInput()} value={task?.warnAt ? "custom" : String(task?.warnHours ?? 24)} onChange={syncDirty}>
+                  <For each={warnOptions}>{([hours, label]) => <option value={hours}>{label}</option>}</For>
+                  <Show when={task?.warnAt}><option value="custom">{formatDateTime(task!.warnAt)}</option></Show>
+                </select>
+              </label>
+              <div class="field"><span class="field-label-row"><span>Window</span><Show when={props.onManageWindows}><button type="button" class="inline-link" onClick={() => props.onManageWindows?.()}>Manage</button></Show></span>
+                <select name="windowId" aria-label="Window" value={windowChoice()} onChange={event => { setWindowChoice(event.currentTarget.value); syncDirty(); }}>
                   <option value="">Any time</option>
                   <For each={windowList().map(window => window.id)}>{id => { const window = () => windowList().find(entry => entry.id === id); return <option value={id}>{window()?.title} · {window() ? describeSchedule(window()!) : ""}</option>; }}</For>
                   <Show when={task?.availabilitySchedule?.enabled}><option value="custom">Custom hours · {describeSchedule(task!.availabilitySchedule!)}</option></Show>
                 </select>
-              </label>
-              <label class="field"><span>Takes</span><select name="takes" value={String(task?.takes ?? "")}><option value="">Not estimated</option><For each={takesOptions}>{([minutes, label]) => <option value={minutes}>{label}</option>}</For></select></label>
-              <label class="field"><span>Push down</span><select name="pushMode" value={pushMode()} onChange={event => { setPushMode(event.currentTarget.value as ReturnType<typeof pushMode>); syncDirty(); }}><option value="normal">No</option><option value="until">Until a date</option><option value="indefinite">Until I lift it</option></select></label>
-              <div class="field" hidden={pushMode() !== "until"}><span>Pushed down until</span><DateTimeField name="pushUntil" label="Pushed down until" value={pushUntil} disabled={pushMode() !== "until"} onChange={syncDirty} /></div>
-              <label class="toggle-row full-span"><input type="checkbox" name="anytime" checked={!!task?.anytime} /><span><strong>Anytime</strong><small>No timing: listed under Anytime instead of Today.</small></span></label>
+              </div>
+              {/* One option: pushed down until the date if one is set, else until lifted. */}
+              <div class="field"><label class="field-label-row field-check"><input type="checkbox" checked={pushed()} onChange={event => { setPushed(event.currentTarget.checked); syncDirty(); }} /><span>Push down</span></label>
+                <DateTimeField name="pushUntil" label="Pushed down until" placeholder="Until you lift it" value={pushUntil} disabled={!pushed()} onChange={syncDirty} /></div>
             </div>
           </div>
         </Show>

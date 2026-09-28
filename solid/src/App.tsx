@@ -12,7 +12,7 @@ import { createCalendarStore } from "./calendar-store";
 import { createPreferences } from "./preferences";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
 import { type TaskDrop } from "./GroupsView";
-import { DesignToggles, TodayView, when, type TaskScope } from "./TodayView";
+import { DesignToggles, TodayView, when } from "./TodayView";
 import { GroupSettings, WindowSettings } from "./SettingsPanels";
 import { windowsById } from "./windows";
 import { effectivelyDone, openWork } from "./today";
@@ -24,16 +24,14 @@ import { animationsEnabled } from "./settings";
 import type { CalendarEvent, Group, Item, Task, View } from "./types";
 
 function readView(): View { return location.hash === "#calendar" ? "calendar" : "tasks"; }
-// Task lists live at #tasks (Today), #upcoming, and #anytime; a selected task follows a slash.
-const SCOPE_HASH: Record<TaskScope, string> = { today: "tasks", upcoming: "upcoming", anytime: "anytime" };
-function readScope(): TaskScope { const match = /^#(upcoming|anytime)(?:\/|$)/.exec(location.hash); return match ? match[1] as TaskScope : "today"; }
-function readSelectedTask() { const match = /^#(?:tasks|upcoming|anytime)\/(.+)$/.exec(location.hash); return match ? decodeURIComponent(match[1]) : null; }
-function tasksHash(id: string | null, scope: TaskScope) { const base = `#${SCOPE_HASH[scope]}`; return id ? `${base}/${encodeURIComponent(id)}` : base; }
+// The task list lives at #tasks; a selected task follows a slash.
+function readSelectedTask() { const match = /^#tasks\/(.+)$/.exec(location.hash); return match ? decodeURIComponent(match[1]) : null; }
+function tasksHash(id: string | null) { return id ? `#tasks/${encodeURIComponent(id)}` : "#tasks"; }
 function editableTarget(target: EventTarget | null) { return target instanceof Element && !!target.closest("input, textarea, select, [contenteditable='true']"); }
 function errorMessage(error: unknown, fallback: string) { return error instanceof Error && error.message ? error.message : fallback; }
 
 export function App() {
-  if (!/^#(tasks|upcoming|anytime|calendar)$/.test(location.hash) && !readSelectedTask()) history.replaceState(null, "", "#tasks");
+  if (!/^#(tasks|calendar)$/.test(location.hash) && !readSelectedTask()) history.replaceState(null, "", "#tasks");
   const backendUrl = configuredBackendUrl();
   const prefs = createPreferences();
   // Changes sync once saved locally; remote changes reload the items once merged.
@@ -43,9 +41,6 @@ export function App() {
   const [remoteUrlDraft, setRemoteUrlDraft] = createSignal(backendUrl);
   const [loadingError, setLoadingError] = createSignal("");
   const [view, setView] = createSignal<View>(readView());
-  const [scope, setScope] = createSignal<TaskScope>(readScope());
-  // With Upcoming and Anytime shown below Today, there is only the one list.
-  const activeScope = () => prefs.laterPlacement() === "below" ? "today" : scope();
   const [query, setQuery] = createSignal("");
   const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   const [reducedMotion, setReducedMotion] = createSignal(motionQuery.matches);
@@ -129,10 +124,9 @@ export function App() {
   };
   const syncNow = async () => { const failure = await remote.request(); showToast(failure || "Synced"); };
   const signOutRemote = () => attempt(remote.signOut, "Could not sign out.", "Signed out");
-  const navigate = (next: View, nextScope: TaskScope = activeScope()) => {
+  const navigate = (next: View) => {
     setView(next);
-    setScope(nextScope);
-    const hash = next === "tasks" ? tasksHash(selectedTaskId(), nextScope) : `#${next}`;
+    const hash = next === "tasks" ? tasksHash(selectedTaskId()) : `#${next}`;
     if (location.hash !== hash) history.pushState(null, "", hash);
   };
   const editorParents: string[] = [];
@@ -179,7 +173,7 @@ export function App() {
     if (id === selectedTaskId()) return;
     if (flushDetail && !(await flushDetail())) return;
     setSelectedTaskId(id);
-    const hash = view() === "tasks" ? tasksHash(id, activeScope()) : location.hash;
+    const hash = view() === "tasks" ? tasksHash(id) : location.hash;
     if (location.hash !== hash) history[replace ? "replaceState" : "pushState"](null, "", hash);
   };
   const closeDetail = async () => {
@@ -262,12 +256,11 @@ export function App() {
     const clockTimer = window.setInterval(() => { if (!document.querySelector(".solid-dialog-backdrop")) setClock(appNow()); }, 30_000);
     const syncLocation = () => {
       setView(readView());
-      setScope(readScope());
       const id = readSelectedTask();
       if (readView() !== "tasks" || id === selectedTaskId()) return;
       const previous = selectedTaskId();
       void (async () => {
-        if (flushDetail && !(await flushDetail())) { history.pushState(null, "", tasksHash(previous, activeScope())); return; }
+        if (flushDetail && !(await flushDetail())) { history.pushState(null, "", tasksHash(previous)); return; }
         setSelectedTaskId(id);
       })();
     };
@@ -302,9 +295,9 @@ export function App() {
       <div class="app-shell">
         <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = ""; }} />
         <WorkspaceShell notice={<TimeControl now={clock()} pretending={!!prefs.timeOffset()} onSet={pretend} onStep={ms => pretend(new Date(appNow().getTime() + ms))} onReset={() => pretend(null)} />} toolbar={view() === "tasks" ? <DesignToggles groupLayout={prefs.groupLayout()} onGroupLayoutChange={prefs.setGroupLayout}
-            laterPlacement={prefs.laterPlacement()} onLaterPlacementChange={value => { prefs.setLaterPlacement(value); if (value === "below") navigate("tasks", "today"); }} /> : undefined}
-          view={view()} scope={activeScope()} separateScopes={prefs.laterPlacement() === "separate"} openCount={openCount()} query={query()} onQuery={setQuery}
-          onNavigate={(next, nextScope) => { navigate(next, nextScope); window.scrollTo({top: 0, behavior: "instant"}); }}
+            layout={prefs.taskLayout()} onLayoutChange={prefs.setTaskLayout} /> : undefined}
+          view={view()} openCount={openCount()} query={query()} onQuery={setQuery}
+          onNavigate={(next) => { navigate(next); window.scrollTo({top: 0, behavior: "instant"}); }}
           onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
           onSettings={() => { setSettingsTab("data"); openSettings(); }}
           syncState={remote.busy() ? "busy" : remote.error() ? "error" : remote.lastSyncedAt() ? "synced" : "local"}
@@ -314,9 +307,9 @@ export function App() {
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
           <Show when={view() === "tasks"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} sleepMode={prefs.calendarSleepMode()} now={clock()} onMonthChange={setCalendarMonth} onSleepModeChange={prefs.setCalendarSleepMode} hideSleeping={prefs.hideSleeping()} onHideSleepingChange={prefs.setHideSleeping} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
             <div class="tasks-workspace" classList={{ split: paneOpen() }} data-animations={animations() ? "on" : "off"}>
-            <TodayView items={items()} query={query()} now={clock()} scope={activeScope()} selectedId={splitView() ? selectedTaskId() : null}
+            <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
-              groupLayout={prefs.groupLayout()} laterPlacement={prefs.laterPlacement()} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
+              groupLayout={prefs.groupLayout()} layout={prefs.taskLayout()} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
               liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} />
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">

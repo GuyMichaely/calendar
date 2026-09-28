@@ -52,12 +52,10 @@ export type Task = BaseItem & {
   // Legacy inline hours; tasks now use a named window (windowId).
   availabilitySchedule?: AvailabilitySchedule | null;
   windowId?: string | null;
-  // When a due task joins the Firm section; null means 24 hours before it's due.
+  // How many hours before it's due a task joins the Firm section (null: 24).
+  warnHours?: number | null;
+  // Legacy: an exact time to join Firm, kept until a lead time is chosen.
   warnAt?: string | null;
-  // Estimated minutes of work.
-  takes?: number | null;
-  // No timing: listed under Anytime instead of Today.
-  anytime?: boolean | null;
   // How its finished subtasks show while it's open: dimmed ("show") or folded into "+N completed" (default).
   completedSubtasks?: "show" | null;
   completedAt?: string | null;

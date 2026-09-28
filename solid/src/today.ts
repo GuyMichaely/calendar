@@ -5,11 +5,10 @@ import type { Item, Task, TimeWindow } from "./types";
 /*
  * The Today view puts every task in exactly one section, by the first rule that fits:
  * due and past its warning time (Firm); a window open now (Closing today) or opening
- * later today (Opens later today); can't start yet (Upcoming); flagged Anytime; else
- * Available. Pushed-down tasks stay in their section, at the bottom.
+ * later today (Opens later today); can't start yet (Upcoming); else Available. Pushed-down tasks stay in their section, at the bottom.
  */
-export type SectionId = "firm" | "closing" | "later" | "available" | "anytime" | "upcoming" | "completed";
-export const SECTION_ORDER: SectionId[] = ["firm", "closing", "later", "available", "anytime", "upcoming", "completed"];
+export type SectionId = "firm" | "closing" | "later" | "available" | "upcoming" | "completed";
+export const SECTION_ORDER: SectionId[] = ["firm", "closing", "later", "available", "upcoming", "completed"];
 
 export type Placement = {
   section: SectionId;
@@ -27,10 +26,10 @@ const HOUR = 3_600_000;
 const time = (value?: string | null) => { if (!value) return null; const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date; };
 const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
-/** When a due task starts warning: its own warning time, or 24 hours before it's due. */
+/** When a due task joins Firm: some hours before it's due (24 unless it says), or a legacy exact time. */
 export function warnTime(task: Task) {
   const due = time(task.deadline);
-  return due ? time(task.warnAt) ?? new Date(due.getTime() - 24 * HOUR) : null;
+  return due ? time(task.warnAt) ?? new Date(due.getTime() - (task.warnHours ?? 24) * HOUR) : null;
 }
 
 /** Pushed down (legacy sleep counts), and until when. */
@@ -59,7 +58,7 @@ export function placeTask(task: Task, now: Date, windows: Map<string, TimeWindow
     return { section: "upcoming", next: opens, opens, closes: opening.closes, due, pushed };
   }
   if (start && start > now) return sameDay(start, now) ? { section: "later", opens: start, due, pushed } : { section: "upcoming", next: start, due, pushed };
-  return { section: task.anytime ? "anytime" : "available", due, pushed };
+  return { section: "available", due, pushed };
 }
 
 const orderKey = (task: Task, placement: Placement): number[] => {
@@ -120,8 +119,7 @@ export function effectivelyDone(task: Task, byId: Map<string, Item>) {
 
 /**
  * The task as its containers constrain it: the earliest due date (with its warning),
- * the latest can-start date, the nearest window, Anytime or pushed down if any
- * container is. Used only for placing it; nothing is stored.
+ * the latest can-start date, the nearest window, and pushed down if any container is. Used only for placing it; nothing is stored.
  */
 export function inherited(task: Task, chain: Task[], now: Date): Task {
   if (!chain.length) return task;
@@ -134,10 +132,10 @@ export function inherited(task: Task, chain: Task[], now: Date): Task {
     ...task,
     deadline: dueSource?.deadline ?? null,
     warnAt: dueSource?.warnAt ?? null,
+    warnHours: dueSource?.warnHours ?? null,
     availableFrom: starts.length ? new Date(Math.max(...starts.map(date => date.getTime()))).toISOString() : null,
     windowId: windowSource?.windowId ?? null,
     availabilitySchedule: windowSource?.windowId ? null : windowSource?.availabilitySchedule ?? null,
-    anytime: family.some(entry => entry.anytime),
     sleep: null,
     pushedDown: pushedSource ? pushedSource.pushedDown ?? { until: pushedSource.sleep?.until ?? null, at: pushedSource.sleep?.startedAt ?? "" } : null,
   };

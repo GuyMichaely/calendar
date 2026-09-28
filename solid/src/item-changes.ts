@@ -65,12 +65,12 @@ export type TaskDraft = {
   groupId: string | null;
   availableFrom: string | null;
   deadline: string | null;
+  warnHours: number | null;
+  // Legacy exact warning time, kept while the editor leaves it chosen.
   warnAt: string | null;
   windowId: string | null;
   // Legacy inline hours, kept while no named window replaces them.
   schedule: AvailabilitySchedule | null;
-  takes: number | null;
-  anytime: boolean;
   // Days after starting, for the fields a dormant dependent task measures that way.
   relativeDates: Partial<Record<RelativeDateField, number>>;
 };
@@ -127,13 +127,12 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
     relativeDates: dormant && Object.keys(relativeDates).length ? relativeDates : null,
     availableFrom: draft.availableFrom,
     deadline: draft.deadline,
+    warnHours: draft.deadline ? draft.warnHours : null,
     warnAt: draft.deadline ? draft.warnAt : null,
     sleep: null,
     pushedDown,
     windowId: draft.windowId,
     availabilitySchedule: draft.windowId ? null : draft.schedule,
-    takes: draft.takes,
-    anytime: draft.anytime || null,
     createdAt: previous?.createdAt || at,
     updatedAt: at,
     history,

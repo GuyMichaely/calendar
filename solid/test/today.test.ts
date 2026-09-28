@@ -17,7 +17,10 @@ const section = (item: Task) => placeTask(item, now, windows).section;
 test("a due task is firm from its warning time, 24 hours before by default", () => {
   expect(section(task("a", { deadline: local(7, 14, 0) }))).toBe("firm");
   expect(section(task("b", { deadline: local(7, 15, 0) }))).toBe("available");
-  expect(section(task("c", { deadline: local(9, 12), warnAt: local(6, 9) }))).toBe("firm");
+  // A lead time of its own, or a legacy exact warning time.
+  expect(section(task("c", { deadline: local(9, 12), warnHours: 72 }))).toBe("firm");
+  expect(section(task("c2", { deadline: local(9, 12), warnHours: 48 }))).toBe("available");
+  expect(section(task("c3", { deadline: local(9, 12), warnAt: local(6, 9) }))).toBe("firm");
   expect(warnTime(task("d", { deadline: local(9, 12) }))?.toISOString()).toBe(local(8, 12));
   expect(placeTask(task("e", { deadline: local(5, 12) }), now, windows)).toMatchObject({ section: "firm", overdue: true });
 });
@@ -33,10 +36,9 @@ test("windows place tasks by today's opening", () => {
   expect(section(task("e", { availabilitySchedule: { enabled: true, days: [2], start: "08:00", end: "12:00" } }))).toBe("upcoming");
 });
 
-test("can-start dates, anytime, and pushed-down tasks", () => {
+test("can-start dates and pushed-down tasks", () => {
   expect(section(task("a", { availableFrom: local(6, 16) }))).toBe("later");
   expect(section(task("b", { availableFrom: local(8, 9) }))).toBe("upcoming");
-  expect(section(task("c", { anytime: true }))).toBe("anytime");
   expect(section(task("d"))).toBe("available");
   expect(pushedDownInfo(task("e", { pushedDown: { until: null, at } }), now).pushed).toBe(true);
   expect(pushedDownInfo(task("f", { pushedDown: { until: local(6, 12), at } }), now).pushed).toBe(false);
@@ -76,15 +78,17 @@ test("a task with open subtasks is a container: placed only through its subtasks
   expect(together.find(entry => entry.id === "firm")!.count).toBe(1);
 });
 
-test("a container's due date, start, window, and Anytime pass down to its subtasks", () => {
+test("a container's due date, start, window, and push-down pass down to its subtasks", () => {
   const items: Item[] = [business,
     task("house", { deadline: local(7, 9) }), task("room", { parentId: "house" }),
     task("later", { availableFrom: local(9, 9) }), task("step", { parentId: "later" }),
     task("calls", { windowId: "business" }), task("call", { parentId: "calls" }),
-    task("someday", { anytime: true }), task("idea", { parentId: "someday" }),
+    task("someday", { pushedDown: { until: null, at } }), task("idea", { parentId: "someday" }),
   ];
   const place = (id: string) => buildSections(items, now, { ...all, mode: "context" }).find(entry => entry.trees.some(function has(node): boolean { return node.task.id === id || node.children.some(has); }))?.id;
-  expect(["room", "step", "call", "idea"].map(place)).toEqual(["firm", "upcoming", "closing", "anytime"]);
+  expect(["room", "step", "call", "idea"].map(place)).toEqual(["firm", "upcoming", "closing", "available"]);
+  const idea = buildSections(items, now, { ...all, mode: "context" }).find(entry => entry.id === "available")!.trees.find(node => node.task.id === "someday")!.children[0];
+  expect(idea.placement!.pushed).toBe(true);
 });
 
 test("finishing a parent takes its open subtasks with it", () => {
