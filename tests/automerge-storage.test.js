@@ -367,3 +367,15 @@ test("imports store tasks as they are, without completion cascades", async () =>
   assert.equal((await storage.getItem("import-child")).state, "open");
   await storage.deleteItem("import-parent");
 });
+
+test("a quiet write converts an item without an undo step", async () => {
+  await storage.putItem(task({ id: "quiet", sleep: { until: null, startedAt: "2026-09-04T12:00:00.000Z" } }));
+  const label = storage.undoLabel();
+  const before = await storage.getItem("quiet");
+  await storage.putItemQuietly({ ...before, sleep: null, pushedDown: { until: null, at: "2026-09-04T12:00:00.000Z" } }, before);
+  const after = await storage.getItem("quiet");
+  assert.equal(after.sleep, null);
+  assert.deepEqual(after.pushedDown, { until: null, at: "2026-09-04T12:00:00.000Z" });
+  assert.equal(storage.undoLabel(), label);
+  await storage.deleteItem("quiet");
+});

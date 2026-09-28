@@ -569,7 +569,7 @@ export function ItemEditor(props: {
               <div class="field"><span class="field-label-row"><span>Window</span><Show when={props.onManageWindows}><button type="button" class="inline-link" onClick={() => props.onManageWindows?.()}>Manage</button></Show></span>
                 <select name="windowId" aria-label="Window" value={windowChoice()} onChange={event => { setWindowChoice(event.currentTarget.value); syncDirty(); }}>
                   <option value="">Any time</option>
-                  <For each={windowList().map(window => window.id)}>{id => { const window = () => windowList().find(entry => entry.id === id); return <option value={id}>{window()?.title} · {window() ? describeSchedule(window()!) : ""}</option>; }}</For>
+                  <For each={windowList().map(window => window.id)}>{id => { const window = () => windowList().find(entry => entry.id === id); const hours = () => window() ? describeSchedule(window()!) : ""; return <option value={id}>{window()?.title === hours() ? hours() : `${window()?.title} · ${hours()}`}</option>; }}</For>
                   <Show when={task?.availabilitySchedule?.enabled}><option value="custom">Custom hours · {describeSchedule(task!.availabilitySchedule!)}</option></Show>
                 </select>
               </div>

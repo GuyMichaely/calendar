@@ -247,6 +247,13 @@ export async function putItem(item, baseline = null) {
   return editBaseline;
 }
 
+/** Write without an undo step or completion cascades: for converting old data to the current model. */
+export async function putItemQuietly(item, baseline = null) {
+  const { after, relatedChanges } = await putLocalItem(withoutAttachmentBytes(item), withoutAttachmentBytes(baseline), { cascade: false });
+  syncLiveItem(item.id, withoutAttachmentBytes(after));
+  for (const change of relatedChanges) syncLiveItem(change.id, change.after);
+}
+
 export async function deleteItem(id) {
   const { before, changes } = await deleteLocalItem(id);
   const cleanBefore = withoutAttachmentBytes(before);
