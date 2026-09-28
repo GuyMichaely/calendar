@@ -11,7 +11,6 @@ import { createRemoteSync } from "./remote-session";
 import { createCalendarStore } from "./calendar-store";
 import { createPreferences } from "./preferences";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
-import { type TaskDrop } from "./GroupsView";
 import { TodayView, when } from "./TodayView";
 import { BoardSettings, WindowSettings } from "./SettingsPanels";
 import { openWork } from "./today";
@@ -193,10 +192,8 @@ export function App() {
   };
   const finishTask = async (task: Task) => { await attempt(() => store.completeTask(task), "Could not finish the task.", "Finished for good"); };
   const notYet = async (task: Task) => { await attempt(() => store.advanceTask(task, "not-yet"), "Could not record the check-in.", "Checked: not yet"); };
-  const dropTask = (task: Task, drop: TaskDrop) => attempt(() =>
-    drop.kind === "dependent" ? store.makeDependent(task, drop.owner)
-      : store.moveTask(task, drop.kind === "inside" ? { parent: drop.parent } : drop.kind === "group" ? { groupId: drop.groupId } : { ref: drop.ref, before: drop.kind === "before" }),
-    "Could not move task.");
+  // The task editor turns a subtask into a dependent task, or back.
+  const convertChild = (child: Task, to: "subtask" | "dependent", owner: Task) => attempt(() => to === "dependent" ? store.makeDependent(child, owner) : store.moveTask(child, { parent: owner }), "Could not move task.");
   const startDependent = async (task: Task, completeParent: boolean) => {
     try {
       const { completed } = await store.startDependent(task, completeParent);
@@ -215,14 +212,14 @@ export function App() {
   const pushDown = async (task: Task, until: Date | null) => { await attempt(() => store.pushDown(task, until), "Could not push the task down.", until ? `Pushed down until ${when(until, new Date())}` : "Pushed down"); };
   const lift = async (task: Task) => { await attempt(() => store.lift(task), "Could not lift the task.", "Lifted back up"); };
   const windowChange = async (run: () => Promise<unknown>) => { await attempt(run, "Could not update windows."); };
-  const groupChange = async (run: () => Promise<unknown>) => { await attempt(run, "Could not update groups."); };
-  const createGroup = async (parentId: string | null) => {
-    try { return await store.createGroup(parentId); }
-    catch (error) { showToast(errorMessage(error, "Could not create group.")); return null; }
+  const groupChange = async (run: () => Promise<unknown>) => { await attempt(run, "Could not update boards."); };
+  const createGroup = async () => {
+    try { return await store.createGroup(); }
+    catch (error) { showToast(errorMessage(error, "Could not create board.")); return null; }
   };
-  // Deleting a group keeps its contents: subgroups and tasks move up to its parent. Undo brings it back.
+  // Deleting a board keeps its tasks, on no board. Undo brings it back.
   const deleteGroup = async (group: Group) => {
-    if (await attempt(() => store.deleteGroup(group), "Could not delete group.")) showToast(`Deleted “${group.title}” (Ctrl+Z to undo)`);
+    if (await attempt(() => store.deleteGroup(group), "Could not delete board.")) showToast(`Deleted “${group.title}” (Ctrl+Z to undo)`);
   };
   // Undo and redo move rows the way the change itself did.
   let motion: ((run: () => Promise<unknown>) => Promise<void>) | null = null;
@@ -317,7 +314,7 @@ export function App() {
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
                 <Show when={detailRequest() || lastRequest} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
-                  <ItemEditor embedded request={request} items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => dropTask(child, to === "dependent" ? { kind: "dependent", owner: request.item as Task } : { kind: "inside", parent: request.item as Task })} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} registerClose={close => { closeDetailEditor = close; return () => { if (closeDetailEditor === close) closeDetailEditor = null; }; }} onStale={() => setDetailVersion(version => version + 1)} onRevert={() => setDetailVersion(version => version + 1)}
+                  <ItemEditor embedded request={request} items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} registerClose={close => { closeDetailEditor = close; return () => { if (closeDetailEditor === close) closeDetailEditor = null; }; }} onStale={() => setDetailVersion(version => version + 1)} onRevert={() => setDetailVersion(version => version + 1)}
                     onQuickAddSubtask={quickAddSubtask} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => void selectTask(task.id)} onAddSubtask={() => {}} onClose={() => void closeDetail()}
                     onDelete={async (item) => { await store.deleteItem(item.id); flushDetail = null; await selectTask(null, true); showToast("Deleted"); }}
                     onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />}
@@ -327,7 +324,7 @@ export function App() {
             </div>
           </Show>
         </WorkspaceShell>
-        <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => dropTask(child, to === "dependent" ? { kind: "dependent", owner: request.item as Task } : { kind: "inside", parent: request.item as Task })} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />}</Show>
+        <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />}</Show>
         <Show when={showSettings()}><DialogShell labelledBy="settings-title" className="settings-dialog" onClose={closeSettings}>
           <div class="settings-content">
             <div class="dialog-header"><h2 id="settings-title">Settings</h2><button class="icon-button" aria-label="Close settings" onClick={closeSettings}>×</button></div>
@@ -343,7 +340,7 @@ export function App() {
               <WindowSettings items={items()} onCreate={fields => windowChange(() => store.createWindow(fields))} onUpdate={(window, patch) => windowChange(() => store.updateWindow(window, patch))} onDelete={window => windowChange(() => store.deleteWindow(window))} />
             </Show>
             <Show when={settingsTab() === "boards"}>
-              <BoardSettings items={items()} onCreate={() => createGroup(null)} onRename={(group, title) => groupChange(() => store.renameGroup(group, title))} onDelete={deleteGroup} />
+              <BoardSettings items={items()} onCreate={() => createGroup()} onRename={(group, title) => groupChange(() => store.renameGroup(group, title))} onDelete={deleteGroup} />
             </Show>
             <Show when={settingsTab() === "display"}>
               <section class="appearance-settings" aria-label="Display">

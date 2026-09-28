@@ -1,19 +1,10 @@
 import { Icon } from "./Icon";
 import { taskDescendants } from "../../site/task-tree.js";
 import { For, Show, createEffect, createMemo, createSignal, onMount, onCleanup, type JSX } from "solid-js";
-import {
-  actionability,
-  formatDateTime,
-  isoToLocalInput,
-  localInputToIso,
-  sleepInfo,
-  sleepValidationMessage,
-  toDate,
-  tomorrowMidnight,
-} from "../../site/domain.js";
+import { formatDateTime, isoToLocalInput, localInputToIso } from "../../site/domain.js";
 import { NotesEditor, type NotesEditorApi } from "./NotesEditor";
 import { DateTimeField } from "./DateTimeField";
-import { pushedDownInfo, taskGroupId } from "./today";
+import { placementOf, pushedDownInfo, taskGroupId } from "./today";
 import { userBoards } from "./board-order";
 import { describeSchedule } from "./windows";
 import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
@@ -328,8 +319,6 @@ export function ItemEditor(props: {
       item = eventFromDraft({ ...shared, start: localInputToIso(eventStart()), end: localInputToIso(eventEnd()) }, context);
     }
 
-    const sleepError = sleepValidationMessage(item);
-    if (sleepError) { setSaveError(sleepError); return false; }
     try {
       const saved = await props.onSave(item, !currentItem, currentItem);
       if (!saved) throw new Error("This item was deleted on another device. Close and reopen the calendar to review it.");
@@ -452,7 +441,8 @@ export function ItemEditor(props: {
     if (dormant()) return `Dependent task of “${parentTask()?.title || "Untitled task"}” · not started`;
     const pushed = pushedDownInfo(stored, now());
     if (pushed.pushed) return pushed.until ? `Pushed down until ${formatDateTime(pushed.until)}` : "Pushed down";
-    return actionability(stored, now()).reason;
+    const placement = placementOf(stored, props.items, now());
+    return { firm: placement.overdue ? "Firm · overdue" : "Firm · due soon", closing: "Closing today · window open now", later: "Opens later today", available: "Available now", upcoming: "Upcoming · can't start yet", completed: "Completed" }[placement.section];
   };
   const [subtaskDraft, setSubtaskDraft] = createSignal("");
   const addSubtaskInline = async () => {
@@ -670,51 +660,4 @@ export function ItemEditor(props: {
   return props.embedded
     ? <section class="item-detail" aria-labelledby={`editor-title-${domId}`} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); void close(); } }}>{form}</section>
     : <DialogShell labelledBy={`editor-title-${domId}`} className="item-editor-dialog" initialFocus={existing && window.matchMedia("(pointer: coarse)").matches ? "dialog" : "content"} onClose={close}>{form}</DialogShell>;
-}
-
-export function SleepDialog(props: {
-  task: Task;
-  onClose: () => void;
-  onSave: (until: string | null) => Promise<void>;
-  onInvalid: () => void;
-}) {
-  const sleep = sleepInfo(props.task, new Date());
-  const initialValue = sleep.sleeping && !sleep.indefinite
-    ? isoToLocalInput(sleep.until)
-    : isoToLocalInput(tomorrowMidnight(new Date()));
-  const [value, setValue] = createSignal(initialValue);
-  const title = String(props.task.title || "").replace(/[\p{Cf}\p{Cc}\s]/gu, "") ? props.task.title : "Untitled task";
-
-  const close = () => {
-    if (value() !== initialValue && !window.confirm("Discard your unsaved changes?")) return;
-    props.onClose();
-  };
-
-  return (
-    <DialogShell labelledBy="sleep-title" className="sleep-dialog" onClose={close}>
-      <form onSubmit={(event) => {
-        event.preventDefault();
-        const until = localInputToIso(value());
-        const deadline = toDate(props.task.deadline);
-        if (!until || toDate(until) <= new Date() || (deadline && toDate(until) > deadline)) {
-          props.onInvalid();
-          return;
-        }
-        void props.onSave(until);
-      }}>
-        <div class="dialog-header">
-          <div><h2 id="sleep-title">Sleep task</h2><p class="muted">{title}</p></div>
-          <button type="button" class="icon-button" aria-label="Close" onClick={close}>×</button>
-        </div>
-        <div class="sleep-presets"><button type="button" class="secondary-button" disabled={!!props.task.deadline && tomorrowMidnight(new Date()) > toDate(props.task.deadline)!} onClick={() => void props.onSave(tomorrowMidnight(new Date()).toISOString())}><Icon name="sun" size={16} />Until tomorrow</button><button type="button" class="secondary-button" disabled={!!props.task.deadline} onClick={() => void props.onSave(null)}><Icon name="moon" size={16} />Indefinitely</button></div>
-        <Show when={props.task.deadline}><p class="field-hint">Sleep must end by {formatDateTime(props.task.deadline)}. Indefinite sleep is unavailable while this task has a due date.</p></Show>
-        <div class="field full"><span>Or choose a date</span><DateTimeField name="sleepUntil" label="Sleep until" value={value()} onChange={setValue} /></div>
-        <div class="dialog-actions">
-          <div class="spacer" />
-          <button type="button" class="secondary-button" onClick={close}>Cancel</button>
-          <button type="submit" class="primary-button">Sleep until</button>
-        </div>
-      </form>
-    </DialogShell>
-  );
 }

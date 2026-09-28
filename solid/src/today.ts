@@ -144,6 +144,14 @@ export function inherited(task: Task, chain: Task[], now: Date): Task {
   };
 }
 
+/** Where the Agenda places a task (with its containers' constraints and its current occurrence). */
+export function placementOf(task: Task, items: Item[], now: Date): Placement {
+  const byId = new Map(items.map(item => [item.id, item]));
+  const windows = new Map(items.filter((item): item is TimeWindow => item.kind === "window").map(item => [item.id, item]));
+  if (effectivelyDone(task, byId)) return { section: "completed", pushed: false };
+  return placeTask(inherited(occurrenceTask(task, now), ancestors(task, byId).map(ancestor => occurrenceTask(ancestor, now)), now), now, windows);
+}
+
 /** Tasks that are actual work right now: open, started, not done through a container, and not containers themselves. */
 export function openWork(items: Item[]) {
   const byId = new Map(items.map(item => [item.id, item]));

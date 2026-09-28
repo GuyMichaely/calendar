@@ -1,6 +1,5 @@
 import { createSignal, type Accessor } from "solid-js";
 import { loadPollSeconds } from "./settings";
-import type { CalendarSleepMode } from "./types";
 
 // Per-browser view preferences, kept in localStorage.
 function stored<T>(key: string, read: (raw: string | null) => T, write: (value: T) => string | null): [Accessor<T>, (value: T) => void] {
@@ -15,11 +14,8 @@ function stored<T>(key: string, read: (raw: string | null) => T, write: (value: 
 const flag = (key: string) => stored(key, raw => raw === "1", value => value ? "1" : "0");
 
 export function createPreferences() {
-  const [showCompleted, setShowCompleted] = flag("calendar.groups.showCompleted");
   const [compact, setCompact] = flag("calendar.compactTasks");
   const [showDependents, setShowDependents] = flag("calendar.showDependents");
-  const [hideSleeping, setHideSleeping] = flag("calendar.hideSleeping");
-  const [calendarSleepMode, setCalendarSleepMode] = stored<CalendarSleepMode>("calendar.calendarSleepMode", raw => raw === "ignore" ? "ignore" : "respect", value => value);
   // "on" or "off" overrides the device's reduced-motion setting; null follows it.
   const [animations, setAnimations] = stored<string | null>("calendar.animations", raw => raw, value => value);
   // How the Agenda and Boards views show tasks.
@@ -34,11 +30,8 @@ export function createPreferences() {
   const [timeOffset, setTimeOffset] = stored("calendar.timeOffset", raw => Number(raw) || 0, value => value ? String(value) : null);
   const [pollSeconds, setPollSeconds] = stored("calendar.pollSeconds", () => loadPollSeconds(), value => String(value));
   return {
-    showCompleted, setShowCompleted,
     compact, setCompact,
     showDependents, setShowDependents,
-    hideSleeping, setHideSleeping,
-    calendarSleepMode, setCalendarSleepMode,
     animations, setAnimations,
     showBoard, setShowBoard,
     showTags, setShowTags,

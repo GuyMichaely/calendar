@@ -79,4 +79,4 @@ The Agenda puts every open task in exactly one section, by the first rule that f
 - If the stored document can't be read, the app offers to import a backup or start fresh, downloading the unreadable bytes first.
 - A local development copy with no sync server starts with sample tasks (`solid/src/demo-data.ts`), and Settings → Data can add or remove a "Sample: subtasks" group anywhere.
 
-The board (`GroupsView.tsx`) is no longer shown but remains in the tree.
+The old board page (`GroupsView.tsx`), its planner, and the sleep dialog and controls have been removed.

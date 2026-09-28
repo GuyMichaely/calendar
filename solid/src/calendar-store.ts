@@ -20,7 +20,7 @@ import {
 import { startedTask } from "./dependencies";
 import { advancedTask } from "./repeats";
 import { boardLayoutPatches, type BoardLayout } from "./board-order";
-import { boardColumns, boardEntries, groupPlacement, layoutPatches, placeGroups as placeInLayout, reorderPatches, taskPlacePatches, taskSiblings, ungroupPatches, type BoardTarget } from "./group-board";
+import { deleteBoardPatches, taskPlacePatches } from "./boards";
 import { completedTask, dependentGroupId, liftedTask, reopenedTask, newGroup, newTask, newWindow, patchedItem, pushedTask } from "./item-changes";
 import type { Group, Item, Task, TimeWindow } from "./types";
 
@@ -129,39 +129,12 @@ export function createCalendarStore(options: { onChanged: () => void }) {
       return { completed: closing };
     },
 
-    createGroup: async (parentId: string | null) => {
-      const group = newGroup({ title: "New board", ...groupPlacement(items(), parentId) }, new Date());
+    createGroup: async () => {
+      const group = newGroup({ title: "New board" }, new Date());
       await change(() => putItem(group));
       return group.id;
     },
-    renameGroup: (group: Group, title: string) => batch("Rename group", () => patchGroup(group, { title })),
-    moveGroup: (group: Group, parentId: string | null) => batch("Move group", () => patchGroup(group, groupPlacement(items(), parentId))),
-    placeGroup: async (id: string, target: BoardTarget) => {
-      const entries = boardEntries(items());
-      const dragged = items().find((item): item is Group => item.kind === "group" && item.id === id);
-      if (!entries.some(group => group.id === id) && (!dragged || dragged.builtin)) return;
-      const patches: { group: Group; patch: Partial<Group>; create: boolean }[] = layoutPatches(placeInLayout(boardColumns(entries), [id], target), items());
-      // A nested group dragged onto the board leaves its parent and becomes a column entry.
-      if (dragged?.parentId) {
-        const own = patches.find(entry => entry.group.id === id);
-        if (own) own.patch = { ...own.patch, parentId: null };
-        else patches.unshift({ group: dragged, patch: { parentId: null }, create: false });
-      }
-      if (patches.length) await batch("Move group", async () => {
-        for (const { group, patch, create } of patches) await (create ? putItem({ ...group, ...patch }) : patchGroup(group, patch));
-      });
-    },
-    /** Move a whole column's worth of top-level groups to one board position in a single undoable step. */
-    placeGroups: async (ids: string[], target: BoardTarget) => {
-      const entries = boardEntries(items());
-      const valid = new Set(entries.map(group => group.id));
-      const moving = ids.filter(id => valid.has(id));
-      if (!moving.length) return;
-      const patches = layoutPatches(placeInLayout(boardColumns(entries), moving, target), items());
-      if (patches.length) await batch("Move groups", async () => {
-        for (const { group, patch, create } of patches) await (create ? putItem({ ...group, ...patch }) : patchGroup(group, patch));
-      });
-    },
+    renameGroup: (group: Group, title: string) => batch("Rename board", () => patchGroup(group, { title })),
     /** Arrange the Boards view's boards (built-in ones included) as in this layout, in one undo step. */
     layoutBoards: async (layout: BoardLayout) => {
       const patches = boardLayoutPatches(items(), layout);
@@ -169,35 +142,18 @@ export function createCalendarStore(options: { onChanged: () => void }) {
         for (const { group, patch, create } of patches) await (create ? putItem({ ...group, ...patch }) : patchGroup(group, patch));
       });
     },
-    reorderGroup: async (group: Group, offset: -1 | 1) => {
-      const patches = reorderPatches(items(), group, offset);
-      if (patches.length) await batch("Reorder groups", async () => { for (const { group, patch } of patches) await patchGroup(group, patch); });
-    },
     /** Turn a task into a dormant dependent of another task (un-nests it if it was a subtask). */
     makeDependent: (task: Task, owner: Task) => batch("Make dependent", () =>
       putItem(patchedItem(task, { parentId: null, dependentOf: owner.id, groupId: dependentGroupId(items(), owner) }, new Date()), task)),
 
-    /** Nest as a task's last subtask, or move between groups / onto the top level of one. */
-    moveTask: (task: Task, target: { parent: Task } | { groupId: string | null } | { ref: Task; before: boolean }) => batch("Move task", async () => {
-      let patches: { task: Task; patch: Partial<Task> }[];
-      if ("parent" in target) {
-        patches = taskPlacePatches(items(), task, target.parent.id, null);
-      } else if ("ref" in target) {
-        const byId = new Map(items().map(item => [item.id, item]));
-        const ref = target.ref;
-        const parentId = ref.parentId && byId.get(ref.parentId)?.kind === "task" ? ref.parentId : null;
-        const groupId = parentId ? null : (ref.groupId && byId.get(ref.groupId)?.kind === "group" ? ref.groupId : null);
-        const siblings = taskSiblings(items(), parentId, groupId).filter(sibling => sibling.id !== task.id);
-        const index = siblings.findIndex(sibling => sibling.id === ref.id);
-        patches = taskPlacePatches(items(), task, parentId, groupId, index < 0 ? undefined : target.before ? index : index + 1);
-      } else {
-        patches = taskPlacePatches(items(), task, null, target.groupId);
-      }
+    /** Nest as a task's last subtask, or move to the top level of a board (null: no board). */
+    moveTask: (task: Task, target: { parent: Task } | { groupId: string | null }) => batch("Move task", async () => {
+      const patches = "parent" in target ? taskPlacePatches(items(), task, target.parent.id, null) : taskPlacePatches(items(), task, null, target.groupId);
       for (const { task: item, patch } of patches) await putItem(patchedItem(item, patch, new Date()), item);
     }),
 
-    deleteGroup: (group: Group) => batch(`Delete group “${group.title}”`, async () => {
-      const { groups, tasks } = ungroupPatches(items(), group);
+    deleteGroup: (group: Group) => batch(`Delete board “${group.title}”`, async () => {
+      const { groups, tasks } = deleteBoardPatches(items(), group);
       for (const { group, patch } of groups) await patchGroup(group, patch);
       for (const { task, patch } of tasks) await putItem(patchedItem(task, patch, new Date()), task);
       await deleteItem(group.id);

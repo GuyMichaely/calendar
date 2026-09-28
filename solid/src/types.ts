@@ -15,4 +15,3 @@ export type {
 export type { HorizonMode } from "../../site/domain";
 
 export type View = "tasks" | "boards" | "calendar";
-export type CalendarSleepMode = "respect" | "ignore";

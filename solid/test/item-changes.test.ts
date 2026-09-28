@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { completedTask, dependentGroupId, eventFromDraft, liftedTask, newTask, pushedTask, taskFromDraft, type TaskDraft } from "../src/item-changes";
-import { groupPlacement, reorderPatches, ungroupPatches } from "../src/group-board";
 import type { CalendarEvent, Group, Item, Task } from "../src/types";
 
 const at = "2026-09-26T00:00:00.000Z";
@@ -73,23 +72,4 @@ test("an event with one end lasts a day and keeps its creation time", () => {
   const previous: CalendarEvent = { id: "e", kind: "event", title: "Old", createdAt: at, updatedAt: at };
   const event = eventFromDraft({ title: "Trip", notes: "", tags: [], attachments: [], start: "2026-10-01T09:00:00.000Z", end: null }, { id: "e", previous, now });
   expect(event).toMatchObject({ title: "Trip", end: "2026-10-02T09:00:00.000Z", createdAt: at, updatedAt: now.toISOString() });
-});
-
-test("a group moved to the top level starts a new column; a subgroup goes last", () => {
-  const items: Item[] = [group("a", { boardColumn: 0, sortOrder: 0 }), group("b", { parentId: "a", sortOrder: 0 })];
-  expect(groupPlacement(items, null)).toEqual({ parentId: null, boardColumn: 1, sortOrder: 0 });
-  expect(groupPlacement(items, "a")).toEqual({ parentId: "a", sortOrder: 1 });
-});
-
-test("reordering swaps a group with its neighbour", () => {
-  const items: Item[] = [group("p"), group("x", { parentId: "p", sortOrder: 0 }), group("y", { parentId: "p", sortOrder: 1 })];
-  expect(reorderPatches(items, items[2] as Group, -1).map(({ group, patch }) => [group.id, patch.sortOrder])).toEqual([["y", 0], ["x", 1]]);
-  expect(reorderPatches(items, items[1] as Group, -1)).toEqual([]);
-});
-
-test("deleting a group moves its subgroups and tasks to its parent", () => {
-  const items: Item[] = [group("p"), group("g", { parentId: "p" }), group("sub", { parentId: "g" }), task("t", { groupId: "g" })];
-  const { groups, tasks } = ungroupPatches(items, items[1] as Group);
-  expect(groups.map(({ group, patch }) => [group.id, patch.parentId])).toEqual([["sub", "p"]]);
-  expect(tasks.map(({ task, patch }) => [task.id, patch.groupId])).toEqual([["t", "p"]]);
 });

@@ -1,4 +1,4 @@
-import { ancestors, effectivelyDone, inherited, openWork, placeTask, pushedDownInfo, type SectionId } from "./today";
+import { effectivelyDone, openWork, placementOf, pushedDownInfo, type SectionId } from "./today";
 import { currentOccurrence, nextStart, occurrenceTask } from "./repeats";
 import { nextOpening, openingOn, taskSchedule, windowsById } from "./windows";
 import { isDormant } from "./dependencies";
@@ -75,10 +75,8 @@ const TODAY: SectionId[] = ["firm", "closing", "later", "available"];
 
 /** The tasks the Agenda has for today: in its sections up to Available, and not pushed down. */
 export function todaysWork(items: Item[], now: Date): Task[] {
-  const byId = new Map(items.map(item => [item.id, item]));
-  const windows = windowsById(items);
   return openWork(items).filter(task => {
-    const placement = placeTask(inherited(occurrenceTask(task, now), ancestors(task, byId).map(ancestor => occurrenceTask(ancestor, now)), now), now, windows);
+    const placement = placementOf(task, items, now);
     return TODAY.includes(placement.section) && !placement.pushed;
   });
 }

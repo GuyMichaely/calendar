@@ -1,4 +1,4 @@
-import { sortedGroups } from "./group-board";
+import { sortedGroups } from "./boards";
 import type { SectionId } from "./today";
 import type { Group, Item } from "./types";
 
