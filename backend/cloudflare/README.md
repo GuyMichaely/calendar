@@ -29,13 +29,13 @@ Keep Workers Free and enable R2 in your Cloudflare dashboard when ready for the 
     ./scripts/bun scripts/cloud-secrets.js
     ./scripts/worker secret bulk .local/worker-secrets.json
 
-Login opens Cloudflare's authorization page; complete it yourself. The wrapper downloads a pinned, checksum-verified Node runtime for Wrangler only. Runtime, caches, login credentials, and logs stay under the checkout's ignored .local directory. Bun remains the application/container runtime. Do not commit or share the generated secret file.
+Login opens Cloudflare's authorization page; complete it yourself. The wrapper downloads a pinned, checksum-verified Node runtime for Wrangler only. Runtime, caches, login credentials, and logs stay under the checkout's ignored .local directory. Bun runs local development and tests; the deployed backend runs in the Workers runtime. Do not commit or share the generated secret file.
 
 Check the deployment's displayed workers.dev URL at /healthz; expect "ok". Do not sign in or sync through the temporary hostname: Google still redirects to the existing calendar hostname.
 
 ## Production
 
-Production runs at `https://calendar-sync.guymichaely.com` on Workers Free, with its calendar in Durable Object SQLite and attachment files in private R2. Google login uses the existing encrypted Worker secrets. The configured route `calendar-sync.guymichaely.com/*` handles every request without forwarding to the tunnel origin, so Docker and the connector can stay stopped. The existing proxied DNS record and tunnel configuration remain in place.
+Production runs at `https://calendar-sync.guymichaely.com` on Workers Free, with its calendar in Durable Object SQLite and attachment files in private R2. Google login uses the existing encrypted Worker secrets. The configured route `calendar-sync.guymichaely.com/*` handles every request in the Worker. The former tunnel origin is not used. Existing DNS and tunnel resources are managed separately from this repository.
 
 Keep the existing Google redirect URI:
 

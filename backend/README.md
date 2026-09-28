@@ -1,43 +1,10 @@
 # Calendar backend setup
 
-Production runs on the Cloudflare Worker at `https://calendar-sync.guymichaely.com`; see [Cloudflare deployment](cloudflare/README.md). The container instructions below are for local development or an explicit rollback, not the active production server.
+Production runs on the Cloudflare Worker at `https://calendar-sync.guymichaely.com`, with calendar data in Durable Object SQLite and attachment files in private R2. The frontend runs on GitHub Pages at <https://guymichaely.com/calendar/>. See [Cloudflare deployment](cloudflare/README.md) for account setup, Worker secrets, deployments, and local Worker verification. Docker and a tunnel connector are not required.
 
-The backend is a single Bun process serving provider-neutral OIDC auth, Automerge snapshot sync, and attachment blobs. It runs as an unprivileged container with a read-only root filesystem. A Docker volume holds persistent data. Only `127.0.0.1:8787` is published on the host. Cloudflare Tunnel exposes the backend at `https://calendar-sync.guymichaely.com/`.
+The backend shares provider-neutral OIDC authentication, Automerge sync, and attachment handlers across the production Worker and optional local Bun servers.
 
-## 1. Choose the backend host
-
-Use a computer that will stay on while you need sync. Run these commands in this repository on that computer. Docker Engine and Docker Compose **2.30 or newer** are the host prerequisites. Everything else for the backend is in the image. The repository-local Bun wrapper is available for development and Google identity setup.
-
-On this Linux Mint computer, install the distribution's Docker packages first:
-
-```bash
-sudo apt update
-sudo apt install docker.io docker-compose-v2
-sudo systemctl start docker
-```
-
-Use `sudo ./scripts/container ...` for the commands below if your user does not have access to Docker.
-
-The frontend remains on GitHub Pages at `https://guymichaely.com/calendar/`. Add only the `calendar-sync` hostname in Cloudflare; keep the existing apex/Pages records. Old Azure resources, if any, are left untouched. If migrating a populated backend, stop it and copy its complete data directory into the new volume before enabling sync; this setup does not automatically transfer Azure data.
-
-## 2. Configure the stable Cloudflare hostname
-
-Use `calendar-sync.guymichaely.com` from the outset. Google registers the public callback URL, not the server IP or hosting provider. Moving the container to a cloud host later does not require a new Google OAuth client or callback as long as this hostname and callback path stay the same.
-
-1. In the [Cloudflare dashboard](https://dash.cloudflare.com/), open **Networking → Tunnels** and create a remotely managed Cloudflare Tunnel named `calendar-sync`.
-2. Choose Docker for the connector. Copy only the tunnel token from the displayed installation command into a new ignored `.local/cloudflare.env` file as `TUNNEL_TOKEN=...`. Use a literal unquoted value. Run `chmod 600 .local/cloudflare.env`. Do not paste the token into chat or commit it.
-3. Start only the connector: `sudo ./scripts/container --profile cloudflare up -d cloudflared`. It runs independently of the backend, so Google credentials are not needed yet. Wait for Cloudflare to show the connector as connected, then select **Continue**. To inspect startup, run `sudo ./scripts/container --profile cloudflare logs --tail 50 cloudflared`.
-4. Add a **Published application** route with subdomain `calendar-sync`, domain `guymichaely.com`, no path filter, and service URL **`http://backend:8787`**. Cloudflare creates the DNS record for this subdomain. `backend` is the Compose service name; `localhost` inside the tunnel container would refer to the tunnel itself.
-5. Keep `CALENDAR_PUBLIC_BASE_URL=https://calendar-sync.guymichaely.com/` and `CALENDAR_APP_URL=https://guymichaely.com/calendar/` in `.local/backend.env`.
-6. After Google configuration below, start both containers with `./scripts/container --profile cloudflare up -d --build --wait`. The public endpoint will not serve the app until the backend starts; the connector being connected only confirms the tunnel is ready.
-
-The optional profile runs a pinned official `cloudflared` image beside the backend, with no host installation of cloudflared. The tunnel connects outward from whichever machine hosts these containers. Real tunnel connectivity cannot be checked until the Cloudflare token and route exist. This route uses the app's own Google authentication; a separate Cloudflare Access login gate would require additional browser/API integration.
-
-When moving to the cloud, stop the old backend and connector, migrate the entire data volume and private configuration, and start this Compose stack on the new host. Keep one active backend writer. The hostname, Google credentials, callback registration, and frontend server setting can remain unchanged. A container platform must provide persistent storage and support the connector; a VM running Docker is compatible with this setup.
-
-See [Cloudflare tunnel setup](https://developers.cloudflare.com/tunnel/setup/), [published routing](https://developers.cloudflare.com/tunnel/routing/), and [tunnel-token handling](https://developers.cloudflare.com/tunnel/advanced/tunnel-tokens/).
-
-## 3. Register Google login
+## Register Google login
 
 1. Open [Google Cloud Console](https://console.cloud.google.com/) and create or select a project for Calendar.
 2. Open **Google Auth Platform → Branding** (or OAuth consent-screen setup). Use an app name such as `Personal Calendar`, your support email, and your contact email. If asked for a homepage, use `https://guymichaely.com/calendar/`.
@@ -59,7 +26,7 @@ chmod 600 .local/backend.env
 
 Edit `.local/backend.env` with your editor. Keep one literal `KEY=value` per line, with no surrounding quotes or inline comments. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `CALENDAR_PUBLIC_BASE_URL=https://calendar-sync.guymichaely.com/`. Keep `CALENDAR_APP_URL=https://guymichaely.com/calendar/`. Do not paste the secret into chat, commit it, or put it in a `VITE_` variable.
 
-## 4. Discover your allowed Google account ID
+## Discover your allowed Google account ID
 
 The backend authorizes an exact Google **subject (`sub`)**, not an email address. Use the included helper on the computer where your browser runs:
 
@@ -70,57 +37,41 @@ The backend authorizes an exact Google **subject (`sub`)**, not an email address
 
 Open the printed Google sign-in URL and choose your intended account. The helper validates the login through the real OIDC library and prints the account plus `ALLOWED_GOOGLE_SUBJECT=...`. Copy that line into `.local/backend.env`. It exposes only a temporary loopback callback, never exposes calendar data, and never prints provider tokens. It exits after the callback or a ten-minute timeout. You can remove the localhost callback from the Google client after setup.
 
-If the backend host is remote, run this one-time helper and browser together on your personal computer, then copy the completed backend configuration securely to the host. The same `calendar-sync.guymichaely.com` callback applies to either host.
+## Deploy and connect
 
-## 5. Start the persistent server
+After completing Google configuration, follow [the Cloudflare setup guide](cloudflare/README.md#prepare-the-account) to generate and upload Worker secrets. Production code updates use:
 
 ```bash
-./scripts/container --profile cloudflare up -d --build --wait
-./scripts/container ps
+./scripts/worker deploy
 ```
-
-The image reads `.bun-version`, installs production packages from `bun.lock` with a frozen lockfile, and runs `backend/bun-server.js`. Configuration comes from `.local/backend.env`. Google secrets stay outside the image. The public base URL determines secure cookies and OAuth callbacks even though the local listener receives HTTP.
 
 Check `https://calendar-sync.guymichaely.com/healthz`; it should show `ok`. Open <https://guymichaely.com/calendar/>, expand the hamburger menu, save `https://calendar-sync.guymichaely.com/` in **Remote sync server**, and sign in with Google. Repeat the server setting on each browser/device. Local data continues working while the backend is offline.
 
-The frontend and backend use HTTPS under the same registrable domain, so they are same-site but different origins. Credentialed CORS allows the configured app URLs; cookies remain host-only, Secure, and HttpOnly. `CALENDAR_ADDITIONAL_APP_URLS_JSON` is an optional JSON array of exact frontend URLs. Production also allows the local preview at `http://127.0.0.1:5177/calendar/` and `http://localhost:5177/calendar/`. Google keeps the same backend callback. The frontend supplies its return URL at login; only configured app URLs (with an optional view fragment) are accepted, and that choice is bound to the login transaction. A browser that blocks third-party cookies must allow them for the sync server when using a local preview.
+The frontend and backend use HTTPS under the same registrable domain, so they are same-site but different origins. Credentialed CORS allows the configured app URLs; cookies remain host-only, Secure, and HttpOnly. `CALENDAR_ADDITIONAL_APP_URLS_JSON` is an optional JSON array of exact frontend URLs. Production also allows the local preview at `http://127.0.0.1:5177/calendar/` and `http://localhost:5177/calendar/`. Google keeps the same backend callback. Only configured return URLs are accepted after login. A browser that blocks third-party cookies must allow them for the sync server when using a local preview.
 
-## Operations and storage
+## Optional local Bun backend
 
-```bash
-./scripts/container logs --tail 100 backend
-./scripts/container --profile cloudflare up -d --build --wait   # update code/config, preserve data
-./scripts/container stop                  # stop backend, preserve data
-./scripts/container down                  # remove containers/network, preserve data
-```
+`./scripts/bun run dev:backend` runs an in-memory server with explicitly supplied backend environment variables. Sessions, calendar documents, and attachment blobs reset when it exits.
 
-Use the `--profile cloudflare` option for whole-stack stop/start/down commands too. Cloudflared reconnects automatically while its container runs. A stopped/sleeping host cannot serve sync. Do **not** use `down -v` unless deliberately deleting all server data.
-
-The `calendar_backend-data` volume contains:
-
-| Directory | Contents |
-| --- | --- |
-| `auth/` | OIDC login transactions and opaque sessions |
-| `documents/` | Canonical merged Automerge snapshots |
-| `blobs/` | Attachment bytes and content types |
-
-Run only one backend process against this volume. Its serialization is process-local. Stop the backend for a consistent backup, archive all of `/data` (including blobs), then restart. For example, while the stopped container still exists:
+For persistent local storage, use the same configuration with `backend/bun-server.js`. For example, after supplying `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `ALLOWED_GOOGLE_SUBJECT` in this backend shell:
 
 ```bash
-./scripts/container stop
-mkdir -p .local/backups
-./scripts/container cp backend:/data ".local/backups/data-$(date +%Y%m%d-%H%M%S)"
-./scripts/container start
+CALENDAR_APP_URL=http://localhost:5173/calendar/ \
+CALENDAR_PUBLIC_BASE_URL=http://localhost:8787/ \
+CALENDAR_DATA_DIR="$PWD/.local/backend-data" \
+./scripts/bun backend/bun-server.js
 ```
 
-Store a copy off the host. Frontend JSON exports contain attachment metadata only and are not a substitute for a backend backup. Restore with the backend stopped; preserve ownership for the image's `bun` user.
+The listener defaults to `127.0.0.1:8787`; `HOST` and `PORT` can override it. Register `http://localhost:8787/auth/callback/google` with Google if testing local sign-in. The wrapper disables automatic dotenv loading, so `.local/backend.env` is not loaded implicitly. Keep backend credentials out of frontend build shells.
 
-`CALENDAR_OIDC_PROVIDERS_JSON` and `CALENDAR_ALLOWED_IDENTITIES_JSON` support other providers and exact `(issuer, subject)` identities. See [backend/auth/README.md](../backend/auth/README.md) and [sync/README.md](../sync/README.md) for the protocols.
+The data directory contains `auth/` (login transactions and sessions), `documents/` (Automerge snapshots), and `blobs/` (attachments and content types). Run only one backend process against a directory. Stop it before copying the complete directory for a consistent backup or restoring a backup.
+
+## Storage and backups
+
+Production stores the calendar and sessions in its Durable Object and attachment bytes in private R2. Code deployments keep those existing storage bindings. Full backups need both document storage and attachment bytes; frontend JSON exports contain attachment metadata only and are not a complete backend backup.
+
+`CALENDAR_OIDC_PROVIDERS_JSON` and `CALENDAR_ALLOWED_IDENTITIES_JSON` support other providers and exact `(issuer, subject)` identities. See [authentication](auth/README.md) and [sync](../sync/README.md) for the protocols.
 
 ## Verification
 
-`./scripts/bun run check` covers domain behavior, storage, auth, sync, attachments, the Bun listener, Solid tests, TypeScript, and frontend bundling. CI additionally builds the actual image and runs `scripts/smoke-container` to check health, unauthenticated rejection, CORS, writable volume permissions, and storage across a container restart. Real Google login still needs registered credentials and a user completing consent.
-
-## Cloud hosting
-
-The Cloudflare Worker adapter, local verification, and data-preserving cutover steps are in [cloudflare/README.md](cloudflare/README.md). The Bun container remains available for local development and rollback.
+`./scripts/bun run check` covers domain behavior, storage, auth, sync, attachments, the Bun listener, Solid tests, TypeScript, and frontend bundling. CI also runs `./scripts/bun scripts/smoke-worker.js` against a local Worker with synthetic data to check health, auth rejection, persisted snapshot loading, independent-device merges, immutable R2 attachments, and origin rejection. Real Google login needs registered credentials and a user completing consent.

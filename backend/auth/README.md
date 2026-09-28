@@ -54,7 +54,7 @@ The Google OAuth client must register the exact backend callback URL. For this d
 https://calendar-sync.guymichaely.com/auth/callback/google
 ```
 
-See [the backend setup guide](../backend/README.md) for Google registration and a helper that discovers your verified subject ID.
+See [the backend setup guide](../README.md) for Google registration and a helper that discovers your verified subject ID.
 
 Client secrets and the allowed subject ID belong only in backend configuration or secrets. They must not be committed to this repository or shipped in the browser bundle.
 

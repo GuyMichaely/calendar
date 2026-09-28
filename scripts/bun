@@ -10,7 +10,7 @@ if [[ ! -x "$runtime" ]] || [[ "$("$runtime" --version)" != "$version" ]]; then
     Linux-aarch64) platform=linux-aarch64 ;;
     Darwin-x86_64) platform=darwin-x64 ;;
     Darwin-arm64) platform=darwin-aarch64 ;;
-    *) echo 'Use the container workflow on this platform.' >&2; exit 1 ;;
+    *) echo 'Unsupported platform: this wrapper supports Linux and macOS on x86_64 and ARM64.' >&2; exit 1 ;;
   esac
   archive="bun-$platform.zip"
   mkdir -p .local/downloads .local/bin
