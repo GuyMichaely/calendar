@@ -1,5 +1,4 @@
-import { sleepValidationMessage } from "./domain.js";
-import { taskAncestors, validateTaskParent, validateGroupParent, validateTaskGroup, validateDependentOf, dependentTasks, taskMoveUpdates } from "./task-tree.js";
+import { taskAncestors, validateTaskParent, validateTaskGroup, validateDependentOf, dependentTasks } from "./task-tree.js";
 import * as Automerge from "@automerge/automerge";
 import {
   addAttachmentMetadata,
@@ -35,11 +34,11 @@ const COMMON_ITEM_FIELDS = new Set([
   "id", "kind", "title", "notes", "tags", "attachments", "createdAt", "updatedAt", "deletedAt",
 ]);
 const TASK_ITEM_FIELDS = new Set([
-  ...COMMON_ITEM_FIELDS, "state", "parentId", "sortOrder", "availableFrom", "deadline", "latestStart", "sleep",
-  "availabilitySchedule", "completedAt", "history", "groupId", "dependentOf", "relativeDates",
-  "pushedDown", "windowId", "warnAt", "warnHours", "completedSubtasks", "repeat", "startWhen", "stopParent",
+  ...COMMON_ITEM_FIELDS, "state", "parentId", "sortOrder", "availableFrom", "deadline",
+  "completedAt", "history", "groupId", "dependentOf", "relativeDates",
+  "pushedDown", "windowId", "warnHours", "completedSubtasks", "repeat", "startWhen", "stopParent",
 ]);
-const GROUP_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "parentId", "sortOrder", "boardColumn", "builtin", "boardOrder", "layoutColumn", "layoutRow"]);
+const GROUP_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "sortOrder", "builtin", "layoutColumn", "layoutRow"]);
 const EVENT_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end"]);
 const WINDOW_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "days", "start", "end"]);
 const SPECIAL_DELTA_FIELDS = new Set([
@@ -125,7 +124,7 @@ function isPlainObject(value) {
   return prototype === Object.prototype || prototype === null;
 }
 
-function allowedFieldsForKind(kind) {
+export function allowedFieldsForKind(kind) {
   if (kind === "task") return TASK_ITEM_FIELDS;
   if (kind === "event") return EVENT_ITEM_FIELDS;
   if (kind === "group") return GROUP_ITEM_FIELDS;
@@ -447,14 +446,11 @@ export function putLocalItem(item, baseline = null, { cascade = true } = {}) {
     const before = hydrateItem(materializeItem(doc, item.id), currentHeads);
     const current = materializeItem(doc, item.id, { includeDeleted: true });
     if (item.kind === "task") { const items = materializeItems(doc); validateTaskParent(items, item.id, item.parentId); validateTaskGroup(items, item.groupId); validateDependentOf(items, item.id, item.dependentOf); }
-    if (item.kind === "group") validateGroupParent(materializeItems(doc), item.id, item.parentId);
     const historicalEdit = baseline && baselineHeads ? applyItemIntentAtHeads(doc, baselineHeads, baseline, item) : null;
     let nextDoc = historicalEdit?.newDoc || applyItemIntent(doc, baseline || current, item, { restoreDeleted: baseline == null });
     if (baseline && baseline.kind !== item.kind) nextDoc = enforceMaterializedKindShape(nextDoc, item.id);
     const relatedChanges = [];
     const savedTask = materializeItem(nextDoc, item.id);
-    const sleepError = sleepValidationMessage(savedTask);
-    if (sleepError) throw new Error(sleepError);
     // A task with subtasks is a container. Finishing it leaves its subtasks' own states
     // alone (they count as done through it); finishing its last open subtask finishes it,
     // and so on up. New work under a finished container reopens it: a subtask that is
@@ -464,7 +460,7 @@ export function putLocalItem(item, baseline = null, { cascade = true } = {}) {
       const at = item.updatedAt || new Date().toISOString();
       const setState = (target, state) => {
         const relatedBefore = hydrateItem(materializeItem(nextDoc, target.id), Automerge.getHeads(nextDoc));
-        nextDoc = patchItem(nextDoc, target.id, { state, completedAt: state === "completed" ? at : null, updatedAt: at, ...(state === "completed" ? { sleep: null, pushedDown: null } : {}) });
+        nextDoc = patchItem(nextDoc, target.id, { state, completedAt: state === "completed" ? at : null, updatedAt: at, ...(state === "completed" ? { pushedDown: null } : {}) });
         nextDoc = addHistoryEntry(nextDoc, target.id, { at, type: state === "completed" ? "completed" : "reopened", viaTaskId: item.id });
         relatedChanges.push({ id: target.id, before: relatedBefore, after: hydrateItem(materializeItem(nextDoc, target.id), Automerge.getHeads(nextDoc)) });
         tasks = materializeItems(nextDoc);
@@ -559,24 +555,3 @@ export async function getLocalItemFieldConflicts(id, field) {
   return getItemFieldConflicts(await readState(), id, field);
 }
 
-export function moveLocalTask(id, targetId, placement) {
-  return writeState(doc => {
-    let nextDoc = doc;
-    const changes = [];
-    const items = materializeItems(doc);
-    for (const update of taskMoveUpdates(items, id, targetId, placement)) {
-      const before = hydrateItem(materializeItem(nextDoc, update.id), Automerge.getHeads(nextDoc));
-      if ((before.parentId || null) === update.parentId && before.sortOrder === update.sortOrder) continue;
-      nextDoc = patchItem(nextDoc, update.id, {parentId: update.parentId, sortOrder: update.sortOrder});
-      changes.push({id: update.id, before, after: hydrateItem(materializeItem(nextDoc, update.id), Automerge.getHeads(nextDoc))});
-    }
-    const moved = materializeItem(nextDoc, id);
-    if (moved?.state === 'open') for (const ancestor of taskAncestors(materializeItems(nextDoc), id)) {
-      if (ancestor.state !== 'completed') continue;
-      const before = hydrateItem(ancestor, Automerge.getHeads(nextDoc));
-      nextDoc = patchItem(nextDoc, ancestor.id, {state: 'open', completedAt: null});
-      changes.push({id: ancestor.id, before, after: hydrateItem(materializeItem(nextDoc, ancestor.id), Automerge.getHeads(nextDoc))});
-    }
-    return {doc: nextDoc, result: changes};
-  });
-}

@@ -26,7 +26,7 @@ export function CalendarView(props: {
   now: Date;
   onMonthChange: (date: Date) => void;
   onEdit: (item: Task | CalendarEvent) => void;
-  // Unstarted dependent tasks, projected as if started on their parent task's latest date.
+  // Unstarted dependent tasks, projected as if started on their parent task's due date.
   ghostIds: Set<string>;
   showDependents: boolean;
   onShowDependentsChange: (value: boolean) => void;
@@ -64,7 +64,7 @@ export function CalendarView(props: {
         : entry.kind === "repeat" ? { ...entry, className: "task repeat", label: `↻ ${title}`, title: `${title}: a later occurrence (${describeRepeat(task!.repeat!)})`, kindLabel: `Repeats${timeOf(entry.at) ? ` · ${timeOf(entry.at)}` : ""}` }
         : { ...entry, className: "task start", label: [timeOf(entry.at), title].filter(Boolean).join(" "), title: `${title}: can start`, kindLabel: `Can start${timeOf(entry.at) ? ` · ${timeOf(entry.at)}` : ""}` };
       if (entry.pushed) { shown.className += " pushed-entry"; shown.title += " (pushed down)"; }
-      if (ghost) { shown.className += " ghost-entry"; shown.label = `If started: ${shown.label}`; shown.title += " (dependent task, if started on its parent task's latest date)"; }
+      if (ghost) { shown.className += " ghost-entry"; shown.label = `If started: ${shown.label}`; shown.title += " (dependent task, if started on its parent task's due date)"; }
       const key = dateKey(entry.at);
       map.set(key, [...(map.get(key) || []), shown]);
     }

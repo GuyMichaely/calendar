@@ -1,6 +1,6 @@
 import type { Item, Task } from "./types";
 
-export const RELATIVE_DATE_FIELDS = ["availableFrom", "latestStart", "deadline"] as const;
+export const RELATIVE_DATE_FIELDS = ["availableFrom", "deadline"] as const;
 export type RelativeDateField = (typeof RELATIVE_DATE_FIELDS)[number];
 const DAY_MS = 86_400_000;
 
@@ -27,7 +27,7 @@ export function startedTask(task: Task, at: Date): Task {
 
 /**
  * For the calendar's what-if view: each dormant dependent task as if started on its parent task's
- * latest date (due, else latest start, else now). Chains of dependent tasks build on each other.
+ * due date (else now). Chains of dependent tasks build on each other.
  */
 export function projectDependents(items: Item[], now: Date): Map<string, Task> {
   const byId = new Map(items.map(item => [item.id, item]));
@@ -37,8 +37,8 @@ export function projectDependents(items: Item[], now: Date): Map<string, Task> {
     const cached = projected.get(task.id);
     if (cached) return cached;
     const owner = project(byId.get(task.dependentOf!) as Task, depth + 1);
-    const base = [owner.deadline, owner.latestStart].map(value => value && new Date(value)).find(date => date && !Number.isNaN(date.getTime())) || now;
-    const result = { ...task, ...datesFrom(task, base as Date) };
+    const due = owner.deadline ? new Date(owner.deadline) : null;
+    const result = { ...task, ...datesFrom(task, due && !Number.isNaN(due.getTime()) ? due : now) };
     projected.set(task.id, result);
     return result;
   };

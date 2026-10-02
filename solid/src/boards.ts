@@ -38,12 +38,7 @@ export function taskPlacePatches(items: Item[], task: Task, parentId: string | n
       : sibling.sortOrder !== sortOrder ? [{ task: sibling, patch: { sortOrder } }] : []);
 }
 
-/** Deleting a board keeps its tasks, on no board. (Boards nested on the old board page become top level.) */
+/** Deleting a board keeps its tasks, on no board. */
 export function deleteBoardPatches(items: Item[], board: Group) {
-  const groups: { group: Group; patch: Partial<Group> }[] = [], tasks: { task: Task; patch: Partial<Task> }[] = [];
-  for (const item of items) {
-    if (item.kind === "group" && item.parentId === board.id) groups.push({ group: item, patch: { parentId: null } });
-    if (item.kind === "task" && item.groupId === board.id) tasks.push({ task: item, patch: { groupId: null } });
-  }
-  return { groups, tasks };
+  return items.flatMap(item => item.kind === "task" && item.groupId === board.id ? [{ task: item, patch: { groupId: null } as Partial<Task> }] : []);
 }

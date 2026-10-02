@@ -28,17 +28,14 @@ export function boardLayout(items: Item[]): BoardLayout {
     const saved = stored.get(entry.key);
     return { key: entry.key as string, column: saved?.layoutColumn ?? entry.column, row: saved?.layoutRow ?? entry.row, tie: index };
   });
-  // A board not yet placed (new, or from before this layout) gets a column just before
-  // Upcoming's: shared with boards that shared a column on the old board page, else its own.
+  // A board not yet placed (a new one) gets a column of its own just before Upcoming's.
   const upcoming = places.find(entry => entry.key === "upcoming")!.column;
   const boards = sortedGroups(items);
-  const oldColumn = (board: Group) => board.boardColumn != null ? `old:${board.boardColumn}` : `own:${board.id}`;
-  const unplaced = boards.filter(board => board.layoutColumn == null);
-  const oldColumns = [...new Set([...unplaced].sort((a, b) => (a.boardColumn ?? Infinity) - (b.boardColumn ?? Infinity) || a.createdAt.localeCompare(b.createdAt)).map(oldColumn))];
+  const unplaced = boards.filter(board => board.layoutColumn == null).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   boards.forEach((board, index) => places.push({
     key: board.id,
-    column: board.layoutColumn ?? upcoming - 1 + (oldColumns.indexOf(oldColumn(board)) + 1) / (oldColumns.length + 1),
-    row: board.layoutRow ?? board.sortOrder ?? 0,
+    column: board.layoutColumn ?? upcoming - 1 + (unplaced.indexOf(board) + 1) / (unplaced.length + 1),
+    row: board.layoutRow ?? 0,
     tie: BUILTIN_BOARDS.length + index,
   }));
   const columns = new Map<number, typeof places>();
@@ -93,7 +90,7 @@ export function boardLayoutPatches(items: Item[], layout: BoardLayout) {
     if (stored?.layoutColumn === layoutColumn && stored.layoutRow === layoutRow) return [];
     if (stored) return [{ group: stored, patch: { layoutColumn, layoutRow }, create: false }];
     if (!builtIn) return [];
-    const group: Group = { id: builtIn.id, kind: "group", title: builtIn.key, builtin: builtIn.key, parentId: null, createdAt: at, updatedAt: at };
+    const group: Group = { id: builtIn.id, kind: "group", title: builtIn.key, builtin: builtIn.key, createdAt: at, updatedAt: at };
     return [{ group, patch: { layoutColumn, layoutRow }, create: true }];
   }));
 }

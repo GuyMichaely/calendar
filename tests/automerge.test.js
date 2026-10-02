@@ -30,7 +30,7 @@ function task(overrides = {}) {
     attachments: [],
     availableFrom: null,
     deadline: "2026-09-30T17:00:00.000Z",
-    sleep: null,
+    pushedDown: null,
     ...overrides,
   };
 }
@@ -50,12 +50,12 @@ test("different fields changed on disconnected replicas merge together", () => {
   let phone = forkCalendarDocument(base);
 
   laptop = patchItem(laptop, "task-1", { deadline: "2026-10-02T17:00:00.000Z" });
-  phone = patchItem(phone, "task-1", { sleep: { until: "2026-09-20T04:00:00.000Z", startedAt: "2026-09-04T04:00:00.000Z" } });
+  phone = patchItem(phone, "task-1", { pushedDown: { until: "2026-09-20T04:00:00.000Z", at: "2026-09-04T04:00:00.000Z" } });
 
   const merged = mergeCalendarDocuments(laptop, phone);
   const result = materializeItem(merged, "task-1");
   assert.equal(result.deadline, "2026-10-02T17:00:00.000Z");
-  assert.equal(result.sleep.until, "2026-09-20T04:00:00.000Z");
+  assert.equal(result.pushedDown.until, "2026-09-20T04:00:00.000Z");
 });
 
 test("concurrent tag additions are both preserved", () => {
@@ -128,7 +128,7 @@ test("the request-response snapshot sync primitive converges three replicas", ()
   const base = createCalendarDocument([task()]);
   let laptop = patchItem(forkCalendarDocument(base), "task-1", { deadline: "2026-10-02T17:00:00.000Z" });
   let phone = addTag(forkCalendarDocument(base), "task-1", "pool");
-  let tablet = patchItem(forkCalendarDocument(base), "task-1", { sleep: { until: "2026-09-20T04:00:00.000Z" } });
+  let tablet = patchItem(forkCalendarDocument(base), "task-1", { pushedDown: { until: "2026-09-20T04:00:00.000Z" } });
   let serverBytes = saveCalendarDocument(base);
 
   for (const client of [laptop, phone, tablet]) {
@@ -147,7 +147,7 @@ test("the request-response snapshot sync primitive converges three replicas", ()
   assert.deepEqual(materializeItem(tablet, "task-1"), expected);
   assert.equal(expected.deadline, "2026-10-02T17:00:00.000Z");
   assert.ok(expected.tags.includes("pool"));
-  assert.equal(expected.sleep.until, "2026-09-20T04:00:00.000Z");
+  assert.equal(expected.pushedDown.until, "2026-09-20T04:00:00.000Z");
 });
 
 test("an edit made while a sync request is in flight survives response merge", () => {

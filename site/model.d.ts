@@ -8,18 +8,6 @@ export type Attachment = {
   blob?: Blob;
 };
 
-export type AvailabilitySchedule = {
-  enabled: boolean;
-  days: number[];
-  start: string;
-  end: string;
-};
-
-export type SleepState = {
-  until: string | null;
-  startedAt: string;
-};
-
 export type HistoryEntry = {
   at: string;
   type: string;
@@ -44,18 +32,11 @@ export type Task = BaseItem & {
   sortOrder?: number;
   availableFrom?: string | null;
   deadline?: string | null;
-  latestStart?: string | null;
-  // Legacy: sleep is read as pushed down (see pushedDownInfo); new edits write pushedDown.
-  sleep?: SleepState | null;
   // Kept in its section but moved to the bottom, dimmed; until null means until lifted.
   pushedDown?: PushedDown | null;
-  // Legacy inline hours; tasks now use a named window (windowId).
-  availabilitySchedule?: AvailabilitySchedule | null;
   windowId?: string | null;
   // How many hours before it's due a task joins the Firm section (null: 24).
   warnHours?: number | null;
-  // Legacy: an exact time to join Firm, kept until a lead time is chosen.
-  warnAt?: string | null;
   // How its finished subtasks show while it's open: dimmed ("show") or folded into "+N completed" (default).
   completedSubtasks?: "show" | null;
   // Repeats: its Can start and Due are the current occurrence's (see solid/src/repeats.ts).
@@ -77,7 +58,6 @@ export type Task = BaseItem & {
 
 export type RelativeDates = {
   availableFrom?: number | null;
-  latestStart?: number | null;
   deadline?: number | null;
 };
 
@@ -87,16 +67,12 @@ export type CalendarEvent = BaseItem & {
   end?: string | null;
 };
 
-// Groups form a strict tree. A group without a parent is top level.
+// A board. Built-in boards (Firm, Available, …) are stored as groups with a `builtin` key only to remember their place.
 export type Group = BaseItem & {
   kind: "group";
-  parentId?: string | null;
-  // Among siblings; for top-level groups, the position within their board column.
+  // Order in lists of boards.
   sortOrder?: number;
-  // Top-level groups only: which board column the group is stacked in.
-  boardColumn?: number;
-  // Built-in board sections store only their position; they hold no tasks.
-  builtin?: "available" | "upcoming" | "sleeping" | "ungrouped" | "firm" | "closing" | "later" | "completed";
+  builtin?: "firm" | "closing" | "later" | "available" | "upcoming" | "completed";
   // Its place in the Boards view's layout (built-in boards included): column, then row.
   layoutColumn?: number;
   layoutRow?: number;

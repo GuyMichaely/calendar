@@ -120,8 +120,8 @@ export function ItemEditor(props: {
   const initialPush = task ? pushedDownInfo(task, now()) : null;
   const defaults = eventDefaults(props.request);
   const [kind, setKind] = createSignal<"task" | "event">(props.request.kind);
-  // A named window, "custom" for legacy inline hours, or "" for any time.
-  const [windowChoice, setWindowChoice] = createSignal(task?.windowId || (task?.availabilitySchedule?.enabled ? "custom" : ""));
+  // A window's id, or "" for any time.
+  const [windowChoice, setWindowChoice] = createSignal(task?.windowId || "");
   const [deadlineInput, setDeadlineInput] = createSignal(isoToLocalInput(task?.deadline));
   // Pushed down, until a date if one is set (otherwise until lifted).
   const [pushed, setPushed] = createSignal(!!initialPush?.pushed);
@@ -297,7 +297,6 @@ export function ItemEditor(props: {
     if (kind() === "task") {
       const relativeDates: TaskDraft["relativeDates"] = {};
       for (const field of SHOWN_RELATIVE_FIELDS) if (dateModes()[field] === "after") relativeDates[field] = Math.max(0, Number(data.get(`${field}After`)) || 0);
-      if (task?.relativeDates?.latestStart != null) relativeDates.latestStart = task.relativeDates.latestStart;
       const choice = windowChoice();
       item = taskFromDraft({
         ...shared,
@@ -306,10 +305,8 @@ export function ItemEditor(props: {
         groupId: String(data.get("groupId") || "") || null,
         availableFrom: localInputToIso(data.get("availableFrom")),
         deadline: localInputToIso(data.get("deadline")),
-        warnHours: data.get("warnHours") && data.get("warnHours") !== "custom" ? Number(data.get("warnHours")) : null,
-        warnAt: data.get("warnHours") === "custom" ? task?.warnAt ?? null : null,
-        windowId: choice && choice !== "custom" ? choice : null,
-        schedule: choice === "custom" ? task?.availabilitySchedule ?? null : null,
+        warnHours: data.get("warnHours") ? Number(data.get("warnHours")) : null,
+        windowId: choice || null,
         relativeDates,
         repeat: repeatUnit() ? { unit: repeatUnit() as Repeat["unit"], every: Math.max(1, Math.round(Number(data.get("repeatEvery")) || 1)), until: localInputToIso(data.get("repeatUntil")), untilDone: data.get("repeatUntilDone") === "on", ifMissed: data.get("repeatMissed") === "keep" ? "keep" : "skip" } : null,
         ...(dormant() ? { startWhen: startWhen() === "parent-done" ? { on: "parent-done" as const } : startWhen() === "not-yet" ? { on: "not-yet" as const, after: localInputToIso(data.get("startAfter")) } : null, stopParent: data.get("stopParent") === "on" } : {}),
@@ -561,16 +558,14 @@ export function ItemEditor(props: {
               <label class="field"><span>Board</span><select name="groupId" value={task?.groupId || props.request.groupId || ""}><option value="">{isSubtask ? `Same as parent${inheritedBoard() ? ` (${inheritedBoard()})` : ""}` : "No board"}</option><For each={boardChoices().map(board => board.id)}>{id => <option value={id}>{boardLabel(id)}</option>}</For></select></label>
               {/* Always shown (disabled without a due date) so setting one doesn't move the other fields. */}
               <label class="field" title="When this joins the Firm section, measured from its due date"><span>Firm from</span>
-                <select name="warnHours" disabled={!deadlineInput()} value={task?.warnAt ? "custom" : String(task?.warnHours ?? 24)} onChange={syncDirty}>
+                <select name="warnHours" disabled={!deadlineInput()} value={String(task?.warnHours ?? 24)} onChange={syncDirty}>
                   <For each={warnOptions}>{([hours, label]) => <option value={hours}>{label}</option>}</For>
-                  <Show when={task?.warnAt}><option value="custom">{formatDateTime(task!.warnAt)}</option></Show>
                 </select>
               </label>
               <div class="field"><span class="field-label-row"><span>Window</span><Show when={props.onManageWindows}><button type="button" class="inline-link" onClick={() => props.onManageWindows?.()}>Manage</button></Show></span>
                 <select name="windowId" aria-label="Window" value={windowChoice()} onChange={event => { setWindowChoice(event.currentTarget.value); syncDirty(); }}>
                   <option value="">Any time</option>
                   <For each={windowList().map(window => window.id)}>{id => { const window = () => windowList().find(entry => entry.id === id); const hours = () => window() ? describeSchedule(window()!) : ""; return <option value={id}>{window()?.title === hours() ? hours() : `${window()?.title} · ${hours()}`}</option>; }}</For>
-                  <Show when={task?.availabilitySchedule?.enabled}><option value="custom">Custom hours · {describeSchedule(task!.availabilitySchedule!)}</option></Show>
                 </select>
               </div>
               {/* One option: pushed down until the date if one is set, else until lifted. */}

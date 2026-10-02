@@ -8,7 +8,7 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({ id, kind: "task
 const group = (id: string, extra: Partial<Group> = {}): Group => ({ id, kind: "group", title: id, createdAt: at, updatedAt: at, ...extra });
 const draft = (extra: Partial<TaskDraft> = {}): TaskDraft => ({
   title: "Write", notes: "", tags: [], attachments: [], state: "open", pushedDown: { mode: "normal" }, groupId: null,
-  availableFrom: null, deadline: null, warnHours: null, warnAt: null, windowId: null, schedule: null, relativeDates: {}, ...extra,
+  availableFrom: null, deadline: null, warnHours: null, windowId: null, relativeDates: {}, ...extra,
 });
 
 test("a new task is open, trimmed, and records its creation", () => {
@@ -19,14 +19,14 @@ test("a new task is open, trimmed, and records its creation", () => {
 
 test("completing a task lifts it and records the completion", () => {
   const done = completedTask(task("a", { pushedDown: { until: null, at }, history: [{ at, type: "created" }] }), now);
-  expect(done).toMatchObject({ state: "completed", completedAt: now.toISOString(), pushedDown: null, sleep: null });
+  expect(done).toMatchObject({ state: "completed", completedAt: now.toISOString(), pushedDown: null });
   expect(done.history!.map(entry => entry.type)).toEqual(["created", "completed"]);
 });
 
-test("pushing down and lifting record history and replace legacy sleep", () => {
+test("pushing down and lifting record history", () => {
   const until = new Date("2026-09-27T00:00:00.000Z");
-  const pushed = pushedTask(task("a", { sleep: { until: null, startedAt: at } }), until, now);
-  expect(pushed).toMatchObject({ sleep: null, pushedDown: { until: until.toISOString(), at: now.toISOString() } });
+  const pushed = pushedTask(task("a"), until, now);
+  expect(pushed).toMatchObject({ pushedDown: { until: until.toISOString(), at: now.toISOString() } });
   expect(liftedTask(pushed, now)).toMatchObject({ pushedDown: null, history: [{ type: "pushed-down" }, { type: "lifted" }] });
 });
 
@@ -53,10 +53,10 @@ test("editing a task records state and push-down changes", () => {
   expect(closed.history!.map(entry => entry.type)).toEqual(["created", "pushed-down", "lifted", "completed"]);
 });
 
-test("legacy sleep becomes pushed down when saved; an ended push is dropped; a named window replaces inline hours", () => {
-  const sleeping = task("a", { history: [{ at, type: "created" }], sleep: { until: null, startedAt: at }, availabilitySchedule: { enabled: true, days: [1], start: "09:00", end: "17:00" } });
-  const saved = taskFromDraft(draft({ pushedDown: { mode: "indefinite" }, windowId: "w", schedule: sleeping.availabilitySchedule! }), { id: "a", previous: sleeping, now, dormant: false });
-  expect(saved).toMatchObject({ sleep: null, pushedDown: { until: null, at }, windowId: "w", availabilitySchedule: null });
+test("a push down keeps when it started; an ended push is dropped", () => {
+  const pushed = task("a", { history: [{ at, type: "created" }], pushedDown: { until: null, at } });
+  const saved = taskFromDraft(draft({ pushedDown: { mode: "indefinite" }, windowId: "w" }), { id: "a", previous: pushed, now, dormant: false });
+  expect(saved).toMatchObject({ pushedDown: { until: null, at }, windowId: "w" });
   expect(saved.history || []).toEqual([{ at, type: "created" }]);
   expect(taskFromDraft(draft({ pushedDown: { mode: "until", until: at } }), { id: "a", previous: null, now, dormant: false }).pushedDown).toBeNull();
 });

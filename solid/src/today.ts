@@ -27,15 +27,15 @@ const HOUR = 3_600_000;
 const time = (value?: string | null) => { if (!value) return null; const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date; };
 const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
-/** When a due task joins Firm: some hours before it's due (24 unless it says), or a legacy exact time. */
+/** When a due task joins Firm: some hours before it's due (24 unless it says). */
 export function warnTime(task: Task) {
   const due = time(task.deadline);
-  return due ? time(task.warnAt) ?? new Date(due.getTime() - (task.warnHours ?? 24) * HOUR) : null;
+  return due ? new Date(due.getTime() - (task.warnHours ?? 24) * HOUR) : null;
 }
 
-/** Pushed down (legacy sleep counts), and until when. */
+/** Pushed down, and until when. */
 export function pushedDownInfo(task: Task, now: Date) {
-  const pushed = task.pushedDown ?? (task.sleep ? { until: task.sleep.until, at: task.sleep.startedAt } : null);
+  const pushed = task.pushedDown;
   if (!pushed || task.state === "completed") return { pushed: false, until: null as Date | null };
   const until = time(pushed.until);
   return until && until <= now ? { pushed: false, until: null } : { pushed: true, until };
@@ -129,18 +129,15 @@ export function inherited(task: Task, chain: Task[], now: Date): Task {
   const family = [...chain, task];
   const dueSource = family.filter(entry => time(entry.deadline)).sort((a, b) => time(a.deadline)!.getTime() - time(b.deadline)!.getTime())[0];
   const starts = family.map(entry => time(entry.availableFrom)).filter((date): date is Date => !!date);
-  const windowSource = [...family].reverse().find(entry => entry.windowId || entry.availabilitySchedule?.enabled);
+  const windowSource = [...family].reverse().find(entry => entry.windowId);
   const pushedSource = [...family].reverse().find(entry => pushedDownInfo(entry, now).pushed);
   return {
     ...task,
     deadline: dueSource?.deadline ?? null,
-    warnAt: dueSource?.warnAt ?? null,
     warnHours: dueSource?.warnHours ?? null,
     availableFrom: starts.length ? new Date(Math.max(...starts.map(date => date.getTime()))).toISOString() : null,
     windowId: windowSource?.windowId ?? null,
-    availabilitySchedule: windowSource?.windowId ? null : windowSource?.availabilitySchedule ?? null,
-    sleep: null,
-    pushedDown: pushedSource ? pushedSource.pushedDown ?? { until: pushedSource.sleep?.until ?? null, at: pushedSource.sleep?.startedAt ?? "" } : null,
+    pushedDown: pushedSource?.pushedDown ?? null,
   };
 }
 

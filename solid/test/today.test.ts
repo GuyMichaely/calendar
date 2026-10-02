@@ -17,10 +17,9 @@ const section = (item: Task) => placeTask(item, now, windows).section;
 test("a due task is firm from its warning time, 24 hours before by default", () => {
   expect(section(task("a", { deadline: local(7, 14, 0) }))).toBe("firm");
   expect(section(task("b", { deadline: local(7, 15, 0) }))).toBe("available");
-  // A lead time of its own, or a legacy exact warning time.
+  // A lead time of its own.
   expect(section(task("c", { deadline: local(9, 12), warnHours: 72 }))).toBe("firm");
   expect(section(task("c2", { deadline: local(9, 12), warnHours: 48 }))).toBe("available");
-  expect(section(task("c3", { deadline: local(9, 12), warnAt: local(6, 9) }))).toBe("firm");
   expect(warnTime(task("d", { deadline: local(9, 12) }))?.toISOString()).toBe(local(8, 12));
   expect(placeTask(task("e", { deadline: local(5, 12) }), now, windows)).toMatchObject({ section: "firm", overdue: true });
 });
@@ -32,8 +31,6 @@ test("windows place tasks by today's opening", () => {
   expect(placeTask(task("c", { windowId: "business", availableFrom: local(7, 8) }), now, windows)).toMatchObject({ section: "upcoming", next: new Date(local(7, 9)) });
   // Starting partway through today's window.
   expect(placeTask(task("d", { windowId: "business", availableFrom: local(6, 15) }), now, windows)).toMatchObject({ section: "later", opens: new Date(local(6, 15)) });
-  // Legacy inline hours still count as a window.
-  expect(section(task("e", { availabilitySchedule: { enabled: true, days: [2], start: "08:00", end: "12:00" } }))).toBe("upcoming");
 });
 
 test("can-start dates and pushed-down tasks", () => {
@@ -42,8 +39,6 @@ test("can-start dates and pushed-down tasks", () => {
   expect(section(task("d"))).toBe("available");
   expect(pushedDownInfo(task("e", { pushedDown: { until: null, at } }), now).pushed).toBe(true);
   expect(pushedDownInfo(task("f", { pushedDown: { until: local(6, 12), at } }), now).pushed).toBe(false);
-  // Legacy sleep reads as pushed down.
-  expect(pushedDownInfo(task("g", { sleep: { until: local(9, 0), startedAt: at } }), now).pushed).toBe(true);
 });
 
 test("windows describe themselves and find their next opening", () => {

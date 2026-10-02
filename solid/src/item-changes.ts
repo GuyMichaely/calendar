@@ -1,6 +1,6 @@
 import { toDate } from "../../site/domain.js";
 import type { RelativeDateField } from "./dependencies";
-import type { Attachment, AvailabilitySchedule, CalendarEvent, Group, HistoryEntry, Item, PushedDown, Task, TaskState, TimeWindow } from "./types";
+import type { Attachment, CalendarEvent, Group, HistoryEntry, Item, PushedDown, Task, TaskState, TimeWindow } from "./types";
 import type { RelativeDates } from "../../site/model";
 
 // Pure record changes: each takes the current record and a moment and returns the record to store.
@@ -12,7 +12,7 @@ export function newTask(fields: Pick<Task, "title"> & Partial<Omit<Task, "id" | 
   return { id: crypto.randomUUID(), kind: "task", state: "open", tags: [], attachments: [], ...fields, title: fields.title.trim(), history: [{ at, type: "created" }], createdAt: at, updatedAt: at };
 }
 
-export function newGroup(fields: Pick<Group, "title"> & Partial<Pick<Group, "parentId" | "sortOrder" | "boardColumn">>, now: Date): Group {
+export function newGroup(fields: Pick<Group, "title"> & Partial<Pick<Group, "sortOrder">>, now: Date): Group {
   const at = now.toISOString();
   return { id: crypto.randomUUID(), kind: "group", ...fields, createdAt: at, updatedAt: at };
 }
@@ -24,7 +24,7 @@ export function newWindow(fields: Pick<TimeWindow, "title" | "days" | "start" | 
 
 export function completedTask(task: Task, now: Date): Task {
   const at = now.toISOString();
-  return { ...task, state: "completed", completedAt: at, sleep: null, pushedDown: null, updatedAt: at, history: withEntry(task, { at, type: "completed" }) };
+  return { ...task, state: "completed", completedAt: at, pushedDown: null, updatedAt: at, history: withEntry(task, { at, type: "completed" }) };
 }
 
 export function reopenedTask(task: Task, now: Date): Task {
@@ -32,15 +32,15 @@ export function reopenedTask(task: Task, now: Date): Task {
   return { ...task, state: "open", completedAt: null, updatedAt: at, history: withEntry(task, { at, type: "reopened" }) };
 }
 
-/** Moved to the bottom of its section until a time, or until lifted (null). Replaces legacy sleep. */
+/** Moved to the bottom of its section until a time, or until lifted (null). */
 export function pushedTask(task: Task, until: Date | null, now: Date): Task {
   const at = now.toISOString(), to = until?.toISOString() ?? null;
-  return { ...task, sleep: null, pushedDown: { until: to, at }, updatedAt: at, history: withEntry(task, { at, type: "pushed-down", until: to }) };
+  return { ...task, pushedDown: { until: to, at }, updatedAt: at, history: withEntry(task, { at, type: "pushed-down", until: to }) };
 }
 
 export function liftedTask(task: Task, now: Date): Task {
   const at = now.toISOString();
-  return { ...task, sleep: null, pushedDown: null, updatedAt: at, history: withEntry(task, { at, type: "lifted" }) };
+  return { ...task, pushedDown: null, updatedAt: at, history: withEntry(task, { at, type: "lifted" }) };
 }
 
 export function patchedItem<T extends Item>(item: T, patch: Partial<T>, now: Date): T {
@@ -66,15 +66,11 @@ export type TaskDraft = {
   availableFrom: string | null;
   deadline: string | null;
   warnHours: number | null;
-  // Legacy exact warning time, kept while the editor leaves it chosen.
-  warnAt: string | null;
   repeat?: Task["repeat"];
   // A dormant dependent task's automatic start, and whether it finishes its parent.
   startWhen?: Task["startWhen"];
   stopParent?: boolean;
   windowId: string | null;
-  // Legacy inline hours, kept while no named window replaces them.
-  schedule: AvailabilitySchedule | null;
   // Days after starting, for the fields a dormant dependent task measures that way.
   relativeDates: Partial<Record<RelativeDateField, number>>;
 };
@@ -100,9 +96,8 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
   const at = now.toISOString();
   const task = previous?.kind === "task" ? previous : null;
   const closed = draft.state === "completed";
-  // Legacy sleep becomes pushed down the first time the task is saved here.
-  const since = task?.pushedDown?.at || task?.sleep?.startedAt || at;
-  const previousUntil = task?.pushedDown ? task.pushedDown.until : task?.sleep ? task.sleep.until : undefined;
+  const since = task?.pushedDown?.at || at;
+  const previousUntil = task?.pushedDown ? task.pushedDown.until : undefined;
   let pushedDown: PushedDown | null = null;
   if (!closed && draft.pushedDown.mode === "indefinite") pushedDown = { until: null, at: since };
   else if (!closed && draft.pushedDown.mode === "until" && draft.pushedDown.until && toDate(draft.pushedDown.until)! > now) pushedDown = { until: draft.pushedDown.until, at: since };
@@ -135,11 +130,8 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
     availableFrom: draft.availableFrom,
     deadline: draft.deadline,
     warnHours: draft.deadline ? draft.warnHours : null,
-    warnAt: draft.deadline ? draft.warnAt : null,
-    sleep: null,
     pushedDown,
     windowId: draft.windowId,
-    availabilitySchedule: draft.windowId ? null : draft.schedule,
     createdAt: previous?.createdAt || at,
     updatedAt: at,
     history,

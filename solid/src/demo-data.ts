@@ -15,7 +15,7 @@ export function demoItems(now = new Date()): Item[] {
     return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
   };
   const window = (id: string, title: string, dayList: number[], start: string, end: string): TimeWindow => ({ id, kind: "window", title, days: dayList, start, end, createdAt: created, updatedAt: created });
-  const group = (id: string, title: string, parentId: string | null = null): Group => ({ id, kind: "group", title, parentId, sortOrder: 0, createdAt: created, updatedAt: created });
+  const group = (id: string, title: string): Group => ({ id, kind: "group", title, sortOrder: 0, createdAt: created, updatedAt: created });
   let order = 0;
   const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
     id, kind: "task", title, state: "open", notes: "", tags: [], attachments: [], sortOrder: order++,
@@ -83,7 +83,7 @@ export function sampleSubtaskItems(now = new Date()): Item[] {
   });
   const group = "sample-group", parent = (id: string) => SAMPLE_PREFIX + id;
   return [
-    { id: group, kind: "group", title: "Sample: subtasks", parentId: null, sortOrder: 0, createdAt: at, updatedAt: at },
+    { id: group, kind: "group", title: "Sample: subtasks", sortOrder: 0, createdAt: at, updatedAt: at },
     { id: "sample-window", kind: "window", title: "Sample: open all day", days: [0, 1, 2, 3, 4, 5, 6], start: "00:00", end: "23:59", createdAt: at, updatedAt: at },
     // Same section throughout: both modes look the same.
     task("dinner", "Plan birthday dinner", { groupId: group, notes: "All subtasks are available, so both settings nest them here. Finishing both finishes the dinner." }),

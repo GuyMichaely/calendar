@@ -1,16 +1,13 @@
-import type { AvailabilitySchedule, Item, Task, TimeWindow } from "./types";
+import type { Item, Task, TimeWindow } from "./types";
 
 // A window's weekly hours: the days it's open (0 = Sunday) and its local start/end times.
 export type Schedule = { days: number[]; start: string; end: string };
 
 export const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/** The hours a task can be done in: its named window, else legacy inline hours, else none. */
+/** The hours a task can be done in: its window, if it has one. */
 export function taskSchedule(task: Task, windows: Map<string, TimeWindow>): Schedule | null {
-  const named = task.windowId ? windows.get(task.windowId) : undefined;
-  if (named) return named;
-  const legacy: AvailabilitySchedule | null | undefined = task.availabilitySchedule;
-  return legacy?.enabled ? legacy : null;
+  return (task.windowId ? windows.get(task.windowId) : undefined) ?? null;
 }
 
 export function windowsById(items: Item[]) {

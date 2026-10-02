@@ -3,7 +3,6 @@ import type { Item } from "./model";
 export function listItems(): Promise<Item[]>;
 export function listItemsSnapshot(): Promise<Item[]>;
 export function putItem(item: Item, baseline?: Item | null): Promise<Item>;
-export function putItemQuietly(item: Item, baseline?: Item | null): Promise<void>;
 export function deleteItem(id: string): Promise<void>;
 export function canUndo(): boolean;
 export function canRedo(): boolean;
@@ -23,4 +22,3 @@ export function getItem(id: string): Promise<Item | null>;
 export function historyBatch<T>(label: string, run: () => Promise<T>): Promise<T>;
 
 export function parseBackup(text: string): Item[];
-export function moveTask(id: string, targetId: string | null, placement: string): Promise<void>;

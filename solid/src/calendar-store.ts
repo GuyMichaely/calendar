@@ -10,7 +10,6 @@ import {
   listItems,
   parseBackup,
   putItem,
-  putItemQuietly,
   readRawStoredBytes,
   redo,
   resetStoredDocument,
@@ -22,7 +21,6 @@ import { startedTask } from "./dependencies";
 import { advancedTask } from "./repeats";
 import { boardLayoutPatches, type BoardLayout } from "./board-order";
 import { deleteBoardPatches, taskPlacePatches } from "./boards";
-import { legacyChanges } from "./migrate";
 import { completedTask, dependentGroupId, liftedTask, reopenedTask, newGroup, newTask, newWindow, patchedItem, pushedTask } from "./item-changes";
 import type { Group, Item, Task, TimeWindow } from "./types";
 
@@ -43,25 +41,7 @@ export function createCalendarStore(options: { onChanged: () => void }) {
   window.addEventListener("calendar:history-state", onHistory);
   onCleanup(() => window.removeEventListener("calendar:history-state", onHistory));
 
-  // Old data is converted to the current model as it's read (on load, after edits, after sync).
-  let converting = false;
-  const refresh = async () => {
-    let next = await listItems();
-    if (!converting) {
-      const updates = legacyChanges(next, new Date());
-      if (updates.length) {
-        converting = true;
-        try {
-          const byId = new Map(next.map(item => [item.id, item]));
-          // Windows first, so tasks can use them.
-          for (const item of [...updates].sort((a, b) => Number(b.kind === "window") - Number(a.kind === "window"))) await putItemQuietly(item, byId.get(item.id) ?? null);
-        } catch (error) { console.error("Could not convert old data", error); }
-        finally { converting = false; }
-        next = await listItems();
-      }
-    }
-    setItems([...next]);
-  };
+  const refresh = async () => { const next = await listItems(); setItems([...next]); };
   const changed = async () => { await refresh(); options.onChanged(); };
   // Reload even after a failure: part of a batch may have been saved.
   const change = async <T>(run: () => Promise<T>): Promise<T> => {
@@ -173,9 +153,7 @@ export function createCalendarStore(options: { onChanged: () => void }) {
     }),
 
     deleteGroup: (group: Group) => batch(`Delete board “${group.title}”`, async () => {
-      const { groups, tasks } = deleteBoardPatches(items(), group);
-      for (const { group, patch } of groups) await patchGroup(group, patch);
-      for (const { task, patch } of tasks) await putItem(patchedItem(task, patch, new Date()), task);
+      for (const { task, patch } of deleteBoardPatches(items(), group)) await putItem(patchedItem(task, patch, new Date()), task);
       await deleteItem(group.id);
     }),
 

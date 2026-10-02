@@ -40,8 +40,8 @@ const storage = await import("../site/storage.js");
 function task(overrides = {}) {
   return {
     id: "task-storage-1", kind: "task", title: "Plan swim", notes: "hello world", state: "open",
-    tags: ["planning"], attachments: [], availableFrom: null, deadline: null, latestStart: null,
-    sleep: null, availabilitySchedule: null, createdAt: "2026-09-04T12:00:00.000Z",
+    tags: ["planning"], attachments: [], availableFrom: null, deadline: null,
+    pushedDown: null, createdAt: "2026-09-04T12:00:00.000Z",
     updatedAt: "2026-09-04T12:00:00.000Z", history: [{ at: "2026-09-04T12:00:00.000Z", type: "created" }],
     ...overrides,
   };
@@ -139,7 +139,7 @@ test("a stale editor text change is made at its captured heads so concurrent rem
 
 test("kind conversion removes obsolete source-kind fields without overwriting untouched shared remote edits", async () => {
   const id = "task-storage-convert";
-  const initial = task({ id, deadline: "2026-09-10T17:00:00.000Z", sleep: { until: "2026-09-08T12:00:00.000Z", startedAt: "2026-09-04T12:00:00.000Z" } });
+  const initial = task({ id, deadline: "2026-09-10T17:00:00.000Z", pushedDown: { until: "2026-09-08T12:00:00.000Z", at: "2026-09-04T12:00:00.000Z" } });
   await storage.putItem(initial);
   const baseline = (await storage.listItems()).find((item) => item.id === id);
   const baseDocument = loadCalendarDocument(await storage.readSyncSnapshot());
@@ -153,7 +153,7 @@ test("kind conversion removes obsolete source-kind fields without overwriting un
   assert.equal(current.start, "2026-09-20T13:00:00.000Z");
   assert.equal("state" in current, false);
   assert.equal("deadline" in current, false);
-  assert.equal("sleep" in current, false);
+  assert.equal("pushedDown" in current, false);
   assert.equal("history" in current, false);
 });
 
@@ -284,59 +284,21 @@ test("an invalid imported hierarchy is rejected before changing stored items", a
 });
 
 
-test('drag moves persist parent and sibling order with grouped undo and redo', async () => {
-  for (const id of ['drag-a', 'drag-b', 'drag-c']) await storage.putItem(task({id}));
-  await storage.moveTask('drag-c', 'drag-a', 'inside');
-  assert.equal((await storage.getItem('drag-c')).parentId, 'drag-a');
-  await storage.undo();
-  assert.equal((await storage.getItem('drag-c')).parentId ?? null, null);
-  await storage.redo();
-  assert.equal((await storage.getItem('drag-c')).parentId, 'drag-a');
-  await assert.rejects(storage.moveTask('drag-a', 'drag-c', 'inside'), /own ancestor/);
-  await storage.moveTask('drag-c', 'drag-b', 'before');
-  assert.equal((await storage.getItem('drag-c')).parentId, null);
-  assert.ok((await storage.getItem('drag-c')).sortOrder < (await storage.getItem('drag-b')).sortOrder);
-});
-
-
-test("invalid sleep or an earlier due date cannot change saved task state", async () => {
-  const future = days => new Date(Date.now() + days * 86400000).toISOString();
-  const initial = task({id:"sleep-validation", deadline:future(2), sleep:{until:future(1),startedAt:new Date().toISOString()}});
-  await storage.putItem(initial);
-  const before=await storage.getItem(initial.id);
-  await assert.rejects(storage.putItem({...before,sleep:{...before.sleep,until:future(3)}},before),/due date/);
-  await assert.rejects(storage.putItem({...before,deadline:future(0.5)},before),/due date/);
-  await assert.rejects(storage.putItem({...before,sleep:{...before.sleep,until:null}},before),/indefinitely/);
-  assert.deepEqual(await storage.getItem(initial.id),before);
-  await storage.putItem({...before,deadline:future(1.25)},before);
-  const current=await storage.getItem(initial.id);
-  // A stale editor still has the later deadline. Its new sleep is valid there,
-  // but must be rejected against the current document without changing it.
-  await assert.rejects(storage.putItem({...before,sleep:{...before.sleep,until:future(1.5)}},before),/due date/);
-  assert.deepEqual(await storage.getItem(initial.id),current);
-  await assert.rejects(storage.importData(JSON.stringify({items:[task({id:"should-not-import"}), {...before,sleep:{...before.sleep,until:future(3)}}]})),/due date/);
-  assert.equal(await storage.getItem("should-not-import"),null);
-  await storage.deleteItem(initial.id);
-});
-
-test("groups form a strict tree, hold tasks, and round-trip through backups", async () => {
+test("boards hold tasks and round-trip through backups; backups with unknown fields are refused", async () => {
   const at = "2026-09-26T12:00:00.000Z";
-  const group = (id, parentId = null) => ({ id, kind: "group", title: id, parentId, sortOrder: 0, createdAt: at, updatedAt: at });
-  await storage.putItem(group("group-outer"));
-  await storage.putItem(group("group-inner", "group-outer"));
-  await assert.rejects(storage.putItem(group("group-outer", "group-inner"), await storage.getItem("group-outer")), /cannot contain itself/);
-  await assert.rejects(storage.putItem(group("group-bad", "task-storage-1")), /only be nested in groups/);
-  await storage.putItem(task({ id: "task-in-group", groupId: "group-inner" }));
-  await assert.rejects(storage.putItem(task({ id: "task-bad-group", groupId: "task-in-group" })), /only be placed in groups/);
-  assert.equal((await storage.getItem("task-in-group")).groupId, "group-inner");
+  const board = (id) => ({ id, kind: "group", title: id, sortOrder: 0, createdAt: at, updatedAt: at });
+  await storage.putItem(board("board-home"));
+  await storage.putItem(task({ id: "task-on-board", groupId: "board-home" }));
+  await assert.rejects(storage.putItem(task({ id: "task-bad-board", groupId: "task-on-board" })), /only be placed on boards/);
   const backup = storage.parseBackup(await storage.exportData());
-  assert.equal(backup.find(item => item.id === "group-inner").parentId, "group-outer");
-  const moved = await storage.historyBatch("Reparent", async () => {
-    await storage.putItem({ ...group("group-inner"), updatedAt: "2026-09-26T13:00:00.000Z" }, await storage.getItem("group-inner"));
-    return storage.undoLabel();
-  });
-  assert.notEqual(moved, "Reparent");
-  assert.equal(storage.undoLabel(), "Reparent");
+  assert.equal(backup.find(item => item.id === "task-on-board").groupId, "board-home");
+  assert.throws(() => storage.parseBackup(JSON.stringify({ items: [{ ...board("old"), parentId: null, boardColumn: 2 }] })), /fields this version doesn't use \(parentId, boardColumn\)/);
+  // Importing a converted item removes the fields it no longer has.
+  await storage.putItem(task({ id: "task-cleaned", windowId: "w" }));
+  const { windowId, ...cleaned } = await storage.getItem("task-cleaned");
+  await storage.importData(JSON.stringify({ items: [cleaned] }));
+  assert.equal("windowId" in (await storage.getItem("task-cleaned")), false);
+  for (const id of ["task-cleaned", "task-on-board", "board-home"]) await storage.deleteItem(id);
 });
 
 test("the loaded document is reused until another tab writes, and appended saves load", async () => {
@@ -366,16 +328,4 @@ test("imports store tasks as they are, without completion cascades", async () =>
   assert.equal((await storage.getItem("import-parent")).state, "completed");
   assert.equal((await storage.getItem("import-child")).state, "open");
   await storage.deleteItem("import-parent");
-});
-
-test("a quiet write converts an item without an undo step", async () => {
-  await storage.putItem(task({ id: "quiet", sleep: { until: null, startedAt: "2026-09-04T12:00:00.000Z" } }));
-  const label = storage.undoLabel();
-  const before = await storage.getItem("quiet");
-  await storage.putItemQuietly({ ...before, sleep: null, pushedDown: { until: null, at: "2026-09-04T12:00:00.000Z" } }, before);
-  const after = await storage.getItem("quiet");
-  assert.equal(after.sleep, null);
-  assert.deepEqual(after.pushedDown, { until: null, at: "2026-09-04T12:00:00.000Z" });
-  assert.equal(storage.undoLabel(), label);
-  await storage.deleteItem("quiet");
 });

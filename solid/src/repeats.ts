@@ -60,7 +60,7 @@ export function occurrenceTask(task: Task, now: Date): Task {
   const occurrence = currentOccurrence(task, now);
   if (!occurrence) return task;
   const due = occurrence.due ?? (occurrence.missed ? occurrence.end : null);
-  return { ...task, availableFrom: occurrence.start.toISOString(), deadline: due?.toISOString() ?? null, warnAt: occurrence.due ? task.warnAt ?? null : null };
+  return { ...task, availableFrom: occurrence.start.toISOString(), deadline: due?.toISOString() ?? null };
 }
 
 /** The changes that move a repeating task past its current occurrence, or finish it after its last. */

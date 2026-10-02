@@ -29,13 +29,10 @@ function normalizeStoredKey(value: unknown, fallback: string) {
   return fallback;
 }
 
-// Keys saved under the old sleep actions carry over to the push-down ones.
-const OLD_NAMES: Partial<Record<ShortcutAction, string>> = { pushDown: "sleepIndefinite", pushDownTomorrow: "sleepTomorrow" };
-
 export function loadShortcuts(): Shortcuts {
   try {
     const stored = JSON.parse(localStorage.getItem(SHORTCUT_STORAGE_KEY) || "null") || {};
-    return Object.fromEntries(actions.map(action => [action, normalizeStoredKey(stored[action] ?? stored[OLD_NAMES[action] ?? ""], DEFAULT_SHORTCUTS[action])])) as Shortcuts;
+    return Object.fromEntries(actions.map(action => [action, normalizeStoredKey(stored[action], DEFAULT_SHORTCUTS[action])])) as Shortcuts;
   } catch {
     return { ...DEFAULT_SHORTCUTS };
   }

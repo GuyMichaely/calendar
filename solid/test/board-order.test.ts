@@ -3,12 +3,7 @@ import { boardLayout, boardLayoutPatches, placeBoard } from "../src/board-order"
 import type { Group, Item } from "../src/types";
 
 const at = "2026-09-01T00:00:00.000Z";
-const board = (id: string, extra: Partial<Group> = {}): Group => ({ id, kind: "group", title: id, parentId: null, createdAt: at, updatedAt: at, ...extra });
-
-test("boards not yet placed get columns before Upcoming, keeping their old board-page columns", () => {
-  const items: Item[] = [board("notes", { boardColumn: 3, sortOrder: 1 }), board("ideas", { boardColumn: 3, sortOrder: 0 }), board("support", { boardColumn: 1 })];
-  expect(boardLayout(items)).toEqual([["firm", "closing", "later"], ["available"], ["support"], ["ideas", "notes"], ["upcoming"], ["completed"]]);
-});
+const board = (id: string, extra: Partial<Group> = {}): Group => ({ id, kind: "group", title: id, createdAt: at, updatedAt: at, ...extra });
 
 test("a drop lands next to the visible board it's dropped beside; hidden boards keep their places", () => {
   const layout = [["firm", "closing", "later"], ["available"], ["notes"], ["upcoming"], ["completed"]];

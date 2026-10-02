@@ -1,13 +1,12 @@
-import { sleepValidationMessage } from "./domain.js";
-import { validateDependentOf, validateGroupParent, validateTaskGroup, validateTaskParent } from "./task-tree.js";
+import { validateDependentOf, validateTaskGroup, validateTaskParent } from "./task-tree.js";
 import {
+  allowedFieldsForKind,
   applyLocalHistoryChange,
   deleteLocalItem,
   getLocalItem,
   listLocalItems,
   mergeLocalSyncSnapshot,
   putLocalItem,
-  moveLocalTask,
   readLocalDocument,
   readLocalSyncSnapshot,
   readRawLocalBytes,
@@ -127,11 +126,9 @@ function actionLabel(before, after) {
   const event = newHistory.length > oldHistoryLength ? newHistory[newHistory.length - 1]?.type : null;
   const labels = {
     completed: "Complete",
-    woke: "Wake",
-    slept: "Sleep",
-    "sleep-updated": "Change sleep for",
-    "sleep-converted-to-wait": "Convert sleep to waiting for",
-    "wait-converted-to-sleep": "Convert waiting to sleep for",
+    reopened: "Reopen",
+    "pushed-down": "Push down",
+    lifted: "Lift",
   };
   return `${labels[event] || "Edit"} ${title}`;
 }
@@ -225,8 +222,6 @@ export async function listItemsSnapshot() {
 let importing = false;
 
 export async function putItem(item, baseline = null) {
-  const sleepError = sleepValidationMessage(item);
-  if (sleepError) throw new Error(sleepError);
   const uploads = uploadableAttachments(item);
   await uploadAttachmentsBeforePersist(uploads);
   const cleanItem = withoutAttachmentBytes(item);
@@ -245,13 +240,6 @@ export async function putItem(item, baseline = null) {
     changes: [{ id: item.id, before: historyBefore, after: historyAfter }, ...relatedChanges],
   });
   return editBaseline;
-}
-
-/** Write without an undo step or completion cascades: for converting old data to the current model. */
-export async function putItemQuietly(item, baseline = null) {
-  const { after, relatedChanges } = await putLocalItem(withoutAttachmentBytes(item), withoutAttachmentBytes(baseline), { cascade: false });
-  syncLiveItem(item.id, withoutAttachmentBytes(after));
-  for (const change of relatedChanges) syncLiveItem(change.id, change.after);
 }
 
 export async function deleteItem(id) {
@@ -355,15 +343,14 @@ export function parseBackup(text) {
     if (ids.has(item.id)) throw new Error("The backup contains duplicate item IDs.");
     ids.add(item.id);
     if (item.attachments != null && !Array.isArray(item.attachments)) throw new Error("Item attachments must be an array.");
+    const unknown = Object.keys(item).filter((field) => !allowedFieldsForKind(item.kind).has(field));
+    if (unknown.length) throw new Error(`“${item.title || item.id}” has fields this version doesn't use (${unknown.join(", ")}). A backup from an older version needs converting first: see scripts/migrate-backup.js.`);
   }
   if (items.some((item) => (item?.attachments || []).some((attachment) => attachment?.dataUrl || attachment?.blob))) {
     throw new Error("This backup contains embedded attachment bytes. Import supports attachment references only.");
   }
   for (const item of items) {
     if (item.kind === "task") { validateTaskParent(items, item.id, item.parentId); validateTaskGroup(items, item.groupId); validateDependentOf(items, item.id, item.dependentOf); }
-    if (item.kind === "group") validateGroupParent(items, item.id, item.parentId);
-    const sleepError = sleepValidationMessage(item);
-    if (sleepError) throw new Error(sleepError);
   }
   return items;
 }
@@ -374,7 +361,6 @@ export async function importData(text) {
   for (const item of items) combined.set(item.id, item);
   for (const item of items) {
     if (item.kind === "task") validateTaskParent([...combined.values()], item.id, item.parentId);
-    if (item.kind === "group") validateGroupParent([...combined.values()], item.id, item.parentId);
   }
   await beginBatch("Import backup");
   let imported = 0;
@@ -424,8 +410,3 @@ export async function getItem(id) {
   return withoutAttachmentBytes(await getLocalItem(id));
 }
 
-export async function moveTask(id, targetId, placement) {
-  const changes = await moveLocalTask(id, targetId, placement);
-  for (const change of changes) syncLiveItem(change.id, change.after);
-  if (changes.length) await pushHistory({label: 'Move task', changes});
-}

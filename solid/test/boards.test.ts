@@ -40,10 +40,8 @@ test("taskPlacePatches nests, un-nests, moves between boards, and indexes a task
 });
 
 test("deleting a board leaves its tasks on no board", () => {
-  const items: Item[] = [group("g"), group("sub", { parentId: "g" }), task("t", { groupId: "g" })];
-  const { groups, tasks } = deleteBoardPatches(items, items[0] as Group);
-  expect(groups.map(({ group, patch }) => [group.id, patch.parentId])).toEqual([["sub", null]]);
-  expect(tasks.map(({ task, patch }) => [task.id, patch.groupId])).toEqual([["t", null]]);
+  const items: Item[] = [group("g"), task("t", { groupId: "g" }), task("other", { groupId: "h" })];
+  expect(deleteBoardPatches(items, items[0] as Group).map(({ task, patch }) => [task.id, patch.groupId])).toEqual([["t", null]]);
 });
 
 test("the calendar's what-if view starts dependent tasks on their parent task's latest date, through chains", () => {
