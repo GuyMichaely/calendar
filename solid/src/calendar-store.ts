@@ -10,6 +10,7 @@ import {
   listItems,
   parseBackup,
   putItem,
+  putItemWithoutUndo,
   readRawStoredBytes,
   redo,
   resetStoredDocument,
@@ -22,7 +23,10 @@ import { advancedTask } from "./repeats";
 import { boardLayoutPatches, type BoardLayout } from "./board-order";
 import { deleteBoardPatches, taskPlacePatches } from "./boards";
 import { completedTask, dependentGroupId, liftedTask, reopenedTask, newGroup, newTask, newWindow, patchedItem, pushedTask } from "./item-changes";
-import type { Group, Item, Task, TimeWindow } from "./types";
+import { sameClockIn } from "./zone";
+import type { CalendarEvent, CalendarSettings, Group, Item, Task, TimeWindow } from "./types";
+
+export const SETTINGS_ID = "settings";
 
 export type HistoryState = { canUndo: boolean; canRedo: boolean; undoLabel: string; redoLabel: string };
 
@@ -155,6 +159,36 @@ export function createCalendarStore(options: { onChanged: () => void }) {
     deleteGroup: (group: Group) => batch(`Delete board “${group.title}”`, async () => {
       for (const { task, patch } of deleteBoardPatches(items(), group)) await putItem(patchedItem(task, patch, new Date()), task);
       await deleteItem(group.id);
+    }),
+
+    /** The calendar's settings, set up once (not an edit, so not undoable). */
+    createSettings: (timeZone: string) => {
+      const at = new Date().toISOString();
+      const settings: CalendarSettings = { id: SETTINGS_ID, kind: "settings", title: "Settings", timeZone, createdAt: at, updatedAt: at };
+      return change(() => putItemWithoutUndo(settings));
+    },
+    /**
+     * A new calendar time zone. With `keepClock`, task and event dates move so they read the
+     * same clock time in the new zone (9 AM stays 9 AM); otherwise they stay the same moments.
+     * Records of when things happened (completed, created, history) never move.
+     */
+    changeTimeZone: (settings: CalendarSettings, timeZone: string, keepClock: boolean) => batch("Change time zone", async () => {
+      const from = settings.timeZone, now = new Date();
+      const move = (value?: string | null) => value ? sameClockIn(new Date(value), from, timeZone).toISOString() : value;
+      if (keepClock) for (const item of items()) {
+        if (item.kind === "task") {
+          const patch: Partial<Task> = {};
+          if (item.availableFrom) patch.availableFrom = move(item.availableFrom);
+          if (item.deadline) patch.deadline = move(item.deadline);
+          if (item.pushedDown?.until) patch.pushedDown = { ...item.pushedDown, until: move(item.pushedDown.until)! };
+          if (item.repeat?.until) patch.repeat = { ...item.repeat, until: move(item.repeat.until)! };
+          if (item.startWhen?.on === "not-yet" && item.startWhen.after) patch.startWhen = { on: "not-yet", after: move(item.startWhen.after)! };
+          if (Object.keys(patch).length) await putItem(patchedItem(item, patch, now), item);
+        } else if (item.kind === "event" && (item.start || item.end)) {
+          await putItem(patchedItem(item, { start: move(item.start), end: move(item.end) } as Partial<CalendarEvent>, now), item);
+        }
+      }
+      await putItem(patchedItem(settings, { timeZone }, now), settings);
     }),
 
     /** Returns the label of the undone change, or null when there was nothing to undo. */

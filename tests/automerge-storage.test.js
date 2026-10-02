@@ -329,3 +329,15 @@ test("imports store tasks as they are, without completion cascades", async () =>
   assert.equal((await storage.getItem("import-child")).state, "open");
   await storage.deleteItem("import-parent");
 });
+
+test("the settings item is set up without an undo step and round-trips through backups", async () => {
+  const label = storage.undoLabel();
+  const settings = { id: "settings", kind: "settings", title: "Settings", timeZone: "America/New_York", createdAt: "2026-10-02T12:00:00.000Z", updatedAt: "2026-10-02T12:00:00.000Z" };
+  await storage.putItemWithoutUndo(settings);
+  assert.equal(storage.undoLabel(), label);
+  assert.equal((await storage.getItem("settings")).timeZone, "America/New_York");
+  assert.equal(storage.parseBackup(await storage.exportData()).find(item => item.id === "settings").timeZone, "America/New_York");
+  await storage.putItem({ ...settings, timeZone: "Asia/Tokyo" }, await storage.getItem("settings"));
+  assert.equal((await storage.getItem("settings")).timeZone, "Asia/Tokyo");
+  await storage.deleteItem("settings");
+});

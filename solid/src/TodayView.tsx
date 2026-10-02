@@ -6,6 +6,7 @@ import { taskSchedule, windowsById } from "./windows";
 import { describeRepeat, lastCheckIn } from "./repeats";
 // The same search as the calendar: title, notes, tags, and attachment names.
 import { textMatches } from "../../site/domain.js";
+import { addDays, clockText, daysBetween, formatIn, partsOf, sameDay, startOfDay } from "./zone";
 import { actionForKey, normalizeEventKey, type Shortcuts } from "./shortcut-config";
 import type { Item, Task } from "./types";
 
@@ -68,16 +69,16 @@ const SECTION_LABELS: Record<SectionId, { title: string; hint?: string }> = {
 const COLLAPSED_AT_FIRST = new Set<SectionId>(["upcoming", "completed"]);
 const MOTION_MS = 320;
 
-const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-const clock = (date: Date) => date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const clock = clockText;
 /** "3:00 PM" today, "Thu 5:00 PM" this week, "Oct 12" later (with the year only when it isn't this year). */
 export function when(date: Date, now: Date) {
   if (sameDay(date, now)) return clock(date);
-  const days = (new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / 86_400_000;
+  const days = daysBetween(now, date);
   // Midnight means the start of that day; its time adds nothing.
-  const time = date.getHours() || date.getMinutes() ? ` ${clock(date)}` : "";
-  if (days > 0 && days < 7) return `${date.toLocaleDateString([], { weekday: "short" })}${time}`;
-  return date.toLocaleDateString([], { month: "short", day: "numeric", ...(date.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
+  const { hour, minute, year } = partsOf(date);
+  const time = hour || minute ? ` ${clock(date)}` : "";
+  if (days > 0 && days < 7) return `${formatIn(date, { weekday: "short" })}${time}`;
+  return formatIn(date, { month: "short", day: "numeric", ...(year !== partsOf(now).year ? { year: "numeric" } : {}) });
 }
 export function duration(ms: number) {
   const minutes = Math.max(1, Math.ceil(ms / 60_000)), hours = Math.floor(minutes / 60);
@@ -409,7 +410,7 @@ export function TodayView(props: TodayViewProps) {
     });
     const act = (run: () => unknown) => () => { setOpen(false); void run(); };
     const pushed = () => pushedDownInfo(menuProps.task, props.now).pushed;
-    const tomorrow = () => { const date = new Date(props.now); date.setDate(date.getDate() + 1); date.setHours(0, 0, 0, 0); return date; };
+    const tomorrow = () => addDays(startOfDay(props.now), 1);
     const id = () => menuProps.task.id;
     return <span class="task-menu" ref={root}>
       <button class="icon-button task-menu-button" aria-label={`Actions for ${menuProps.task.title || "Untitled task"}`} aria-haspopup="menu" aria-expanded={open()} onClick={() => setOpen(value => !value)}>⋮</button>
@@ -496,7 +497,7 @@ export function TodayView(props: TodayViewProps) {
     else if (action === "complete") void keepFocus(target, () => done ? reopen(task) : complete(task));
     else if (done) return;
     else if (action === "pushDown") void keepFocus(target, () => moving([task.id], () => pushedDownInfo(task, props.now).pushed ? props.onLift(task) : props.onPushDown(task, null)));
-    else if (action === "pushDownTomorrow") { const date = new Date(props.now); date.setDate(date.getDate() + 1); date.setHours(0, 0, 0, 0); void keepFocus(target, () => moving([task.id], () => props.onPushDown(task, date))); }
+    else if (action === "pushDownTomorrow") { const date = addDays(startOfDay(props.now), 1); void keepFocus(target, () => moving([task.id], () => props.onPushDown(task, date))); }
     else if (action === "notYet" && task.repeat?.untilDone) void keepFocus(target, () => moving([task.id], () => props.onNotYet(task)));
   };
   // With nothing focused, ↓/↑ start at the first or last row, and Add a task works too.
@@ -678,7 +679,7 @@ export function TodayView(props: TodayViewProps) {
     </Show>
     <div class="today-heading">
       <h1>{props.view === "boards" ? "Boards" : "Agenda"}</h1>
-      <span class="today-date">{props.now.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · {clock(props.now)}</span>
+      <span class="today-date">{formatIn(props.now, { weekday: "short", month: "short", day: "numeric" })} · {clock(props.now)}</span>
       <span class="spacer" />
       <label class="today-subtasks" title={"Keep together: each task with subtasks shows once, in the section of its most urgent subtask, with the rest dimmed.\nSpread out: every subtask shows in its own section, under a dimmed row for its parent."}>
         <span>Subtasks</span>

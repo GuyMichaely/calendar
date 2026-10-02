@@ -2,6 +2,7 @@ import { effectivelyDone, openWork, placementOf, pushedDownInfo, type SectionId 
 import { currentOccurrence, nextStart, occurrenceTask } from "./repeats";
 import { nextOpening, openingOn, taskSchedule, windowsById } from "./windows";
 import { isDormant } from "./dependencies";
+import { endOfDay } from "./zone";
 import type { CalendarEvent, Item, Task, TimeWindow } from "./types";
 
 /*
@@ -19,7 +20,6 @@ export type CalendarEntry = {
 };
 
 const time = (value?: string | null) => { if (!value) return null; const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date; };
-const endOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
 const MAX_REPEATS = 62;
 
 /** Every entry from `from` to `to` (inclusive days), for events and for tasks that aren't done. */

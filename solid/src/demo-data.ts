@@ -1,3 +1,4 @@
+import { addDays, atTime, partsOf } from "./zone";
 import type { Group, Item, Task, TimeWindow } from "./types";
 
 /*
@@ -8,10 +9,10 @@ import type { Group, Item, Task, TimeWindow } from "./types";
 export function demoItems(now = new Date()): Item[] {
   const created = new Date(now.getTime() - 7 * 86_400_000).toISOString();
   const hours = (count: number) => new Date(now.getTime() + count * 3_600_000).toISOString();
-  const days = (count: number) => { const date = new Date(now); date.setDate(date.getDate() + count); date.setHours(9, 0, 0, 0); return date.toISOString(); };
+  const days = (count: number) => atTime(addDays(now, count), "09:00").toISOString();
   // "HH:MM" some hours from now, kept within today.
   const hhmm = (offset: number) => {
-    const minutes = Math.max(0, Math.min(23 * 60 + 59, Math.round((now.getHours() * 60 + now.getMinutes() + offset * 60) / 30) * 30));
+    const minutes = Math.max(0, Math.min(23 * 60 + 59, Math.round((partsOf(now).hour * 60 + partsOf(now).minute + offset * 60) / 30) * 30));
     return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
   };
   const window = (id: string, title: string, dayList: number[], start: string, end: string): TimeWindow => ({ id, kind: "window", title, days: dayList, start, end, createdAt: created, updatedAt: created });
@@ -75,7 +76,7 @@ export const SAMPLE_PREFIX = "sample-";
 export function sampleSubtaskItems(now = new Date()): Item[] {
   const at = now.toISOString();
   const hours = (count: number) => new Date(now.getTime() + count * 3_600_000).toISOString();
-  const days = (count: number) => { const date = new Date(now); date.setDate(date.getDate() + count); date.setHours(9, 0, 0, 0); return date.toISOString(); };
+  const days = (count: number) => atTime(addDays(now, count), "09:00").toISOString();
   let order = 0;
   const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
     id: SAMPLE_PREFIX + id, kind: "task", title, state: "open", notes: "", tags: [], attachments: [], sortOrder: order++,

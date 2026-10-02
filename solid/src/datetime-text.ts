@@ -1,23 +1,17 @@
-// Converting between the "YYYY-MM-DDTHH:mm" local values the editor stores and text people read or type.
+import { formatIn, partsOf, zonedDate } from "./zone";
+
+// Converting between moments and the text people read or type, in the calendar's time zone.
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
-export function toLocalValue(date: Date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-export function fromLocalValue(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value || "");
-  return match ? new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]) : null;
-}
-
 /** Compact form for narrow fields. */
 export function formatDateTimeShort(date: Date) {
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+  return formatIn(date, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export function formatDateTimeText(date: Date) {
-  return `${pad(date.getMonth() + 1)}/${pad(date.getDate())}/${date.getFullYear()} ${pad(date.getHours() % 12 || 12)}:${pad(date.getMinutes())} ${date.getHours() >= 12 ? "PM" : "AM"}`;
+  const { year, month, day, hour, minute } = partsOf(date);
+  return `${pad(month)}/${pad(day)}/${year} ${pad(hour % 12 || 12)}:${pad(minute)} ${hour >= 12 ? "PM" : "AM"}`;
 }
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -35,11 +29,13 @@ function parseTime(text: string): [number, number] | null {
   return [hours, minutes];
 }
 
+// `month` is 0–11 here.
 function build(year: number, month: number, day: number, time: string | undefined, defaultTime: [number, number]): Date | null {
   const [hours, minutes] = time?.trim() ? parseTime(time) ?? [NaN, NaN] : defaultTime;
   if (Number.isNaN(hours)) return null;
-  const date = new Date(year, month, day, hours, minutes);
-  return date.getMonth() === month && date.getDate() === day ? date : null;
+  const date = zonedDate(year, month + 1, day, hours, minutes);
+  const parts = partsOf(date);
+  return parts.month === month + 1 && parts.day === day ? date : null;
 }
 
 /**
@@ -53,20 +49,20 @@ export function parseDateTimeText(text: string, now = new Date(), defaultTime: [
   if (match) return build(+match[1], +match[2] - 1, +match[3], match[4], defaultTime);
   match = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?(?:[\s,]+(?:at\s+)?(.+))?$/.exec(input);
   if (match) {
-    const year = match[3] ? (match[3].length === 2 ? 2000 + +match[3] : +match[3]) : now.getFullYear();
+    const year = match[3] ? (match[3].length === 2 ? 2000 + +match[3] : +match[3]) : partsOf(now).year;
     return build(year, +match[1] - 1, +match[2], match[4], defaultTime);
   }
   match = /^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?(?:[\s,]+(?:at\s+)?(.+))?$/.exec(input);
   if (match) {
     const month = MONTHS.indexOf(match[1].slice(0, 3));
     if (month < 0) return null;
-    return build(match[3] ? +match[3] : now.getFullYear(), month, +match[2], match[4], defaultTime);
+    return build(match[3] ? +match[3] : partsOf(now).year, month, +match[2], match[4], defaultTime);
   }
   match = /^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)\.?(?:,?\s+(\d{4}))?(?:[\s,]+(?:at\s+)?(.+))?$/.exec(input);
   if (match) {
     const month = MONTHS.indexOf(match[2].slice(0, 3));
     if (month < 0) return null;
-    return build(match[3] ? +match[3] : now.getFullYear(), month, +match[1], match[4], defaultTime);
+    return build(match[3] ? +match[3] : partsOf(now).year, month, +match[1], match[4], defaultTime);
   }
   return null;
 }

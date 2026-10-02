@@ -1,7 +1,7 @@
 import { Icon } from "./Icon";
 import { taskDescendants } from "../../site/task-tree.js";
 import { For, Show, createEffect, createMemo, createSignal, onMount, onCleanup, type JSX } from "solid-js";
-import { formatDateTime, isoToLocalInput, localInputToIso } from "../../site/domain.js";
+import { addDays, atTime, dateTimeText, fromInputValue, inputToIso as localInputToIso, toInputValue as isoToLocalInput } from "./zone";
 import { NotesEditor, type NotesEditorApi } from "./NotesEditor";
 import { DateTimeField } from "./DateTimeField";
 import { placementOf, pushedDownInfo, taskGroupId } from "./today";
@@ -31,11 +31,6 @@ function uuid() {
   return crypto.randomUUID();
 }
 
-function localDateInput(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 function parseTags(value: FormDataEntryValue | null) {
   return String(value || "").split(",").map((tag) => tag.trim()).filter(Boolean);
 }
@@ -44,11 +39,8 @@ function eventDefaults(request: EditorRequest) {
   const existing = request.item?.kind === "event" ? request.item : null;
   if (existing) return { start: isoToLocalInput(existing.start), end: isoToLocalInput(existing.end) };
 
-  const start = request.date ? new Date(request.date) : new Date();
-  if (request.date) start.setHours(9, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { start: localDateInput(start), end: localDateInput(end) };
+  const start = request.date ? atTime(request.date, "09:00") : new Date();
+  return { start: isoToLocalInput(start), end: isoToLocalInput(addDays(start, 1)) };
 }
 
 function serializeForm(form: HTMLFormElement, files: File[], removed: Set<string>) {
@@ -258,19 +250,15 @@ export function ItemEditor(props: {
   const deriveEnd = (value: string) => {
     setEventStart(value);
     if (!value || eventEnd()) return;
-    const start = new Date(value);
-    if (Number.isNaN(start.getTime())) return;
-    start.setDate(start.getDate() + 1);
-    setEventEnd(localDateInput(start));
+    const start = fromInputValue(value);
+    if (start) setEventEnd(isoToLocalInput(addDays(start, 1)));
   };
 
   const deriveStart = (value: string) => {
     setEventEnd(value);
     if (!value || eventStart()) return;
-    const end = new Date(value);
-    if (Number.isNaN(end.getTime())) return;
-    end.setDate(end.getDate() - 1);
-    setEventStart(localDateInput(end));
+    const end = fromInputValue(value);
+    if (end) setEventStart(isoToLocalInput(addDays(end, -1)));
   };
 
   const saveOnce = async (): Promise<boolean> => {
@@ -437,7 +425,7 @@ export function ItemEditor(props: {
     if (stored.state === "completed") return "Completed";
     if (dormant()) return `Dependent task of “${parentTask()?.title || "Untitled task"}” · not started`;
     const pushed = pushedDownInfo(stored, now());
-    if (pushed.pushed) return pushed.until ? `Pushed down until ${formatDateTime(pushed.until)}` : "Pushed down";
+    if (pushed.pushed) return pushed.until ? `Pushed down until ${dateTimeText(pushed.until, now())}` : "Pushed down";
     const placement = placementOf(stored, props.items, now());
     return { firm: placement.overdue ? "Firm · overdue" : "Firm · due soon", closing: "Closing today · window open now", later: "Opens later today", available: "Available now", upcoming: "Upcoming · can't start yet", completed: "Completed" }[placement.section];
   };

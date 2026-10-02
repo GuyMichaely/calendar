@@ -104,4 +104,11 @@ export type TimeWindow = BaseItem & {
   end: string;
 };
 
-export type Item = Task | CalendarEvent | Group | TimeWindow;
+// Calendar-wide settings: one item (id "settings"), synced with everything else.
+export type CalendarSettings = BaseItem & {
+  kind: "settings";
+  // The calendar's time zone (IANA name): clock times and days are read in it.
+  timeZone: string;
+};
+
+export type Item = Task | CalendarEvent | Group | TimeWindow | CalendarSettings;

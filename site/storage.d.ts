@@ -3,6 +3,7 @@ import type { Item } from "./model";
 export function listItems(): Promise<Item[]>;
 export function listItemsSnapshot(): Promise<Item[]>;
 export function putItem(item: Item, baseline?: Item | null): Promise<Item>;
+export function putItemWithoutUndo(item: Item): Promise<void>;
 export function deleteItem(id: string): Promise<void>;
 export function canUndo(): boolean;
 export function canRedo(): boolean;

@@ -1,4 +1,5 @@
 import { toDate } from "../../site/domain.js";
+import { addDays } from "./zone";
 import type { RelativeDateField } from "./dependencies";
 import type { Attachment, CalendarEvent, Group, HistoryEntry, Item, PushedDown, Task, TaskState, TimeWindow } from "./types";
 import type { RelativeDates } from "../../site/model";
@@ -143,13 +144,9 @@ export function eventFromDraft(draft: EventDraft, { id, previous, now }: DraftCo
   const at = now.toISOString();
   let { start, end } = draft;
   if (start && !end) {
-    const derived = toDate(start)!;
-    derived.setDate(derived.getDate() + 1);
-    end = derived.toISOString();
+    end = addDays(toDate(start)!, 1).toISOString();
   } else if (!start && end) {
-    const derived = toDate(end)!;
-    derived.setDate(derived.getDate() - 1);
-    start = derived.toISOString();
+    start = addDays(toDate(end)!, -1).toISOString();
   }
   return {
     ...(previous?.kind === "event" ? previous : {}),

@@ -553,3 +553,10 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .repeat-until { min-width: 190px; flex: 1; }
 .repeat-controls .field-check { display: inline-flex; align-items: center; gap: 6px; }
 .repeat-controls .field-check input { width: auto; }
+/* Settings → Time zone */
+.time-zone-settings { display: grid; gap: 14px; }
+.time-zone-settings .field { display: grid; gap: 4px; }
+.time-zone-choice { display: grid; gap: 8px; }
+.time-zone-choice p { margin: 0; font-size: 12px; }
+.time-zone-choice > button { display: grid; gap: 3px; justify-content: start; justify-items: start; width: 100%; text-align: left; padding: 10px 12px; }
+.time-zone-choice > button small { color: var(--muted); font-weight: 400; }

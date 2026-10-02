@@ -1,3 +1,4 @@
+import { addDays, endOfDay, partsOf, startOfDay, zonedDate } from "./zone";
 import type { Repeat, Task } from "./types";
 
 /*
@@ -8,23 +9,24 @@ import type { Repeat, Task } from "./types";
  */
 
 const time = (value?: string | null) => { if (!value) return null; const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date; };
-const endOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
 
 /** The next occurrence's start after one starting at `start`. */
 export function nextStart(start: Date, repeat: Repeat): Date {
   const every = Math.max(1, Math.round(repeat.every || 1));
-  const next = new Date(start);
+  // Days and clock times are the calendar's time zone's.
   if (repeat.unit === "month") {
-    const day = start.getDate();
-    next.setDate(1);
-    next.setMonth(next.getMonth() + every);
+    const { year, month, day, hour, minute } = partsOf(start);
     // Short months clamp (Jan 31 → Feb 28).
-    next.setDate(Math.min(day, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
-  } else if (repeat.unit === "week") next.setDate(next.getDate() + 7 * every);
-  else if (repeat.unit === "weekday") {
-    for (let steps = every; steps > 0;) { next.setDate(next.getDate() + 1); if (next.getDay() !== 0 && next.getDay() !== 6) steps--; }
-  } else next.setDate(next.getDate() + every);
-  return next;
+    const length = new Date(Date.UTC(year, month - 1 + every + 1, 0)).getUTCDate();
+    return zonedDate(year, month + every, Math.min(day, length), hour, minute);
+  }
+  if (repeat.unit === "week") return addDays(start, 7 * every);
+  if (repeat.unit === "weekday") {
+    let next = start;
+    for (let steps = every; steps > 0;) { next = addDays(next, 1); const weekday = partsOf(next).weekday; if (weekday !== 0 && weekday !== 6) steps--; }
+    return next;
+  }
+  return addDays(start, every);
 }
 
 export type Occurrence = { start: Date; due: Date | null; end: Date; missed: boolean; over: boolean };
@@ -33,8 +35,7 @@ export type Occurrence = { start: Date; due: Date | null; end: Date; missed: boo
 function anchorOf(task: Task) {
   const start = time(task.availableFrom);
   if (start) return start;
-  const created = time(task.createdAt) || new Date();
-  return new Date(created.getFullYear(), created.getMonth(), created.getDate());
+  return startOfDay(time(task.createdAt) || new Date());
 }
 
 /** The occurrence a repeating task is on now. */

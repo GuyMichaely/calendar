@@ -1,8 +1,8 @@
+import { addDays } from "./zone";
 import type { Item, Task } from "./types";
 
 export const RELATIVE_DATE_FIELDS = ["availableFrom", "deadline"] as const;
 export type RelativeDateField = (typeof RELATIVE_DATE_FIELDS)[number];
-const DAY_MS = 86_400_000;
 
 /** A dependent task that hasn't been started. One whose parent task is gone counts as started. */
 export function isDormant(item: Item, byId: Map<string, Item>): boolean {
@@ -14,7 +14,7 @@ export function datesFrom(task: Task, start: Date) {
   const dates: Partial<Pick<Task, RelativeDateField>> = {};
   for (const field of RELATIVE_DATE_FIELDS) {
     const days = task.relativeDates?.[field];
-    if (days != null) dates[field] = field === "availableFrom" && days === 0 ? null : new Date(start.getTime() + days * DAY_MS).toISOString();
+    if (days != null) dates[field] = field === "availableFrom" && days === 0 ? null : addDays(start, days).toISOString();
   }
   return dates;
 }

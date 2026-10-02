@@ -1,8 +1,11 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
-import { formatDateTimeShort, formatDateTimeText, fromLocalValue, parseDateTimeText, toLocalValue } from "./datetime-text";
+import { formatDateTimeShort, formatDateTimeText, parseDateTimeText } from "./datetime-text";
+import { addDays, formatIn, fromInputValue as fromLocalValue, partsOf, sameDay as sameZoneDay, toInputValue as toLocalValue, zonedDate } from "./zone";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
-const sameDay = (a: Date | null, b: Date) => !!a && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+const sameDay = (a: Date | null, b: Date) => !!a && sameZoneDay(a, b);
+// The first of a moment's month (in the calendar's time zone), or a month before or after it.
+const monthOf = (date: Date, offset = 0) => { const { year, month } = partsOf(date); return zonedDate(year, month + offset, 1); };
 
 /**
  * A date and time picker: a calendar, an optional time (midnight, or 11:59 PM for due dates, unless set), and an editable text version
@@ -16,7 +19,7 @@ export function DateTimeField(props: { name: string; label: string; value: strin
   const displayText = (date: Date) => hasTime() ? formatDateTimeText(date) : formatDateTimeText(date).split(" ")[0];
   const [open, setOpen] = createSignal(false);
   const [draft, setDraft] = createSignal<Date | null>(null);
-  const [month, setMonth] = createSignal(new Date());
+  const [month, setMonth] = createSignal(monthOf(new Date()));
   const [text, setText] = createSignal("");
   const [textValid, setTextValid] = createSignal(true);
   const [position, setPosition] = createSignal<{ top: number; left: number } | null>(null);
@@ -32,11 +35,11 @@ export function DateTimeField(props: { name: string; label: string; value: strin
   const show = () => {
     const current = fromLocalValue(value());
     setDraft(current);
-    setHasTime(!!current && (current.getHours() !== defaultTime()[0] || current.getMinutes() !== defaultTime()[1]));
+    setHasTime(!!current && (partsOf(current).hour !== defaultTime()[0] || partsOf(current).minute !== defaultTime()[1]));
     setText(current ? displayText(current) : "");
     setTextValid(true);
     const base = current || new Date();
-    setMonth(new Date(base.getFullYear(), base.getMonth(), 1));
+    setMonth(monthOf(base));
     place();
     setOpen(true);
   };
@@ -51,17 +54,18 @@ export function DateTimeField(props: { name: string; label: string; value: strin
     setDraft(next);
     setText(next ? displayText(next) : "");
     setTextValid(true);
-    if (next) setMonth(new Date(next.getFullYear(), next.getMonth(), 1));
+    if (next) setMonth(monthOf(next));
   };
   const pickDay = (day: Date) => {
     const time = draft();
-    pick(new Date(day.getFullYear(), day.getMonth(), day.getDate(), time?.getHours() ?? defaultTime()[0], time?.getMinutes() ?? defaultTime()[1]));
+    const { year, month, day: date } = partsOf(day);
+    pick(zonedDate(year, month, date, time ? partsOf(time).hour : defaultTime()[0], time ? partsOf(time).minute : defaultTime()[1]));
   };
   const pickTime = (time: string) => {
     setHasTime(!!time);
     const [hours, minutes] = time ? time.split(":").map(Number) : defaultTime();
-    const base = draft() || new Date();
-    pick(new Date(base.getFullYear(), base.getMonth(), base.getDate(), hours, minutes));
+    const { year, month, day } = partsOf(draft() || new Date());
+    pick(zonedDate(year, month, day, hours, minutes));
   };
   const typed = (input: string) => {
     setText(input);
@@ -70,16 +74,16 @@ export function DateTimeField(props: { name: string; label: string; value: strin
     const alternate = parseDateTimeText(input, new Date(), defaultTime()[0] === 0 ? [23, 59] : [0, 0]);
     setHasTime(!!parsed && !!alternate && parsed.getTime() === alternate.getTime());
     setTextValid(!input.trim() || !!parsed);
-    if (parsed) { setDraft(parsed); setMonth(new Date(parsed.getFullYear(), parsed.getMonth(), 1)); }
+    if (parsed) { setDraft(parsed); setMonth(monthOf(parsed)); }
     else if (!input.trim()) setDraft(null);
   };
   const days = createMemo(() => {
-    const first = month();
-    const start = new Date(first.getFullYear(), first.getMonth(), 1 - first.getDay());
-    const weeks = Math.ceil((first.getDay() + new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate()) / 7);
-    return Array.from({ length: weeks * 7 }, (_, index) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + index));
+    const first = month(), { year, month: number, weekday } = partsOf(first);
+    const weeks = Math.ceil((weekday + new Date(Date.UTC(year, number, 0)).getUTCDate()) / 7);
+    const start = addDays(first, -weekday);
+    return Array.from({ length: weeks * 7 }, (_, index) => addDays(start, index));
   });
-  const timeValue = () => { const date = draft(); return date && hasTime() ? `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}` : ""; };
+  const timeValue = () => { const date = draft(); return date && hasTime() ? toLocalValue(date).slice(11) : ""; };
 
   // Clicking outside cancels, like the Cancel button.
   createEffect(() => {
@@ -101,13 +105,13 @@ export function DateTimeField(props: { name: string; label: string; value: strin
         <input class="dt-text" classList={{ invalid: !textValid() }} data-editor-ignore aria-label={`${props.label} as text`} placeholder="mm/dd/yyyy hh:mm AM/PM" value={text()}
           onInput={event => typed(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); if (textValid()) commit(draft()); } }} />
         <div class="dt-month">
-          <strong>{new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(month())}</strong>
-          <button type="button" class="icon-button" aria-label="Previous month" onClick={() => setMonth(current => new Date(current.getFullYear(), current.getMonth() - 1, 1))}>‹</button>
-          <button type="button" class="icon-button" aria-label="Next month" onClick={() => setMonth(current => new Date(current.getFullYear(), current.getMonth() + 1, 1))}>›</button>
+          <strong>{formatIn(month(), { month: "long", year: "numeric" })}</strong>
+          <button type="button" class="icon-button" aria-label="Previous month" onClick={() => setMonth(current => monthOf(current, -1))}>‹</button>
+          <button type="button" class="icon-button" aria-label="Next month" onClick={() => setMonth(current => monthOf(current, 1))}>›</button>
         </div>
         <div class="dt-grid">
           <For each={WEEKDAYS}>{name => <span class="dt-weekday">{name}</span>}</For>
-          <For each={days()}>{day => <button type="button" class="dt-day" classList={{ outside: day.getMonth() !== month().getMonth(), today: sameDay(new Date(), day), selected: sameDay(draft(), day) }} onClick={() => pickDay(day)}>{day.getDate()}</button>}</For>
+          <For each={days()}>{day => <button type="button" class="dt-day" classList={{ outside: partsOf(day).month !== partsOf(month()).month, today: sameDay(new Date(), day), selected: sameDay(draft(), day) }} onClick={() => pickDay(day)}>{partsOf(day).day}</button>}</For>
         </div>
         <label class="dt-time"><span>Time (optional)</span><input type="time" data-editor-ignore aria-label={`${props.label} time`} value={timeValue()} onInput={event => pickTime(event.currentTarget.value)} /></label>
         <small class="field-hint">Without a time: {props.name === "deadline" ? "11:59 PM" : "12:00 AM"}.</small>

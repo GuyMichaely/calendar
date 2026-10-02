@@ -1,6 +1,7 @@
 import { Icon } from "./Icon";
 import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
-import { calendarGridStart, dateKey, textMatches } from "../../site/domain.js";
+import { textMatches } from "../../site/domain.js";
+import { addDays, clockText, dayKey as dateKey, formatIn, partsOf, startOfDay, zonedDate } from "./zone";
 import { calendarEntries, todaysWork, windowBands, type CalendarEntry } from "./calendar-entries";
 import { describeRepeat } from "./repeats";
 import type { CalendarEvent, Item, Task } from "./types";
@@ -8,10 +9,14 @@ import type { CalendarEvent, Item, Task } from "./types";
 type Shown = CalendarEntry & { className: string; label: string; title: string; kindLabel: string };
 
 function shortTime(date: Date | null | undefined) {
-  return date ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date) : "";
+  return date ? clockText(date) : "";
 }
 // Midnight is just the day.
-const timeOf = (date: Date) => date.getHours() || date.getMinutes() ? shortTime(date) : "";
+const timeOf = (date: Date) => { const { hour, minute } = partsOf(date); return hour || minute ? shortTime(date) : ""; };
+// The first of a moment's month, and months before or after it (in the calendar's time zone).
+const monthOf = (date: Date, offset = 0) => { const { year, month } = partsOf(date); return zonedDate(year, month + offset, 1); };
+const daysInMonth = (first: Date) => { const { year, month } = partsOf(first); return new Date(Date.UTC(year, month, 0)).getUTCDate(); };
+const sameMonth = (a: Date, b: Date) => { const x = partsOf(a), y = partsOf(b); return x.year === y.year && x.month === y.month; };
 
 function displayTitle(item: Item) {
   const raw = String(item.title || "");
@@ -22,6 +27,7 @@ function displayTitle(item: Item) {
 export function CalendarView(props: {
   items: Item[];
   query: string;
+  // The first of the month shown.
   month: Date;
   now: Date;
   onMonthChange: (date: Date) => void;
@@ -36,23 +42,20 @@ export function CalendarView(props: {
   const [selectedDay, setSelectedDay] = createSignal(props.now);
   createEffect(() => {
     const month = props.month;
-    setSelectedDay(current => current.getMonth() === month.getMonth() && current.getFullYear() === month.getFullYear() ? current : (props.now.getMonth() === month.getMonth() && props.now.getFullYear() === month.getFullYear() ? props.now : new Date(month)));
+    setSelectedDay(current => sameMonth(current, month) ? current : sameMonth(props.now, month) ? props.now : month);
   });
   const today = createMemo(() => dateKey(props.now));
   const days = createMemo(() => {
-    const start = calendarGridStart(props.month);
-    const count = Math.ceil((new Date(props.month.getFullYear(), props.month.getMonth(), 1).getDay() + new Date(props.month.getFullYear(), props.month.getMonth() + 1, 0).getDate()) / 7) * 7;
-    return Array.from({ length: count }, (_, index) => {
-      const day = new Date(start);
-      day.setDate(start.getDate() + index);
-      return day;
-    });
+    const first = monthOf(props.month), { weekday } = partsOf(first);
+    const length = daysInMonth(first);
+    const start = addDays(first, -weekday);
+    return Array.from({ length: Math.ceil((weekday + length) / 7) * 7 }, (_, index) => addDays(start, index));
   });
 
   // Every entry in the grid (and the selected day, which may be outside it), by day.
   const byDay = createMemo(() => {
     const grid = days();
-    const from = new Date(Math.min(grid[0].getTime(), new Date(selectedDay().getFullYear(), selectedDay().getMonth(), selectedDay().getDate()).getTime()));
+    const from = new Date(Math.min(grid[0].getTime(), startOfDay(selectedDay()).getTime()));
     const to = new Date(Math.max(grid.at(-1)!.getTime(), selectedDay().getTime()));
     const map = new Map<string, Shown[]>();
     for (const entry of calendarEntries(props.items, from, to, props.now)) {
@@ -81,20 +84,19 @@ export function CalendarView(props: {
     return `${props.query ? `${count} matching ${noun}` : `${count} ${noun}`} for today`;
   };
   // Windows as bands across the day, midnight to midnight.
-  const dayMs = 86_400_000;
   const bandStyle = (day: Date, opens: Date, closes: Date) => {
-    const start = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
-    const left = Math.max(0, (opens.getTime() - start) / dayMs), right = Math.min(1, (closes.getTime() - start) / dayMs);
+    const start = startOfDay(day).getTime(), length = addDays(startOfDay(day), 1).getTime() - start;
+    const left = Math.max(0, (opens.getTime() - start) / length), right = Math.min(1, (closes.getTime() - start) / length);
     return { left: `${left * 100}%`, width: `${Math.max(0.02, right - left) * 100}%` };
   };
   const selectedEntries = createMemo(() => entriesForDay(selectedDay()).filter(entry => !props.query || textMatches(entry.item, props.query)));
   return <section class="panel calendar-panel" style={{"--calendar-weeks": days().length / 7}}>
     <div class="calendar-toolbar">
-      <div class="calendar-titlebar"><h1>{new Intl.DateTimeFormat(undefined, {month: "long", year: "numeric"}).format(props.month)}</h1>
+      <div class="calendar-titlebar"><h1>{formatIn(props.month, {month: "long", year: "numeric"})}</h1>
       <div class="month-controls">
-        <button class="icon-button" aria-label="Previous month" onClick={() => props.onMonthChange(new Date(props.month.getFullYear(), props.month.getMonth() - 1, 1))}>‹</button>
-        <button class="secondary-button" onClick={() => { props.onMonthChange(new Date(props.now.getFullYear(), props.now.getMonth(), 1)); setSelectedDay(props.now); }}>Today</button>
-        <button class="icon-button" aria-label="Next month" onClick={() => props.onMonthChange(new Date(props.month.getFullYear(), props.month.getMonth() + 1, 1))}>›</button>
+        <button class="icon-button" aria-label="Previous month" onClick={() => props.onMonthChange(monthOf(props.month, -1))}>‹</button>
+        <button class="secondary-button" onClick={() => { props.onMonthChange(monthOf(props.now)); setSelectedDay(props.now); }}>Today</button>
+        <button class="icon-button" aria-label="Next month" onClick={() => props.onMonthChange(monthOf(props.month, 1))}>›</button>
       </div></div>
       <label class="check-row"><input type="checkbox" checked={props.showDependents} onChange={event => props.onShowDependentsChange(event.currentTarget.checked)} />Show dependent tasks</label>
     </div>
@@ -105,8 +107,8 @@ export function CalendarView(props: {
           <For each={days()}>{day => {
             const entries = () => entriesForDay(day);
             const matching = () => props.query ? entries().filter(entry => textMatches(entry.item, props.query)) : entries();
-            return <div class={`calendar-day ${day.getMonth() !== props.month.getMonth() ? "outside" : ""} ${dateKey(day) === today() ? "today" : ""}`} classList={{selected: dateKey(day) === dateKey(selectedDay())}} onClick={() => setSelectedDay(day)}>
-              <button class="day-number" aria-label={new Intl.DateTimeFormat(undefined, {dateStyle: "full"}).format(day)} aria-pressed={dateKey(day) === dateKey(selectedDay())} onClick={() => setSelectedDay(day)}>{day.getDate()}</button>
+            return <div class={`calendar-day ${!sameMonth(day, props.month) ? "outside" : ""} ${dateKey(day) === today() ? "today" : ""}`} classList={{selected: dateKey(day) === dateKey(selectedDay())}} onClick={() => setSelectedDay(day)}>
+              <button class="day-number" aria-label={formatIn(day, {dateStyle: "full"})} aria-pressed={dateKey(day) === dateKey(selectedDay())} onClick={() => setSelectedDay(day)}>{partsOf(day).day}</button>
               <div class="window-bands" aria-hidden="true"><For each={windowBands(props.items, day)}>{band => <div class="window-track"><span class={`window-band c${band.color}`} style={bandStyle(day, band.opens, band.closes)} title={`${band.window.title}: ${shortTime(band.opens)}–${shortTime(band.closes)}`} /></div>}</For></div>
               <div class="calendar-cell-entries">
                 <Show when={matchingPending(day).length}><button class="calendar-chip task start" title="Open today's tasks" onClick={event => { event.stopPropagation(); props.onOpenTodayTasks(); }}>{matchingPending(day).length} tasks for today</button></Show>
@@ -121,7 +123,7 @@ export function CalendarView(props: {
         </div>
       </div>
       <aside class="day-agenda" aria-label="Selected day">
-        <div class="agenda-date"><span>{new Intl.DateTimeFormat(undefined, {weekday: "long"}).format(selectedDay())}</span><h2>{new Intl.DateTimeFormat(undefined, {month: "long", day: "numeric"}).format(selectedDay())}</h2><Show when={dateKey(selectedDay()) === today()}><span class="today-label">Today</span></Show></div>
+        <div class="agenda-date"><span>{formatIn(selectedDay(), {weekday: "long"})}</span><h2>{formatIn(selectedDay(), {month: "long", day: "numeric"})}</h2><Show when={dateKey(selectedDay()) === today()}><span class="today-label">Today</span></Show></div>
         <Show when={matchingPending(selectedDay()).length}><button class="agenda-tasks" onClick={props.onOpenTodayTasks}><Icon name="sun" /><span>{pendingText(selectedDay())}</span><Icon name="arrow" size={16} /></button></Show>
         <Show when={windowBands(props.items, selectedDay()).length}>
           <ul class="agenda-windows" aria-label="Windows open this day"><For each={windowBands(props.items, selectedDay())}>{band => <li><i class={`window-swatch c${band.color}`} /><span>{band.window.title}</span><small>{shortTime(band.opens)}–{shortTime(band.closes)}</small></li>}</For></ul>

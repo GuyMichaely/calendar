@@ -1,6 +1,7 @@
+import { addDays, atTime, partsOf, startOfDay } from "./zone";
 import type { Item, Task, TimeWindow } from "./types";
 
-// A window's weekly hours: the days it's open (0 = Sunday) and its local start/end times.
+// A window's weekly hours: the days it's open (0 = Sunday) and its start/end times, in the calendar's time zone.
 export type Schedule = { days: number[]; start: string; end: string };
 
 export const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -14,24 +15,19 @@ export function windowsById(items: Item[]) {
   return new Map(items.filter((item): item is TimeWindow => item.kind === "window").map(item => [item.id, item]));
 }
 
-function at(day: Date, time: string) {
-  const [hours = 0, minutes = 0] = time.split(":").map(Number);
-  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours, minutes);
-}
-
 /** The window's opening on the given day, if it opens that day. An end at or before the start runs to midnight. */
 export function openingOn(schedule: Schedule, day: Date): { opens: Date; closes: Date } | null {
-  if (!schedule.days.includes(day.getDay())) return null;
-  const opens = at(day, schedule.start);
-  let closes = at(day, schedule.end);
-  if (closes <= opens) closes = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
+  if (!schedule.days.includes(partsOf(day).weekday)) return null;
+  const opens = atTime(day, schedule.start);
+  let closes = atTime(day, schedule.end);
+  if (closes <= opens) closes = addDays(startOfDay(day), 1);
   return { opens, closes };
 }
 
 /** The first opening that hasn't closed by `from` (the current one, if open), within two weeks. */
 export function nextOpening(schedule: Schedule, from: Date) {
   for (let offset = 0; offset < 15; offset++) {
-    const day = new Date(from.getFullYear(), from.getMonth(), from.getDate() + offset);
+    const day = addDays(startOfDay(from), offset);
     const opening = openingOn(schedule, day);
     if (opening && opening.closes > from) return opening;
   }

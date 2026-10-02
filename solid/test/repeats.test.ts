@@ -1,9 +1,13 @@
 import { expect, test } from "bun:test";
 import { advancedTask, currentOccurrence, describeRepeat, nextStart, occurrenceTask } from "../src/repeats";
 import type { Repeat, Task } from "../src/types";
+import { setCalendarZone, zonedDate } from "../src/zone";
+
+// Dates are read in the calendar's zone, not the device's (the suite runs with the device elsewhere).
+setCalendarZone("America/New_York");
 
 const at = "2026-09-01T00:00:00.000Z";
-const local = (day: number, hours = 0, minutes = 0) => new Date(2026, 9, day, hours, minutes);
+const local = (day: number, hours = 0, minutes = 0) => zonedDate(2026, 10, day, hours, minutes);
 const repeat = (extra: Partial<Repeat> = {}): Repeat => ({ unit: "day", every: 1, until: null, untilDone: false, ifMissed: "skip", ...extra });
 const task = (extra: Partial<Task> = {}): Task => ({ id: "t", kind: "task", title: "t", state: "open", createdAt: at, updatedAt: at, history: [], ...extra });
 
@@ -11,7 +15,7 @@ test("steps: days, weekdays over a weekend, weeks, and months that clamp", () =>
   expect(nextStart(local(5, 9), repeat({ every: 3 }))).toEqual(local(8, 9));
   expect(nextStart(local(9, 9), repeat({ unit: "weekday" }))).toEqual(local(12, 9)); // Fri → Mon
   expect(nextStart(local(5), repeat({ unit: "week", every: 2 }))).toEqual(local(19));
-  expect(nextStart(new Date(2026, 0, 31), repeat({ unit: "month" }))).toEqual(new Date(2026, 1, 28));
+  expect(nextStart(zonedDate(2026, 1, 31), repeat({ unit: "month" }))).toEqual(zonedDate(2026, 2, 28));
   expect(describeRepeat(repeat())).toBe("Daily");
   expect(describeRepeat(repeat({ every: 3 }))).toBe("Every 3 days");
 });

@@ -1,6 +1,7 @@
 import { isDormant } from "./dependencies";
 import { nextOpening, openingOn, taskSchedule } from "./windows";
 import { occurrenceTask } from "./repeats";
+import { sameDay } from "./zone";
 import type { Item, Task, TimeWindow } from "./types";
 
 /*
@@ -25,7 +26,6 @@ export type Placement = {
 
 const HOUR = 3_600_000;
 const time = (value?: string | null) => { if (!value) return null; const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date; };
-const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 /** When a due task joins Firm: some hours before it's due (24 unless it says). */
 export function warnTime(task: Task) {

@@ -2,11 +2,15 @@ import { expect, test } from "bun:test";
 import { buildSections, placeTask, pushedDownInfo, taskGroupId, warnTime, type Section } from "../src/today";
 import { describeSchedule, nextOpening } from "../src/windows";
 import type { Item, Task, TimeWindow } from "../src/types";
+import { setCalendarZone, zonedDate } from "../src/zone";
+
+// Dates are read in the calendar's zone, not the device's (the suite runs with the device elsewhere).
+setCalendarZone("America/New_York");
 
 const at = "2026-09-01T00:00:00.000Z";
 // Tuesday, Oct 6 2026, 2:20 pm local time.
-const now = new Date(2026, 9, 6, 14, 20);
-const local = (day: number, hours: number, minutes = 0) => new Date(2026, 9, day, hours, minutes).toISOString();
+const now = zonedDate(2026, 10, 6, 14, 20);
+const local = (day: number, hours: number, minutes = 0) => zonedDate(2026, 10, day, hours, minutes).toISOString();
 const task = (id: string, extra: Partial<Task> = {}): Task => ({ id, kind: "task", title: id, state: "open", createdAt: at, updatedAt: at, ...extra });
 const window = (id: string, days: number[], start: string, end: string): TimeWindow => ({ id, kind: "window", title: id, days, start, end, createdAt: at, updatedAt: at });
 const business = window("business", [1, 2, 3, 4, 5], "09:00", "17:00");
@@ -46,7 +50,7 @@ test("windows describe themselves and find their next opening", () => {
   expect(describeSchedule(evening)).toBe("Daily 18:00–22:00");
   expect(describeSchedule(window("x", [1, 3], "10:00", "11:00"))).toBe("Mon, Wed 10:00–11:00");
   // Friday evening: next business opening is Monday.
-  expect(nextOpening(business, new Date(2026, 9, 9, 18))?.opens).toEqual(new Date(local(12, 9)));
+  expect(nextOpening(business, zonedDate(2026, 10, 9, 18))?.opens).toEqual(new Date(local(12, 9)));
 });
 
 // "(x)" is a container header and "~x" a muted row.

@@ -12,7 +12,7 @@
     "dev:solid": "vite --config solid/vite.config.ts",
     "dev:backend": "bun backend/bun-dev.js",
     "start:backend": "bun backend/bun-server.js",
-    "test:solid": "bun test ./solid/test",
+    "test:solid": "TZ=Pacific/Kiritimati bun test ./solid/test",
     "typecheck:solid": "tsc -p solid/tsconfig.json --noEmit",
     "build:solid": "vite build --config solid/vite.config.ts",
     "check": "bun run test && bun run test:solid && bun run typecheck:solid && bun run build:solid"

@@ -1,5 +1,5 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
-import { dateKey } from "../../site/domain.js";
+import { clockText, dayKey as dateKey, deviceZone, partsOf, setCalendarZone, zonedDate } from "./zone";
 import { TimeControl } from "./TimeControl";
 import { WorkspaceShell } from "./WorkspaceShell";
 import { Icon } from "./Icon";
@@ -12,14 +12,14 @@ import { createCalendarStore } from "./calendar-store";
 import { createPreferences } from "./preferences";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
 import { TodayView, when } from "./TodayView";
-import { BoardSettings, WindowSettings } from "./SettingsPanels";
+import { BoardSettings, TimeZoneSettings, WindowSettings } from "./SettingsPanels";
 import { openWork } from "./today";
 import { SAMPLE_PREFIX, demoItems, sampleSubtaskItems } from "./demo-data";
 import { isDormant, projectDependents } from "./dependencies";
 import { dependentTasks } from "../../site/task-tree.js";
 import { ToastStack, type ToastMessage } from "./ToastStack";
 import { animationsEnabled } from "./settings";
-import type { CalendarEvent, Group, Item, Task, View } from "./types";
+import type { CalendarEvent, CalendarSettings, Group, Item, Task, View } from "./types";
 
 function readView(): View { return location.hash === "#calendar" ? "calendar" : /^#boards(\/|$)/.test(location.hash) ? "boards" : "tasks"; }
 // Agenda lives at #tasks and Boards at #boards; a selected task follows a slash.
@@ -36,6 +36,17 @@ export function App() {
   const store = createCalendarStore({ onChanged: () => void remote.request() });
   const remote = createRemoteSync({ backendUrl, pollSeconds: prefs.pollSeconds, onSynced: store.refresh });
   const items = store.items;
+  // The calendar's time zone, synced. A calendar that has none yet gets this device's, once
+  // it holds something and (with sync) has caught up, so a new device doesn't impose its own.
+  const settings = createMemo(() => items().find((item): item is CalendarSettings => item.kind === "settings"));
+  const [ready, setReady] = createSignal(false);
+  createEffect(() => { const zone = settings()?.timeZone; if (zone) setCalendarZone(zone); });
+  let creatingSettings = false;
+  createEffect(() => {
+    if (!ready() || settings() || creatingSettings || !items().length || (remote.enabled && remote.session()?.authenticated && !remote.lastSyncedAt())) return;
+    creatingSettings = true;
+    void attempt(() => store.createSettings(deviceZone()), "Could not save the calendar's time zone.").finally(() => { creatingSettings = false; });
+  });
   const [remoteUrlDraft, setRemoteUrlDraft] = createSignal(backendUrl);
   const [loadingError, setLoadingError] = createSignal("");
   const [view, setView] = createSignal<View>(readView());
@@ -68,10 +79,10 @@ export function App() {
     if (remote.error()) return { state: "error", label: "Sync needs attention", detail: `${remote.error()} Your edits are still saved in this browser.` };
     if (!remote.session()?.authenticated) return { state: "local", label: "Not signed in", detail: "Your edits are saved in this browser only. Sign in (Settings → Data) to sync them with your other devices." };
     const last = remote.lastSyncedAt();
-    return last ? { state: "synced", label: "Synced", detail: `Synced with your other devices at ${last.toLocaleTimeString()}.` } : { state: "busy", label: "Not synced yet", detail: "Signed in; the first sync hasn't finished." };
+    return last ? { state: "synced", label: "Synced", detail: `Synced with your other devices at ${clockText(last)}.` } : { state: "busy", label: "Not synced yet", detail: "Signed in; the first sync hasn't finished." };
   });
   const openCount = createMemo(() => openWork(items()).length);
-  const [calendarMonth, setCalendarMonth] = createSignal(new Date(nowAtStart.getFullYear(), nowAtStart.getMonth(), 1));
+  const [calendarMonth, setCalendarMonth] = createSignal(zonedDate(partsOf(nowAtStart).year, partsOf(nowAtStart).month, 1));
   const [editor, setEditor] = createSignal<EditorRequest | null>(null);
   // Wide screens keep the task list beside an embedded editor for the selected task.
   const splitQuery = window.matchMedia("(min-width: 1180px)");
@@ -89,7 +100,7 @@ export function App() {
   const [shortcuts, setShortcuts] = createSignal<Shortcuts>(loadShortcuts());
   const [shortcutsDirty, setShortcutsDirty] = createSignal(false);
   const [showSettings, setShowSettings] = createSignal(false);
-  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations" | "windows" | "boards" | "display">("data");
+  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations" | "windows" | "boards" | "display" | "time">("data");
   const [pendingImport, setPendingImport] = createSignal<{ text: string; added: number; updated: number } | null>(null);
   const [importing, setImporting] = createSignal(false);
   let toastSequence = 0;
@@ -255,6 +266,7 @@ export function App() {
       // A fresh local development copy with no sync server starts with sample tasks.
       if (import.meta.env.DEV && !backendUrl && !items().length) await attempt(() => store.importBackup(JSON.stringify({ items: demoItems() })), "Could not add the sample tasks.");
       await remote.checkSession();
+      setReady(true);
     })();
     const clockTimer = window.setInterval(() => { if (!document.querySelector(".solid-dialog-backdrop")) setClock(appNow()); }, 30_000);
     const syncLocation = () => {
@@ -331,6 +343,7 @@ export function App() {
             <div class="settings-tabs" role="tablist" aria-label="Settings sections">
               <button role="tab" aria-selected={settingsTab() === "data"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("data"); }}>Data</button>
               <button role="tab" aria-selected={settingsTab() === "windows"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("windows"); }}>Windows</button>
+              <button role="tab" aria-selected={settingsTab() === "time"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("time"); }}>Time zone</button>
               <button role="tab" aria-selected={settingsTab() === "boards"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("boards"); }}>Boards</button>
               <button role="tab" aria-selected={settingsTab() === "display"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("display"); }}>Display</button>
               <button role="tab" aria-selected={settingsTab() === "animations"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("animations"); }}>Animations</button>
@@ -338,6 +351,9 @@ export function App() {
             </div>
             <Show when={settingsTab() === "windows"}>
               <WindowSettings items={items()} onCreate={fields => windowChange(() => store.createWindow(fields))} onUpdate={(window, patch) => windowChange(() => store.updateWindow(window, patch))} onDelete={window => windowChange(() => store.deleteWindow(window))} />
+            </Show>
+            <Show when={settingsTab() === "time"}>
+              <TimeZoneSettings settings={settings()} items={items()} now={clock()} onCreate={zone => attempt(() => store.createSettings(zone), "Could not save the time zone.")} onChange={(zone, keepClock) => attempt(() => store.changeTimeZone(settings()!, zone, keepClock), "Could not change the time zone.", keepClock ? "Time zone changed; dates moved to keep their times" : "Time zone changed")} />
             </Show>
             <Show when={settingsTab() === "boards"}>
               <BoardSettings items={items()} onCreate={() => createGroup()} onRename={(group, title) => groupChange(() => store.renameGroup(group, title))} onDelete={deleteGroup} />
@@ -387,7 +403,7 @@ export function App() {
                       <div class="solid-menu-status">Signed in as {remote.identityLabel()}</div>
                       <button class="text-button" disabled={remote.busy()} onClick={() => void syncNow()}>{remote.busy() ? "Syncing…" : "Sync now"}</button>
                       <button class="text-button" onClick={() => void signOutRemote()}>Sign out</button>
-                      <Show when={remote.lastSyncedAt()} keyed>{(syncedAt) => <div class="solid-menu-status">Last synced {syncedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</div>}</Show>
+                      <Show when={remote.lastSyncedAt()} keyed>{(syncedAt) => <div class="solid-menu-status">Last synced {clockText(syncedAt)}</div>}</Show>
                     </Show>
                   </Show>
                   <Show when={remote.error()} keyed>{(message) => <div class="solid-menu-error">{message}</div>}</Show>

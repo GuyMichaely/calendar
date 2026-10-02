@@ -1,6 +1,7 @@
 export type {
   Attachment,
   CalendarEvent,
+  CalendarSettings,
   Group,
   HistoryEntry,
   Item,

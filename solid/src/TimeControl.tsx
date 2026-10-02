@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup } from "solid-js";
-import { isoToLocalInput, localInputToIso } from "../../site/domain.js";
+import { atTime, clockText, formatIn, inputToIso as localInputToIso, partsOf, toInputValue as isoToLocalInput } from "./zone";
 import { DateTimeField } from "./DateTimeField";
 import { Icon } from "./Icon";
 
@@ -21,9 +21,9 @@ export function TimeControl(props: { now: Date; pretending: boolean; onSet: (at:
     document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", escape, true);
     onCleanup(() => { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape, true); });
   });
-  const time = () => props.now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  const full = () => props.now.toLocaleString([], { weekday: "short", month: "short", day: "numeric", ...(props.now.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}), hour: "numeric", minute: "2-digit" });
-  const atHour = (hour: number) => { const at = new Date(props.now); at.setHours(hour, 0, 0, 0); return at; };
+  const time = () => clockText(props.now);
+  const full = () => formatIn(props.now, { weekday: "short", month: "short", day: "numeric", ...(partsOf(props.now).year !== partsOf(new Date()).year ? { year: "numeric" } : {}), hour: "numeric", minute: "2-digit" });
+  const atHour = (hour: number) => atTime(props.now, `${hour}:00`);
   return <div class="time-control" ref={root} classList={{ pretending: props.pretending }}>
     <button type="button" class="time-control-button" aria-haspopup="dialog" aria-expanded={open()} title={props.pretending ? "Pretend time is on: the app acts as if it's this moment" : "Pretend it's another time"} onClick={() => setOpen(value => !value)}>
       <Icon name="clock" size={15} /><span>{props.pretending ? `Pretending ${full()}` : time()}</span>
