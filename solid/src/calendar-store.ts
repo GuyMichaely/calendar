@@ -159,8 +159,12 @@ export function createCalendarStore(options: { onChanged: () => void }) {
     /** Delete a board with its tasks, or leave them on no board. */
     deleteGroup: (group: Group, withTasks: boolean) => batch(withTasks ? `Delete board “${group.title}” and its tasks` : `Delete board “${group.title}”`, async () => {
       // Deleting a task takes its subtasks and dependent tasks with it (and skips one already gone).
-      if (withTasks) for (const task of boardTasks(items(), group)) await deleteItem(task.id);
-      else for (const { task, patch } of deleteBoardPatches(items(), group)) await putItem(patchedItem(task, patch, new Date()), task);
+      // Whatever stays (finished tasks, or all of them) is left on no board.
+      const doomed = withTasks ? boardTasks(items(), group) : [];
+      const gone = new Set(doomed.map(task => task.id));
+      const patches = deleteBoardPatches(items(), group).filter(({ task }) => !gone.has(task.id));
+      for (const task of doomed) await deleteItem(task.id);
+      for (const { task, patch } of patches) await putItem(patchedItem(task, patch, new Date()), task);
       await deleteItem(group.id);
     }),
 

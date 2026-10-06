@@ -22,15 +22,9 @@ export function BoardMenu(props: {
     onCleanup(() => { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape, true); });
   });
   const act = (run: () => unknown) => () => { setOpen(false); void run(); };
-  // What deleting with tasks takes, spelled out (finished and waiting tasks don't show on the board).
+  // What deleting with tasks takes: its open tasks, with their subtasks and the tasks waiting on them.
   const doomed = () => boardTasks(props.items, props.board);
-  const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
-  const deletes = () => {
-    const tasks = doomed(), completed = tasks.filter(task => task.state === "completed").length;
-    const waiting = tasks.filter(task => task.state !== "completed" && task.dependentOf).length;
-    const hidden = [completed && `${completed} completed`, waiting && `${waiting} waiting to start`].filter(Boolean).join(", ");
-    return `Also deletes its ${plural(tasks.length, "task")}${hidden ? ` (${hidden})` : ""}`;
-  };
+  const deletes = () => `Also deletes its ${doomed().length} task${doomed().length === 1 ? "" : "s"}`;
   return <span class="task-menu board-menu" ref={root}>
     <button type="button" class="icon-button task-menu-button" aria-label={`Actions for ${props.board.title || "board"}`} aria-haspopup="menu" aria-expanded={open()} onClick={() => setOpen(value => !value)}>⋮</button>
     <Show when={open()}>

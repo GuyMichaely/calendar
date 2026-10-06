@@ -49,6 +49,8 @@ test("deleting a board with its tasks takes their subtasks and dependent tasks t
     group("g"),
     task("t", { groupId: "g" }), task("kid", { parentId: "t", groupId: "h" }), task("next", { dependentOf: "t" }),
     task("own", { parentId: "elsewhere", groupId: "g" }), task("elsewhere", { groupId: "h" }), task("loose"),
+    // Finished tasks aren't on the board any more, whether done themselves or through a finished parent.
+    task("done", { groupId: "g", state: "completed" }), task("finished", { state: "completed" }), task("within", { parentId: "finished", groupId: "g" }),
   ];
   expect(boardTasks(items, items[0] as Group).map(t => t.id).sort()).toEqual(["kid", "next", "own", "t"]);
 });

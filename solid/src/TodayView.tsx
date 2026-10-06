@@ -527,7 +527,9 @@ export function TodayView(props: TodayViewProps) {
   // Boards: the saved layout, leaving out built-in boards with no tasks (yours always show).
   const found = createMemo(() => new Map(sections().map(section => [section.id, section])));
   const isBoard = (id: string) => !SECTION_ORDER.includes(id as SectionId);
-  const shownLayout = createMemo(() => boardLayout(props.items).map(column => column.filter(key => found().has(key) || isBoard(key))).filter(column => column.length));
+  // A dropped board's new layout, shown until it's saved.
+  const [pendingLayout, setPendingLayout] = createSignal<BoardLayout | null>(null);
+  const shownLayout = createMemo(() => (pendingLayout() ?? boardLayout(props.items)).map(column => column.filter(key => found().has(key) || isBoard(key))).filter(column => column.length));
   const sectionOf = (key: string): Section => found().get(key) ?? { id: key, trees: [], count: 0 };
   const titleOf = (id: string) => SECTION_LABELS[id as SectionId]?.title ?? boardTitle(id);
   const hintOf = (id: string) => SECTION_LABELS[id as SectionId]?.hint;
@@ -579,10 +581,12 @@ export function TodayView(props: TodayViewProps) {
       return y < rect.top || y < rect.top + rect.height / 2 ? `slot:${column}:${row}` : `slot:${column}:${row + 1}`;
     };
     // What stays put while the space opens, moves, or closes (the new space's middle, under
-    // the pointer; or, as the space closes, the board's own column): the row of columns is
-    // shifted sideways (`pan`, undone on drop) to hold it still.
+    // the pointer; or, as the space closes, the board's own column): the boards scroll to
+    // hold it still, and where they can't scroll that far, the row of columns is shifted
+    // sideways (`pan`, undone on drop) for the rest. Scrolling, yours or at an edge, moves
+    // it along with everything else.
     const own = shown.findIndex(column => column.includes(key));
-    let pan = 0, anchor: { element: HTMLElement; at: number; middle: boolean } | null = null;
+    let pan = 0, anchor: { element: HTMLElement; at: number; middle: boolean } | null = null, lastScroll = boardRef.scrollLeft;
     const stacks = () => [...boardRef.querySelectorAll<HTMLElement>(".board-stack")];
     const setPan = (value: number) => {
       pan = value;
@@ -591,9 +595,19 @@ export function TodayView(props: TodayViewProps) {
     const placeOf = (element: HTMLElement, middle: boolean) => { const rect = element.getBoundingClientRect(); return middle ? (rect.left + rect.right) / 2 : rect.left; };
     const keep = (element: HTMLElement | null | undefined, at?: number) => { anchor = element ? { element, at: at ?? placeOf(element, false), middle: at != null } : null; };
     const holdAnchor = () => {
+      // Scrolled since last time: the anchor went with it.
+      if (anchor) anchor.at -= boardRef.scrollLeft - lastScroll;
+      lastScroll = boardRef.scrollLeft;
       if (!anchor) return;
       const drift = anchor.at - placeOf(anchor.element, anchor.middle);
       if (Math.abs(drift) > 0.5) setPan(pan + drift);
+      // Turn as much of the shift as possible into scrolling, which looks the same.
+      if (pan) {
+        const before = boardRef.scrollLeft;
+        boardRef.scrollLeft = before - pan;
+        setPan(pan + (boardRef.scrollLeft - before));
+        lastScroll = boardRef.scrollLeft;
+      }
     };
     const aim = () => {
       // Near an edge the boards scroll, and once they can't, any shift that hid columns past that edge goes.
@@ -602,10 +616,9 @@ export function TodayView(props: TodayViewProps) {
       if (push) {
         const before = boardRef.scrollLeft;
         boardRef.scrollLeft -= push;
-        const scrolled = before - boardRef.scrollLeft, rest = push - scrolled;
+        const rest = push - (before - boardRef.scrollLeft);
         const back = rest < 0 ? Math.max(rest, -Math.max(pan, 0)) : Math.min(rest, Math.max(-pan, 0));
-        if (back) setPan(pan + back);
-        if (anchor) anchor.at += scrolled + back;
+        if (back) { setPan(pan + back); if (anchor) anchor.at += back; }
       }
       holdAnchor();
       if (ghost) ghost.style.transform = `translate(${x - x0}px, ${y - y0}px)`;
@@ -637,8 +650,8 @@ export function TodayView(props: TodayViewProps) {
         Object.assign(ghost.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, maxHeight: "50vh", overflow: "hidden", margin: "0", zIndex: "60", pointerEvents: "none" });
         document.body.appendChild(ghost);
         boardRef.style.setProperty("--drop-h", `${Math.min(rect.height, innerHeight * 0.5)}px`);
-        // A new column opens at an eighth of a column's width.
-        boardRef.style.setProperty("--drop-w", `${rect.width / 8}px`);
+        // A new column opens at a sixth of a column's width.
+        boardRef.style.setProperty("--drop-w", `${rect.width / 6}px`);
       }
       frame = requestAnimationFrame(aim);
     };
@@ -673,11 +686,22 @@ export function TodayView(props: TodayViewProps) {
       // The click that ends a drag isn't a click on the board's name.
       boardDragged = true; setTimeout(() => { boardDragged = false; });
       // The boards slide from where they show (shift, openings and all) to their new places,
-      // or back, and the dragged board from where it was dropped. Until the new layout is in,
-      // the drag stays as it was.
+      // or back, and the dragged board from where it was dropped.
       const from = ghost ? { key, rect: ghost.getBoundingClientRect() } : undefined;
-      if (drop && target) void moveBoards(async () => { await props.onLayoutBoards(placeBoard(layout, shown, key, target)); settle(); }, from);
-      else void moveBoards(async () => settle(), from);
+      if (!drop || !target) return void moveBoards(settle, from);
+      // The new layout shows at once (saving follows). A new column keeps its middle where
+      // its space was; a board dropped into a column keeps that column where it was. Where
+      // every column fits on screen, they simply start at the left.
+      const next = placeBoard(layout, shown, key, target);
+      const spot = "newColumn" in target ? boardRef.querySelector<HTMLElement>(`[data-drop="column:${target.newColumn}"]`) : stacks()[target.column];
+      const at = spot ? placeOf(spot, "newColumn" in target) : null;
+      void moveBoards(() => {
+        setPendingLayout(next);
+        settle();
+        const stack = boardRef.querySelector(`.board-card[data-section="${CSS.escape(key)}"]`)?.closest<HTMLElement>(".board-stack");
+        if (stack && at != null) boardRef.scrollLeft += placeOf(stack, "newColumn" in target) - at;
+      }, from);
+      void props.onLayoutBoards(next).finally(() => setPendingLayout(null));
     };
     const up = (next: PointerEvent) => { if (next.pointerId === pointer) end(true); };
     const cancel = (next: PointerEvent) => { if (next.pointerId === pointer) end(false); };
@@ -691,7 +715,7 @@ export function TodayView(props: TodayViewProps) {
     if (touch) hold = setTimeout(begin, 380);
   };
   // Boards slide to their new places too (a dragged one from where it was dropped).
-  const moveBoards = async (run: () => Promise<unknown>, dropped?: { key: string; rect: DOMRect }) => {
+  const moveBoards = async (run: () => unknown, dropped?: { key: string; rect: DOMRect }) => {
     const cards = () => new Map([...boardRef.querySelectorAll<HTMLElement>(".board-card[data-section]")].map(element => [element.dataset.section!, element]));
     const before = new Map([...cards()].map(([key, element]) => [key, element.getBoundingClientRect()]));
     if (dropped) before.set(dropped.key, dropped.rect);
