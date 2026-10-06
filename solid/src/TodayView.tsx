@@ -786,7 +786,7 @@ export function TodayView(props: TodayViewProps) {
     setNaming(false);
     if (!title) return;
     const id = await props.onCreateBoard(title);
-    if (id) requestAnimationFrame(() => boardRef.querySelector(`[data-section="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }));
+    if (id) requestAnimationFrame(() => boardRef.querySelector(`[data-section="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: boardRef.closest('[data-animations="on"]') ? "smooth" : "auto" }));
   };
 
   // One section: in the Agenda a collapsible list section; in Boards a board you can drag.

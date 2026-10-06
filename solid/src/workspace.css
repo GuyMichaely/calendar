@@ -313,9 +313,11 @@ main:has(.calendar-panel) { padding: 14px 20px 20px; }
    track is always present (0% when closed) so its width changes can animate. */
 .tasks-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0%); gap: 0; }
 .tasks-workspace.split { grid-template-columns: minmax(0, 1fr) minmax(400px, 36%); gap: 20px; align-items: start; }
-.tasks-workspace[data-animations="on"] { transition: grid-template-columns .24s ease, gap .24s ease; }
+[data-animations="on"] .tasks-workspace { transition: grid-template-columns .24s ease, gap .24s ease; }
+/* Animations off (Settings → Animations, or the device's reduced motion): nothing on the page moves by itself. */
+[data-animations="off"] *, [data-animations="off"] *::before, [data-animations="off"] *::after { transition: none !important; animation: none !important; }
 @keyframes pane-in { from { opacity: 0; transform: translateX(26px); } }
-.tasks-workspace[data-animations="on"] .task-detail-pane:not(.closing) { animation: pane-in .24s ease; }
+[data-animations="on"] .tasks-workspace .task-detail-pane:not(.closing) { animation: pane-in .24s ease; }
 .task-detail-pane.closing { opacity: 0; transition: opacity .2s ease .03s; }
 .task-detail-pane { position: sticky; top: 72px; height: calc(100dvh - 88px); overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); min-width: 0; }
 .task-detail-empty { display: grid; align-content: center; justify-items: start; gap: 8px; height: 100%; padding: 40px 44px; color: var(--muted); }

@@ -55,6 +55,8 @@ export function App() {
   const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   const [reducedMotion, setReducedMotion] = createSignal(motionQuery.matches);
   const animations = () => animationsEnabled(prefs.animations(), reducedMotion());
+  // The whole page follows it: off stops every transition and animation, not just the task lists'.
+  createEffect(() => { document.documentElement.dataset.animations = animations() ? "on" : "off"; });
   onMount(() => {
     const update = () => setReducedMotion(motionQuery.matches);
     motionQuery.addEventListener("change", update);
@@ -325,7 +327,7 @@ export function App() {
           identity={remote.session()?.authenticated ? remote.identityLabel() : ""}
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
           <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
-            <div class="tasks-workspace" classList={{ split: paneOpen() }} data-animations={animations() ? "on" : "off"}>
+            <div class="tasks-workspace" classList={{ split: paneOpen() }}>
             <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
               view={view() === "boards" ? "boards" : "today"} showBoard={prefs.showBoard()} showTags={prefs.showTags()} pullTimed={prefs.pullTimed()} onPullTimedChange={prefs.setPullTimed} onLayoutBoards={layout => groupChange(() => store.layoutBoards(layout))} onCreateBoard={createGroup} onRenameBoard={renameGroup} onDeleteBoard={deleteGroup} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
@@ -370,8 +372,7 @@ export function App() {
             </Show>
             <Show when={settingsTab() === "animations"}>
             <section class="appearance-settings" aria-label="Appearance">
-              <label class="animation-setting"><span><strong>Animations</strong><small>Animate expanding, collapsing, completing, undoing, and dragging tasks.</small></span><input aria-label="Animations" type="checkbox" role="switch" checked={animations()} onChange={event => prefs.setAnimations(event.currentTarget.checked ? "on" : "off")} /></label>
-              <p class="field-hint">{prefs.animations() === "on" ? "Animations are on for this browser, overriding its reduced-motion preference." : prefs.animations() === "off" ? "Animations are off for this browser." : reducedMotion() ? "Following your device: reduced motion is on. Enable the switch to animate anyway." : "Following your device: animations are on."}</p>
+              <label class="animation-setting"><span><strong>Animations</strong></span><input aria-label="Animations" type="checkbox" role="switch" checked={animations()} onChange={event => prefs.setAnimations(event.currentTarget.checked ? "on" : "off")} /></label>
               <button type="button" class="text-button" disabled={prefs.animations() === null} onClick={() => prefs.setAnimations(null)}>Use device preference</button>
             </section>
             </Show>
