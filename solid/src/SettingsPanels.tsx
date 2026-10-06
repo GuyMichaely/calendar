@@ -1,9 +1,7 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
-import { userBoards } from "./board-order";
-import { BoardMenu } from "./BoardMenu";
 import { WEEKDAYS, describeSchedule } from "./windows";
 import { allTimeZones, calendarZone, deviceZone, formatIn, isTimeZone, partsOf, zonedDate } from "./zone";
-import type { CalendarSettings, Group, Item, TimeWindow } from "./types";
+import type { CalendarSettings, Item, TimeWindow } from "./types";
 
 type WindowFields = Pick<TimeWindow, "title" | "days" | "start" | "end">;
 
@@ -38,26 +36,6 @@ export function WindowSettings(props: {
       </Show>;
     }}</For>
     <button type="button" class="secondary-button" onClick={() => void props.onCreate({ title: "New window", days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00" })}>+ New window</button>
-  </section>;
-}
-
-/** Boards: each task is on at most one, chosen in its editor (subtasks follow their parent's unless set). */
-export function BoardSettings(props: {
-  items: Item[];
-  onCreate: () => Promise<unknown>;
-  onRename: (board: Group, title: string) => Promise<unknown>;
-  onDelete: (board: Group, withTasks: boolean) => Promise<unknown>;
-}) {
-  const boards = createMemo(() => userBoards(props.items));
-  return <section class="group-settings" aria-label="Boards">
-    <p class="field-hint">Boards file tasks by where or how you do them. The Agenda shows every task by urgency with its board's name; the Boards view gives each board a column (drag a board's heading to move it, click its name to rename it).</p>
-    <For each={boards()}>{board =>
-      <div class="group-editor">
-        <input aria-label="Board name" value={board.title} onChange={event => { const title = event.currentTarget.value.trim(); if (title && title !== board.title) void props.onRename(board, title); else event.currentTarget.value = board.title; }} />
-        <BoardMenu board={board} items={props.items} onDelete={props.onDelete} />
-      </div>}
-    </For>
-    <button type="button" class="secondary-button" onClick={() => void props.onCreate()}>+ New board</button>
   </section>;
 }
 

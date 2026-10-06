@@ -133,9 +133,9 @@ export function createCalendarStore(options: { onChanged: () => void }) {
       return { completed: closing };
     },
 
-    createGroup: async () => {
-      const group = newGroup({ title: "New board" }, new Date());
-      await change(() => putItem(group));
+    createGroup: async (title: string) => {
+      const group = newGroup({ title }, new Date());
+      await batch(`Add board “${title}”`, () => putItem(group));
       return group.id;
     },
     renameGroup: (group: Group, title: string) => batch("Rename board", () => patchGroup(group, { title })),

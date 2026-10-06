@@ -463,11 +463,11 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .inline-link { border: 0; background: none; padding: 0; color: var(--accent); font-size: 11px; }
 .inline-link:hover { text-decoration: underline; }
 /* Settings: named windows and the group tree. */
-.window-settings, .group-settings { display: grid; gap: 12px; }
+.window-settings { display: grid; gap: 12px; }
 .window-editor { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
-.window-editor-top, .group-editor { display: flex; align-items: center; gap: 8px; }
-.window-editor input, .group-editor input, .group-editor select { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
-.window-editor-top input, .group-editor input { flex: 1; min-width: 0; }
+.window-editor-top { display: flex; align-items: center; gap: 8px; }
+.window-editor input { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+.window-editor-top input { flex: 1; min-width: 0; }
 .window-days { display: flex; gap: 4px; }
 .window-days button { width: 34px; border: 1px solid var(--line); border-radius: 6px; background: transparent; padding: 4px 0; font-size: 11px; color: var(--muted); }
 .window-days button[aria-pressed="true"] { background: var(--accent-soft); border-color: #815740; color: var(--accent-strong); }
@@ -526,6 +526,9 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .board-name:hover, .board-name:focus-visible { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
 .board-name-input { flex: 1; min-width: 0; margin: -3px 0; padding: 2px 6px; border: 1px solid var(--accent); border-radius: 5px; background: var(--surface-2); color: var(--text); font-size: 13px; font-weight: 600; cursor: text; }
 .board-name-input:focus { outline: none; }
+.board-new { display: inline-flex; align-items: center; gap: 5px; align-self: center; padding: 5px 10px; border-radius: 7px; }
+.board-new-input { align-self: center; width: 160px; padding: 5px 8px; border: 1px solid var(--accent); border-radius: 7px; background: var(--surface); color: var(--text); font-size: 12px; }
+.board-new-input:focus { outline: none; }
 .today-panel.columns .today-section.dragging { opacity: .45; }
 .today-column-empty { margin: 8px 10px; color: var(--muted); font-size: 11px; }
 .today-chip.tag { background: transparent; border: 1px solid var(--line); }

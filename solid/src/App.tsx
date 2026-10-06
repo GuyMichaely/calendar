@@ -12,7 +12,7 @@ import { createCalendarStore } from "./calendar-store";
 import { createPreferences } from "./preferences";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
 import { TodayView, when } from "./TodayView";
-import { BoardSettings, TimeZoneSettings, WindowSettings } from "./SettingsPanels";
+import { TimeZoneSettings, WindowSettings } from "./SettingsPanels";
 import { openWork } from "./today";
 import { SAMPLE_PREFIX, demoItems, sampleSubtaskItems } from "./demo-data";
 import { isDormant, projectDependents } from "./dependencies";
@@ -101,7 +101,7 @@ export function App() {
   const [shortcuts, setShortcuts] = createSignal<Shortcuts>(loadShortcuts());
   const [shortcutsDirty, setShortcutsDirty] = createSignal(false);
   const [showSettings, setShowSettings] = createSignal(false);
-  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations" | "windows" | "boards" | "display" | "time">("data");
+  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations" | "windows" | "display" | "time">("data");
   const [pendingImport, setPendingImport] = createSignal<{ text: string; added: number; updated: number } | null>(null);
   const [importing, setImporting] = createSignal(false);
   let toastSequence = 0;
@@ -225,8 +225,8 @@ export function App() {
   const lift = async (task: Task) => { await attempt(() => store.lift(task), "Could not lift the task.", "Lifted back up"); };
   const windowChange = async (run: () => Promise<unknown>) => { await attempt(run, "Could not update windows."); };
   const groupChange = async (run: () => Promise<unknown>) => { await attempt(run, "Could not update boards."); };
-  const createGroup = async () => {
-    try { return await store.createGroup(); }
+  const createGroup = async (title: string) => {
+    try { return await store.createGroup(title); }
     catch (error) { showToast(errorMessage(error, "Could not create board.")); return null; }
   };
   // Deleting a board deletes its tasks, or leaves them on no board. Undo brings it all back.
@@ -328,7 +328,7 @@ export function App() {
             <div class="tasks-workspace" classList={{ split: paneOpen() }} data-animations={animations() ? "on" : "off"}>
             <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
-              view={view() === "boards" ? "boards" : "today"} showBoard={prefs.showBoard()} showTags={prefs.showTags()} pullTimed={prefs.pullTimed()} onPullTimedChange={prefs.setPullTimed} onLayoutBoards={layout => groupChange(() => store.layoutBoards(layout))} onRenameBoard={renameGroup} onDeleteBoard={deleteGroup} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
+              view={view() === "boards" ? "boards" : "today"} showBoard={prefs.showBoard()} showTags={prefs.showTags()} pullTimed={prefs.pullTimed()} onPullTimedChange={prefs.setPullTimed} onLayoutBoards={layout => groupChange(() => store.layoutBoards(layout))} onCreateBoard={createGroup} onRenameBoard={renameGroup} onDeleteBoard={deleteGroup} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
               liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onFinish={finishTask} onNotYet={notYet} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} shortcuts={shortcuts()} onMoveTask={(task, to) => attempt(() => store.moveTask(task, to), "Could not move task.")} registerMotion={next => { motion = next; return () => { if (motion === next) motion = null; }; }} />
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
@@ -351,7 +351,6 @@ export function App() {
               <button role="tab" aria-selected={settingsTab() === "data"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("data"); }}>Data</button>
               <button role="tab" aria-selected={settingsTab() === "windows"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("windows"); }}>Windows</button>
               <button role="tab" aria-selected={settingsTab() === "time"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("time"); }}>Time zone</button>
-              <button role="tab" aria-selected={settingsTab() === "boards"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("boards"); }}>Boards</button>
               <button role="tab" aria-selected={settingsTab() === "display"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("display"); }}>Display</button>
               <button role="tab" aria-selected={settingsTab() === "animations"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("animations"); }}>Animations</button>
               <button class="keyboard-settings-tab" role="tab" aria-selected={settingsTab() === "keyboard"} onClick={() => setSettingsTab("keyboard")}>Keyboard shortcuts</button>
@@ -361,9 +360,6 @@ export function App() {
             </Show>
             <Show when={settingsTab() === "time"}>
               <TimeZoneSettings settings={settings()} items={items()} now={clock()} onCreate={zone => attempt(() => store.createSettings(zone), "Could not save the time zone.")} onChange={(zone, keepClock) => attempt(() => store.changeTimeZone(settings()!, zone, keepClock), "Could not change the time zone.", keepClock ? "Time zone changed; dates moved to keep their times" : "Time zone changed")} />
-            </Show>
-            <Show when={settingsTab() === "boards"}>
-              <BoardSettings items={items()} onCreate={() => createGroup()} onRename={renameGroup} onDelete={deleteGroup} />
             </Show>
             <Show when={settingsTab() === "display"}>
               <section class="appearance-settings" aria-label="Display">

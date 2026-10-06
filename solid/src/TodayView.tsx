@@ -52,7 +52,9 @@ export type TodayViewProps = {
   onMoveTask: (task: Task, to: { parent: Task } | { groupId: string | null }) => Promise<unknown>;
   // The Boards view's boards in a new layout (every board's key, a section id or a board id, by column).
   onLayoutBoards: (layout: BoardLayout) => Promise<void>;
-  // A board's name edited in its heading, and its ⋮ menu's delete (with its tasks, or leaving them on no board).
+  // A new board (resolving to its id, or null if it couldn't be added), a board's name edited in its heading,
+  // and its ⋮ menu's delete (with its tasks, or leaving them on no board).
+  onCreateBoard: (title: string) => Promise<string | null>;
   onRenameBoard: (board: Group, title: string) => Promise<unknown>;
   onDeleteBoard: (board: Group, withTasks: boolean) => Promise<unknown>;
   // Settings → Keyboard shortcuts.
@@ -777,6 +779,16 @@ export function TodayView(props: TodayViewProps) {
     </Show>;
   };
 
+  // New board, in the Boards heading: name it there; Enter or leaving the field adds it and scrolls to it.
+  const [naming, setNaming] = createSignal(false);
+  const addBoard = async (input: HTMLInputElement) => {
+    const title = input.value.trim();
+    setNaming(false);
+    if (!title) return;
+    const id = await props.onCreateBoard(title);
+    if (id) requestAnimationFrame(() => boardRef.querySelector(`[data-section="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }));
+  };
+
   // One section: in the Agenda a collapsible list section; in Boards a board you can drag.
   const SectionBlock = (blockProps: { id: string; column?: number; row?: number }) => {
     const id = () => blockProps.id;
@@ -833,6 +845,14 @@ export function TodayView(props: TodayViewProps) {
         </select>
       </label>
       <Show when={props.view === "boards"}>
+        <Show when={naming()} fallback={<button type="button" class="secondary-button board-new" onClick={() => setNaming(true)}><Icon name="plus" size={14} />New board</button>}>
+          <input class="board-new-input" aria-label="New board's name" placeholder="Board name" ref={input => requestAnimationFrame(() => input.focus())}
+            onKeyDown={event => {
+              if (event.key === "Enter") { event.preventDefault(); void addBoard(event.currentTarget); }
+              else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setNaming(false); }
+            }}
+            onBlur={event => { if (naming()) void addBoard(event.currentTarget); }} />
+        </Show>
         <label class="check-row" title="Tasks on a board that are Firm, closing or opening today, or upcoming move to that column; the rest stay on their board"><input type="checkbox" checked={props.pullTimed} onChange={event => props.onPullTimedChange(event.currentTarget.checked)} />Pull timed tasks off boards</label>
       </Show>
       <label class="check-row" title="Fold pushed-down tasks beside each other into one row you can open"><input type="checkbox" checked={props.compact} onChange={event => props.onCompactChange(event.currentTarget.checked)} />Compact</label>
