@@ -1,4 +1,5 @@
 import { isDormant } from "./dependencies";
+import { dependentTasks } from "../../site/task-tree.js";
 import type { Group, Item, Task } from "./types";
 
 /*
@@ -38,7 +39,17 @@ export function taskPlacePatches(items: Item[], task: Task, parentId: string | n
       : sibling.sortOrder !== sortOrder ? [{ task: sibling, patch: { sortOrder } }] : []);
 }
 
-/** Deleting a board keeps its tasks, on no board. */
+/** Deleting a board but keeping its tasks leaves them on no board. */
 export function deleteBoardPatches(items: Item[], board: Group) {
   return items.flatMap(item => item.kind === "task" && item.groupId === board.id ? [{ task: item, patch: { groupId: null } as Partial<Task> }] : []);
+}
+
+/** The tasks deleting a board with its tasks removes: those on it, with their subtasks and dependent tasks. */
+export function boardTasks(items: Item[], board: Group): Task[] {
+  const found = new Map<string, Task>();
+  for (const item of items) {
+    if (item.kind !== "task" || item.groupId !== board.id) continue;
+    for (const task of [item, ...dependentTasks(items, item.id) as Task[]]) found.set(task.id, task);
+  }
+  return [...found.values()];
 }

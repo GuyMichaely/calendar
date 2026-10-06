@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { deleteBoardPatches, sortedGroups, taskPlacePatches, taskSiblings } from "../src/boards";
+import { boardTasks, deleteBoardPatches, sortedGroups, taskPlacePatches, taskSiblings } from "../src/boards";
 import { projectDependents } from "../src/dependencies";
 import type { Group, Item, Task } from "../src/types";
 
@@ -42,6 +42,15 @@ test("taskPlacePatches nests, un-nests, moves between boards, and indexes a task
 test("deleting a board leaves its tasks on no board", () => {
   const items: Item[] = [group("g"), task("t", { groupId: "g" }), task("other", { groupId: "h" })];
   expect(deleteBoardPatches(items, items[0] as Group).map(({ task, patch }) => [task.id, patch.groupId])).toEqual([["t", null]]);
+});
+
+test("deleting a board with its tasks takes their subtasks and dependent tasks too", () => {
+  const items: Item[] = [
+    group("g"),
+    task("t", { groupId: "g" }), task("kid", { parentId: "t", groupId: "h" }), task("next", { dependentOf: "t" }),
+    task("own", { parentId: "elsewhere", groupId: "g" }), task("elsewhere", { groupId: "h" }), task("loose"),
+  ];
+  expect(boardTasks(items, items[0] as Group).map(t => t.id).sort()).toEqual(["kid", "next", "own", "t"]);
 });
 
 test("the calendar's what-if view starts dependent tasks on their parent task's latest date, through chains", () => {

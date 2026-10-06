@@ -21,7 +21,7 @@ import {
 import { startedTask } from "./dependencies";
 import { advancedTask } from "./repeats";
 import { boardLayoutPatches, type BoardLayout } from "./board-order";
-import { deleteBoardPatches, taskPlacePatches } from "./boards";
+import { boardTasks, deleteBoardPatches, taskPlacePatches } from "./boards";
 import { completedTask, dependentGroupId, liftedTask, reopenedTask, newGroup, newTask, newWindow, patchedItem, pushedTask } from "./item-changes";
 import { sameClockIn } from "./zone";
 import type { CalendarEvent, CalendarSettings, Group, Item, Task, TimeWindow } from "./types";
@@ -156,8 +156,11 @@ export function createCalendarStore(options: { onChanged: () => void }) {
       for (const { task: item, patch } of patches) await putItem(patchedItem(item, patch, new Date()), item);
     }),
 
-    deleteGroup: (group: Group) => batch(`Delete board “${group.title}”`, async () => {
-      for (const { task, patch } of deleteBoardPatches(items(), group)) await putItem(patchedItem(task, patch, new Date()), task);
+    /** Delete a board with its tasks, or leave them on no board. */
+    deleteGroup: (group: Group, withTasks: boolean) => batch(withTasks ? `Delete board “${group.title}” and its tasks` : `Delete board “${group.title}”`, async () => {
+      // Deleting a task takes its subtasks and dependent tasks with it (and skips one already gone).
+      if (withTasks) for (const task of boardTasks(items(), group)) await deleteItem(task.id);
+      else for (const { task, patch } of deleteBoardPatches(items(), group)) await putItem(patchedItem(task, patch, new Date()), task);
       await deleteItem(group.id);
     }),
 

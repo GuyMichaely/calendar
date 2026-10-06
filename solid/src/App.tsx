@@ -17,6 +17,7 @@ import { openWork } from "./today";
 import { SAMPLE_PREFIX, demoItems, sampleSubtaskItems } from "./demo-data";
 import { isDormant, projectDependents } from "./dependencies";
 import { dependentTasks } from "../../site/task-tree.js";
+import { boardTasks } from "./boards";
 import { ToastStack, type ToastMessage } from "./ToastStack";
 import { animationsEnabled } from "./settings";
 import type { CalendarEvent, CalendarSettings, Group, Item, Task, View } from "./types";
@@ -228,10 +229,16 @@ export function App() {
     try { return await store.createGroup(); }
     catch (error) { showToast(errorMessage(error, "Could not create board.")); return null; }
   };
-  // Deleting a board keeps its tasks, on no board. Undo brings it back.
-  const deleteGroup = async (group: Group) => {
-    if (await attempt(() => store.deleteGroup(group), "Could not delete board.")) showToast(`Deleted “${group.title}” (Ctrl+Z to undo)`);
+  // Deleting a board deletes its tasks, or leaves them on no board. Undo brings it all back.
+  const deleteGroup = async (group: Group, withTasks: boolean) => {
+    const doomed = withTasks ? boardTasks(items(), group) : [];
+    // Close the task pane first if it shows one of them, so its pending edits can't recreate a deleted task.
+    const selected = selectedTaskId();
+    if (selected && doomed.some(task => task.id === selected)) { await selectTask(null, true); if (selectedTaskId()) return; }
+    const tasks = doomed.length === 1 ? "its task" : `its ${doomed.length} tasks`;
+    if (await attempt(() => store.deleteGroup(group, withTasks), "Could not delete board.")) showToast(`Deleted “${group.title}”${doomed.length ? ` and ${tasks}` : ""} (Ctrl+Z to undo)`);
   };
+  const renameGroup = (group: Group, title: string) => groupChange(() => store.renameGroup(group, title));
   // Undo and redo move rows the way the change itself did.
   let motion: ((run: () => Promise<unknown>) => Promise<void>) | null = null;
   const withMotion = async (run: () => Promise<unknown>) => { if (motion && view() !== "calendar") await motion(run); else await run(); };
@@ -321,7 +328,7 @@ export function App() {
             <div class="tasks-workspace" classList={{ split: paneOpen() }} data-animations={animations() ? "on" : "off"}>
             <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
-              view={view() === "boards" ? "boards" : "today"} showBoard={prefs.showBoard()} showTags={prefs.showTags()} pullTimed={prefs.pullTimed()} onPullTimedChange={prefs.setPullTimed} onLayoutBoards={layout => groupChange(() => store.layoutBoards(layout))} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
+              view={view() === "boards" ? "boards" : "today"} showBoard={prefs.showBoard()} showTags={prefs.showTags()} pullTimed={prefs.pullTimed()} onPullTimedChange={prefs.setPullTimed} onLayoutBoards={layout => groupChange(() => store.layoutBoards(layout))} onRenameBoard={renameGroup} onDeleteBoard={deleteGroup} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
               liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onFinish={finishTask} onNotYet={notYet} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} shortcuts={shortcuts()} onMoveTask={(task, to) => attempt(() => store.moveTask(task, to), "Could not move task.")} registerMotion={next => { motion = next; return () => { if (motion === next) motion = null; }; }} />
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
@@ -356,7 +363,7 @@ export function App() {
               <TimeZoneSettings settings={settings()} items={items()} now={clock()} onCreate={zone => attempt(() => store.createSettings(zone), "Could not save the time zone.")} onChange={(zone, keepClock) => attempt(() => store.changeTimeZone(settings()!, zone, keepClock), "Could not change the time zone.", keepClock ? "Time zone changed; dates moved to keep their times" : "Time zone changed")} />
             </Show>
             <Show when={settingsTab() === "boards"}>
-              <BoardSettings items={items()} onCreate={() => createGroup()} onRename={(group, title) => groupChange(() => store.renameGroup(group, title))} onDelete={deleteGroup} />
+              <BoardSettings items={items()} onCreate={() => createGroup()} onRename={renameGroup} onDelete={deleteGroup} />
             </Show>
             <Show when={settingsTab() === "display"}>
               <section class="appearance-settings" aria-label="Display">
