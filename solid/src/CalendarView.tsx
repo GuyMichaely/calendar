@@ -3,10 +3,13 @@ import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import { textMatches } from "../../site/domain.js";
 import { addDays, clockText, dayKey as dateKey, formatIn, partsOf, startOfDay, zonedDate } from "./zone";
 import { calendarEntries, todaysWork, windowsFor, type CalendarEntry } from "./calendar-entries";
+import { placementOf } from "./today";
 import { describeRepeat } from "./repeats";
 import type { CalendarEvent, Item, Task } from "./types";
 
 type Shown = CalendarEntry & { className: string; label: string; title: string; kindLabel: string };
+// A row in the selected day's list: an entry, or one of today's tasks that has none that day.
+type Listed = Pick<Shown, "item" | "className" | "kindLabel">;
 
 function shortTime(date: Date | null | undefined) {
   return date ? clockText(date) : "";
@@ -65,7 +68,7 @@ export function CalendarView(props: {
       const shown: Shown = entry.kind === "event" ? { ...entry, className: "event", label: `${shortTime(entry.at)} ${title}`, title, kindLabel: shortTime(entry.at) }
         : entry.kind === "due" ? { ...entry, className: `task due${entry.overdue ? " overdue" : ""}`, label: ["Due", timeOf(entry.at), title].filter(Boolean).join(" "), title: `${title}: due ${shortTime(entry.at)}${entry.overdue ? " (overdue)" : ""}`, kindLabel: ["Due", timeOf(entry.at)].filter(Boolean).join(" · ") }
         : entry.kind === "repeat" ? { ...entry, className: "task repeat", label: `↻ ${title}`, title: `${title}: a later occurrence (${describeRepeat(task!.repeat!)})`, kindLabel: `Repeats${timeOf(entry.at) ? ` · ${timeOf(entry.at)}` : ""}` }
-        : { ...entry, className: "task start", label: title, title: `${title}: can start`, kindLabel: `Can start${timeOf(entry.at) ? ` · ${timeOf(entry.at)}` : ""}` };
+        : { ...entry, className: "task start", label: title, title: `${title}: can start${entry.window ? ` (${entry.window.title} opens)` : ""}`, kindLabel: [`Can start`, timeOf(entry.at), entry.window?.title].filter(Boolean).join(" · ") };
       if (entry.pushed) { shown.className += " pushed-entry"; shown.title += " (pushed down)"; }
       if (ghost) { shown.className += " ghost-entry"; shown.label = `If started: ${shown.label}`; shown.title += " (dependent task, if started on its parent task's due date)"; }
       const key = dateKey(entry.at);
@@ -89,7 +92,23 @@ export function CalendarView(props: {
     const tasks = [...entriesForDay(day).map(entry => entry.item), ...pendingForDay(day)].filter((item): item is Task => item.kind === "task");
     return windowsFor(props.items, tasks, day);
   });
-  const selectedEntries = createMemo(() => entriesForDay(selectedDay()).filter(entry => !props.query || textMatches(entry.item, props.query)));
+  // The selected day's entries, then (on today) the rest of today's work, labelled the way the Agenda places it.
+  const selectedEntries = createMemo((): Listed[] => {
+    const day = selectedDay();
+    const entries = entriesForDay(day);
+    const listed = new Set(entries.map(entry => entry.item.id));
+    const order = ["firm", "closing", "later", "available"];
+    const rest = pendingForDay(day).filter(task => !listed.has(task.id)).map(task => ({ task, placement: placementOf(task, props.items, props.now) }))
+      .sort((a, b) => order.indexOf(a.placement.section) - order.indexOf(b.placement.section)).map(({ task, placement }): Listed => {
+      const window = task.windowId ? props.items.find(item => item.id === task.windowId)?.title : undefined;
+      const kindLabel = placement.section === "firm" ? `Firm · ${placement.overdue ? "overdue" : "due soon"}`
+        : placement.section === "closing" && placement.closes ? [`Closes ${shortTime(placement.closes)}`, window].filter(Boolean).join(" · ")
+        : placement.section === "later" && placement.opens ? [`Can start · ${shortTime(placement.opens)}`, window].filter(Boolean).join(" · ")
+        : "Available";
+      return { item: task, className: placement.section === "firm" ? "task due" : "task start", kindLabel };
+    });
+    return [...entries, ...rest].filter(entry => !props.query || textMatches(entry.item, props.query));
+  });
   return <section class="panel calendar-panel" style={{"--calendar-weeks": days().length / 7}}>
     <div class="calendar-toolbar">
       <div class="calendar-titlebar">

@@ -6,15 +6,17 @@ import { endOfDay } from "./zone";
 import type { CalendarEvent, Item, Task, TimeWindow } from "./types";
 
 /*
- * What the month calendar shows for a task: when it can start (if that's still ahead; a
- * task in a window starts at the window's first opening from then), when it's due, and a
+ * What the month calendar shows for a task: when it can start, if it can't now (a task in a
+ * window starts at the window's first opening from its start, so a task that could start
+ * but whose window is shut shows at the window's next opening), when it's due, and a
  * repeating task's later occurrences. A pushed-down task still shows, marked as such.
- * Windows show as bands across each day they open.
  */
 export type CalendarEntry = {
   item: Task | CalendarEvent;
   kind: "event" | "start" | "due" | "repeat";
   at: Date;
+  // A start at a window's opening: that window.
+  window?: TimeWindow;
   pushed?: boolean;
   overdue?: boolean;
 };
@@ -36,12 +38,11 @@ export function calendarEntries(items: Item[], from: Date, to: Date, now: Date):
     const pushed = pushedDownInfo(item, now).pushed;
     // A dormant dependent task shows only as projected by the app (its dates as if started).
     const start = time(task.availableFrom);
-    if (start && start > now) {
-      const schedule = isDormant(item, byId) ? null : taskSchedule(task, windows);
-      const opening = schedule ? nextOpening(schedule, start) : null;
-      const at = opening && opening.opens > start ? opening.opens : start;
-      if (inRange(at)) entries.push({ item, kind: "start", at, pushed });
-    }
+    const from = start && start > now ? start : now;
+    const schedule = isDormant(item, byId) ? null : taskSchedule(task, windows);
+    const opening = schedule ? nextOpening(schedule, from) : null;
+    const at = opening && opening.opens > from ? opening.opens : start && start > now ? start : null;
+    if (inRange(at)) entries.push({ item, kind: "start", at, pushed, ...(at === opening?.opens ? { window: windows.get(task.windowId!) } : {}) });
     const due = time(task.deadline);
     if (inRange(due)) entries.push({ item, kind: "due", at: due, pushed, overdue: due < now });
     // Later occurrences of a repeating task.
@@ -62,7 +63,6 @@ export function calendarEntries(items: Item[], from: Date, to: Date, now: Date):
 
 export type WindowOpening = { window: TimeWindow; opens: Date; closes: Date };
 
-/** The windows open on a day, earliest first, each with a stable color. */
 /** The windows these tasks are done in, with their hours, that open on this day. */
 export function windowsFor(items: Item[], tasks: Task[], day: Date): WindowOpening[] {
   const used = new Set(tasks.map(task => task.windowId).filter(Boolean));

@@ -14,6 +14,13 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({ id, kind: "task
 const business: TimeWindow = { id: "business", kind: "window", title: "Business", days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", createdAt: at, updatedAt: at };
 const range = (items: Item[]) => calendarEntries(items, local(1, 0), local(31, 0), now).map(entry => [entry.item.id, entry.kind, partsOf(entry.at).day, partsOf(entry.at).hour]);
 
+test("a task that could start but whose window is shut shows at the window's next opening", () => {
+  // 2:20 pm Tuesday: an evening window opens later today; business hours are open now (nothing to show).
+  const evening: TimeWindow = { ...business, id: "evening", title: "Evening", start: "18:00", end: "22:00" };
+  const entries = calendarEntries([evening, business, task("e", { windowId: "evening" }), task("b", { windowId: "business" })], local(1, 0), local(31, 0), now);
+  expect(entries.map(entry => [entry.item.id, entry.kind, partsOf(entry.at).day, partsOf(entry.at).hour, entry.window?.id])).toEqual([["e", "start", 6, 18, "evening"]]);
+});
+
 test("a task shows when it can start (at its window's opening) and when it's due", () => {
   expect(range([business, task("a", { availableFrom: local(8, 7).toISOString(), windowId: "business", deadline: local(9, 12).toISOString() })])).toEqual([["a", "start", 8, 9], ["a", "due", 9, 12]]);
   // Already startable: no start marker. Finished: nothing.
