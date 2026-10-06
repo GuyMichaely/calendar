@@ -1,14 +1,12 @@
-// The calendar at guymichaely.com/calendar/ (calendar.guymichaely.com redirects there). The app's
-// built files are static assets; under them, /calendar/sync is the sync server. Cloudflare Access
-// guards it (only its policy's account gets through), so nothing here checks who's asking. The app
-// and its sync share one origin: no CORS.
+// The calendar at calendar.guymichaely.com, its own origin, so no other site shares its storage or
+// sign-in. The app's built files are static assets; this runs only for /sync, the sync server.
+// Cloudflare Access guards /sync (only its policy's account gets through), so nothing here checks
+// who's asking. The app and /sync share one origin: no CORS.
 //
-//   GET  /calendar/sync/signin            after Access signs you in, sends the browser back to the app
-//   POST /calendar/sync                   one round of Automerge's sync protocol (backend/sync/http.js)
-//   GET  /calendar/sync/live              a WebSocket that's sent { heads } whenever the calendar changes
-//   *    /calendar/sync/attachments/:id   attachment bytes, in R2 (backend/sync/attachments-http.js)
-//
-// The Durable Object sees these paths without /calendar.
+//   GET  /sync/signin             after Access signs you in, sends the browser back to the app
+//   POST /sync                    one round of Automerge's sync protocol (backend/sync/http.js)
+//   GET  /sync/live               a WebSocket that's sent { heads } whenever the calendar changes
+//   *    /sync/attachments/:id    attachment bytes, stored in R2 (backend/sync/attachments-http.js)
 import * as Automerge from "@automerge/automerge";
 import { DurableObject } from "cloudflare:workers";
 import { loadCalendarDocument } from "../sync/automerge-document.js";
@@ -83,20 +81,11 @@ export class CalendarStore extends DurableObject {
   }
 }
 
-const BASE = "/calendar";
-
 export default {
   fetch(request, env) {
-    const url = new URL(request.url);
-    // The subdomain only redirects, so nothing on it (sync included) is served outside Access.
-    if (url.hostname === "calendar.guymichaely.com") {
-      return Response.redirect(`https://guymichaely.com${BASE}${url.pathname === "/" ? "/" : url.pathname}${url.search}`, 301);
-    }
-    if (url.pathname === `${BASE}/sync/signin`) return new Response(null, { status: 302, headers: { location: `${BASE}/#sync-signed-in` } });
-    if (url.pathname === `${BASE}/sync` || url.pathname.startsWith(`${BASE}/sync/`)) {
-      url.pathname = url.pathname.slice(BASE.length);
-      return env.CALENDAR.get(env.CALENDAR.idFromName("primary")).fetch(new Request(url, request));
-    }
+    const { pathname } = new URL(request.url);
+    if (pathname === "/sync/signin") return new Response(null, { status: 302, headers: { location: "/#sync-signed-in" } });
+    if (pathname === "/sync" || pathname.startsWith("/sync/")) return env.CALENDAR.get(env.CALENDAR.idFromName("primary")).fetch(request);
     return env.ASSETS.fetch(request);
   },
 };

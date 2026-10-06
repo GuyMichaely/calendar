@@ -23,11 +23,11 @@ function requestError(message: string, status: number) {
   return Object.assign(new Error(`${message} (${status}).`), { status });
 }
 
-// The sync server sits beside the app: /calendar/sync.
+// The sync server sits beside the app: /sync.
 const SYNC = `${import.meta.env.BASE_URL}sync`;
 
 /**
- * Sync with the calendar's server at /calendar/sync, on this origin and behind Cloudflare Access.
+ * Sync with the calendar's server at /sync, on this origin and behind Cloudflare Access.
  * @guymichaely/app-sync decides when (after edits, on opening and coming back, as the live
  * connection hears other devices' changes, and when asked); one sync is Automerge's sync protocol
  * (sync/client.js). Call it before anything reads the address: it takes the sign-in return off it.

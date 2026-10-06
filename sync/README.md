@@ -62,7 +62,7 @@ A production adapter must serialize or transact concurrent updates for the same 
 
 ## The Worker
 
-`backend/worker.js` serves the app at `/calendar/` and routes `/calendar/sync`, `/calendar/sync/live`, and `/calendar/sync/attachments/:id` to the Durable Object, which sees them without `/calendar` (the paths above); the app and the server share one origin, so there's no CORS. See [backend/README.md](../backend/README.md).
+`backend/worker.js` serves the app and routes `/sync`, `/sync/live`, and `/sync/attachments/:id` to the Durable Object; the app and the server share one origin, so there's no CORS. See [backend/README.md](../backend/README.md).
 
 The separate `calendar-history` IndexedDB database remains local-only. It is never included in the Automerge document or remote sync.
 

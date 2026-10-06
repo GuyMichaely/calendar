@@ -24,11 +24,11 @@ Undo/redo history is stored separately in `calendar-history` IndexedDB and is se
 
 ## Where it runs, and sync
 
-The calendar is one Cloudflare Worker at <https://guymichaely.com/calendar/> ([backend/README.md](backend/README.md)); `calendar.guymichaely.com` redirects there, path and all. It serves the built app as static files and runs the sync server under `/calendar/sync`. Cloudflare Access guards that, so only your Cloudflare sign-in reaches it; the app itself is public and works without signing in, keeping everything in the browser.
+The calendar is one Cloudflare Worker at <https://calendar.guymichaely.com> ([backend/README.md](backend/README.md)), its own origin, so no other site shares its storage or sign-in; `guymichaely.com/calendar/` redirects there (a page in the `guymichaely.github.io` repository). It serves the built app as static files and runs the sync server under `/sync`. Cloudflare Access guards `/sync`, so only your Cloudflare sign-in reaches it; the app itself is public and works without signing in, keeping everything in the browser.
 
 - `backend/worker.js`: the Worker and its Durable Object, which holds the one calendar (SQLite) and announces changes over a live WebSocket; attachment bytes are in R2.
 - `backend/sync/http.js`: `POST /sync`, one round of Automerge's sync protocol, over an atomic document-store contract.
-- `backend/sync/attachments-http.js`: attachment bytes at `/calendar/sync/attachments/:id`.
+- `backend/sync/attachments-http.js`: attachment bytes at `/sync/attachments/:id`.
 - `sync/client.js`: the device side of the sync protocol.
 - `solid/src/cloud-sync.ts`: when to sync, through [@guymichaely/app-sync](https://github.com/GuyMichaely/app-sync): after edits, on opening and coming back, as the live connection hears other devices' changes, and on Sync now; sign-in; and attachment transfer.
 
@@ -41,7 +41,7 @@ Use the repository wrapper on Linux or macOS. It downloads the exact Bun version
 ./scripts/bun run dev:solid
 ```
 
-Open <http://localhost:5173/calendar/>. A copy that isn't syncing starts with sample tasks. To try sync, build once and run the Worker locally (no Access in front, so Sign in goes straight through); the Vite server forwards `/calendar/sync` to it:
+Open <http://localhost:5173/>. A copy that isn't syncing starts with sample tasks. To try sync, build once and run the Worker locally (no Access in front, so Sign in goes straight through); the Vite server forwards `/sync` to it:
 
 ```bash
 ./scripts/bun run build:solid

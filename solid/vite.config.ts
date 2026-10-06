@@ -17,14 +17,13 @@ function serviceWorker(): Plugin {
 
 export default defineConfig({
   root: "solid",
-  base: "/calendar/",
+  base: "/",
   plugins: [solid(), serviceWorker()],
   optimizeDeps: { exclude: ["@automerge/automerge"] },
-  // In development, /calendar/sync goes to the Worker (bun run dev:worker), which has no Access in front.
-  server: { proxy: { "/calendar/sync": { target: "http://127.0.0.1:8787", ws: true } } },
+  // In development, /sync goes to the Worker (bun run dev:worker), which has no Access in front.
+  server: { proxy: { "/sync": { target: "http://127.0.0.1:8787", ws: true } } },
   build: {
-    // The Worker serves dist, so the app sits at dist/calendar to be served at /calendar/.
-    outDir: "../dist/calendar",
+    outDir: "../dist",
     emptyOutDir: true,
     sourcemap: true,
   },
