@@ -637,8 +637,8 @@ export function TodayView(props: TodayViewProps) {
         Object.assign(ghost.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, maxHeight: "50vh", overflow: "hidden", margin: "0", zIndex: "60", pointerEvents: "none" });
         document.body.appendChild(ghost);
         boardRef.style.setProperty("--drop-h", `${Math.min(rect.height, innerHeight * 0.5)}px`);
-        // A new column opens at half a column's width.
-        boardRef.style.setProperty("--drop-w", `${rect.width / 2}px`);
+        // A new column opens at an eighth of a column's width.
+        boardRef.style.setProperty("--drop-w", `${rect.width / 8}px`);
       }
       frame = requestAnimationFrame(aim);
     };
@@ -653,24 +653,31 @@ export function TodayView(props: TodayViewProps) {
       document.removeEventListener("touchmove", still);
       document.removeEventListener("contextmenu", still, true);
       cancelAnimationFrame(frame);
-      ghost?.remove();
-      boardRef.style.removeProperty("--drop-h");
-      boardRef.style.removeProperty("--drop-w");
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", up);
       document.removeEventListener("pointercancel", cancel);
       document.removeEventListener("keydown", escape, true);
       const target = targetOf(dropKey());
-      setDragKey(null); setDropKey(""); setSpaceKey("");
-      // The click that ends a drag isn't a click on the board's name.
-      if (started) { boardDragged = true; setTimeout(() => { boardDragged = false; }); }
-      // The boards slide from where they show (shift and all) to their new places, or back.
-      if (drop && started && target) void moveBoards(() => { setPan(0); return props.onLayoutBoards(placeBoard(layout, shown, key, target)); });
-      else if (pan) {
-        const shift = pan;
+      // Everything the drag showed goes at once (the openings without their transition), so
+      // the boards' new places can be measured in the same frame.
+      const settle = () => {
+        ghost?.remove();
+        boardRef.classList.add("settling");
+        setDragKey(null); setDropKey(""); setSpaceKey("");
         setPan(0);
-        if (boardRef.closest('[data-animations="on"]')) for (const child of boardRef.children) child.animate([{ transform: `translateX(${shift}px)` }, { transform: "none" }], { duration: MOTION_MS, easing: "cubic-bezier(.2, .8, .2, 1)" });
-      }
+        boardRef.style.removeProperty("--drop-h");
+        boardRef.style.removeProperty("--drop-w");
+        requestAnimationFrame(() => boardRef.classList.remove("settling"));
+      };
+      if (!started) return settle();
+      // The click that ends a drag isn't a click on the board's name.
+      boardDragged = true; setTimeout(() => { boardDragged = false; });
+      // The boards slide from where they show (shift, openings and all) to their new places,
+      // or back, and the dragged board from where it was dropped. Until the new layout is in,
+      // the drag stays as it was.
+      const from = ghost ? { key, rect: ghost.getBoundingClientRect() } : undefined;
+      if (drop && target) void moveBoards(async () => { await props.onLayoutBoards(placeBoard(layout, shown, key, target)); settle(); }, from);
+      else void moveBoards(async () => settle(), from);
     };
     const up = (next: PointerEvent) => { if (next.pointerId === pointer) end(true); };
     const cancel = (next: PointerEvent) => { if (next.pointerId === pointer) end(false); };
@@ -683,10 +690,11 @@ export function TodayView(props: TodayViewProps) {
     document.addEventListener("contextmenu", still, true);
     if (touch) hold = setTimeout(begin, 380);
   };
-  // Boards slide to their new places too.
-  const moveBoards = async (run: () => Promise<unknown>) => {
+  // Boards slide to their new places too (a dragged one from where it was dropped).
+  const moveBoards = async (run: () => Promise<unknown>, dropped?: { key: string; rect: DOMRect }) => {
     const cards = () => new Map([...boardRef.querySelectorAll<HTMLElement>(".board-card[data-section]")].map(element => [element.dataset.section!, element]));
     const before = new Map([...cards()].map(([key, element]) => [key, element.getBoundingClientRect()]));
+    if (dropped) before.set(dropped.key, dropped.rect);
     await run();
     if (!boardRef.closest('[data-animations="on"]')) return;
     for (const [key, element] of cards()) {

@@ -22,15 +22,23 @@ export function BoardMenu(props: {
     onCleanup(() => { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape, true); });
   });
   const act = (run: () => unknown) => () => { setOpen(false); void run(); };
-  const count = () => boardTasks(props.items, props.board).length;
+  // What deleting with tasks takes, spelled out (finished and waiting tasks don't show on the board).
+  const doomed = () => boardTasks(props.items, props.board);
+  const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+  const deletes = () => {
+    const tasks = doomed(), completed = tasks.filter(task => task.state === "completed").length;
+    const waiting = tasks.filter(task => task.state !== "completed" && task.dependentOf).length;
+    const hidden = [completed && `${completed} completed`, waiting && `${waiting} waiting to start`].filter(Boolean).join(", ");
+    return `Also deletes its ${plural(tasks.length, "task")}${hidden ? ` (${hidden})` : ""}`;
+  };
   return <span class="task-menu board-menu" ref={root}>
     <button type="button" class="icon-button task-menu-button" aria-label={`Actions for ${props.board.title || "board"}`} aria-haspopup="menu" aria-expanded={open()} onClick={() => setOpen(value => !value)}>⋮</button>
     <Show when={open()}>
       <div class="task-menu-list" role="menu">
         <Show when={props.onRename}>{rename => <button role="menuitem" onClick={act(rename())}>Rename</button>}</Show>
-        <Show when={count()} fallback={<button role="menuitem" class="danger-text" onClick={act(() => props.onDelete(props.board, false))}>Delete board</button>}>
-          <button role="menuitem" class="danger-text" onClick={act(() => props.onDelete(props.board, true))}>Delete board and its {count() === 1 ? "task" : `${count()} tasks`}</button>
-          <button role="menuitem" class="danger-text" title="Its tasks stay, on no board" onClick={act(() => props.onDelete(props.board, false))}>Delete board, keep its {count() === 1 ? "task" : "tasks"}</button>
+        <Show when={doomed().length} fallback={<button role="menuitem" class="danger-text" onClick={act(() => props.onDelete(props.board, false))}>Delete board</button>}>
+          <button role="menuitem" class="danger-text" title={deletes()} onClick={act(() => props.onDelete(props.board, true))}>Delete board</button>
+          <button role="menuitem" class="danger-text" title="Its tasks stay, on no board" onClick={act(() => props.onDelete(props.board, false))}>Delete board (keep tasks)</button>
         </Show>
       </div>
     </Show>

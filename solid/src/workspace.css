@@ -507,6 +507,8 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .board-add:focus-within { background: var(--surface-2); color: var(--text); }
 .board-add input { flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; font-size: 12px; padding: 4px 0; outline: none; }
 .board-card-ghost { box-shadow: var(--shadow); opacity: .95; }
+/* A drop: the openings close at once, so the boards can slide straight to their places. */
+.boards-layout.settling .board-drop-slot, .boards-layout.settling .board-drop-column { transition: none; }
 .today-panel.columns .today-section { min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 4px 6px 8px; }
 .today-panel.columns .today-section-heading { padding: 6px 6px 8px; }
 .today-panel.columns .today-hint { display: none; }
