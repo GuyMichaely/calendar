@@ -7,6 +7,8 @@ import { DialogShell } from "./DialogShell";
 import { CalendarView } from "./CalendarView";
 import { ItemEditor, type EditorRequest } from "./ItemEditor";
 import { createCloudSync } from "./cloud-sync";
+import { inApp, onReminderOpened, scheduleReminders, type NotificationAccess } from "./notifications";
+import { upcomingReminders } from "./reminders";
 import { createCalendarStore } from "./calendar-store";
 import { createPreferences } from "./preferences";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
@@ -103,7 +105,7 @@ export function App() {
   const [shortcuts, setShortcuts] = createSignal<Shortcuts>(loadShortcuts());
   const [shortcutsDirty, setShortcutsDirty] = createSignal(false);
   const [showSettings, setShowSettings] = createSignal(false);
-  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations" | "windows" | "display" | "time">("data");
+  const [settingsTab, setSettingsTab] = createSignal<"data" | "keyboard" | "animations" | "windows" | "display" | "time" | "notifications">("data");
   const [pendingImport, setPendingImport] = createSignal<{ text: string; added: number; updated: number } | null>(null);
   const [importing, setImporting] = createSignal(false);
   let toastSequence = 0;
@@ -183,6 +185,27 @@ export function App() {
   };
   const editTask = (task: Task) => { if (splitView()) void selectTask(task.id); else openEditor(task); };
   const openEditor = (item: Task | CalendarEvent | null = null, kind?: "task" | "event", date?: Date) => { editorParents.length = 0; setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() }); };
+  // In the Android app: notifications for tasks reaching their can-start time and before events,
+  // rescheduled (in real time, not pretend time) whenever the calendar or these settings change
+  // and on coming back to the app. Tapping one opens its item.
+  const [notifyAccess, setNotifyAccess] = createSignal<NotificationAccess | null>(null);
+  if (inApp) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const reschedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void scheduleReminders(upcomingReminders(items(), new Date(), { taskStarts: prefs.notifyTaskStarts(), eventMinutes: prefs.eventReminderMinutes() }))
+        .then(setNotifyAccess, error => console.error("Could not schedule notifications", error)), 1000);
+    };
+    createEffect(() => { items(); prefs.notifyTaskStarts(); prefs.eventReminderMinutes(); if (ready()) reschedule(); });
+    const onVisible = () => { if (document.visibilityState === "visible") reschedule(); };
+    document.addEventListener("visibilitychange", onVisible);
+    onCleanup(() => { clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); });
+    onReminderOpened(id => {
+      const item = items().find(entry => entry.id === id);
+      if (item?.kind === "task") { if (view() === "calendar") navigate("tasks"); editTask(item); }
+      else if (item?.kind === "event") openEditor(item);
+    });
+  }
   const saveItem = (item: Item, _created: boolean, baseline: Item | null) => store.saveItem(item, baseline);
   const quickAddSubtask = (parent: Task, title: string) => attempt(() => store.addSubtask(parent, title), "Could not add subtask.");
   const addTask = (groupId: string | null, title: string, extra: Partial<Task> = {}) => attempt(() => store.addTask(groupId, title, extra), "Could not add task.");
@@ -343,6 +366,7 @@ export function App() {
               <button role="tab" aria-selected={settingsTab() === "windows"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("windows"); }}>Windows</button>
               <button role="tab" aria-selected={settingsTab() === "time"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("time"); }}>Time zone</button>
               <button role="tab" aria-selected={settingsTab() === "display"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("display"); }}>Display</button>
+              <Show when={inApp}><button role="tab" aria-selected={settingsTab() === "notifications"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("notifications"); }}>Notifications</button></Show>
               <button role="tab" aria-selected={settingsTab() === "animations"} onClick={() => { if (!shortcutsDirty() || window.confirm("Discard your unsaved shortcut changes?")) setSettingsTab("animations"); }}>Animations</button>
               <button class="keyboard-settings-tab" role="tab" aria-selected={settingsTab() === "keyboard"} onClick={() => setSettingsTab("keyboard")}>Keyboard shortcuts</button>
             </div>
@@ -357,6 +381,16 @@ export function App() {
                 <label class="animation-setting"><span><strong>Show board on rows</strong><small>A task's board name at the right of its row.</small></span><input aria-label="Show board on rows" type="checkbox" role="switch" checked={prefs.showBoard()} onChange={event => prefs.setShowBoard(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Show tags on rows</strong><small>A task's tags beside its other details.</small></span><input aria-label="Show tags on rows" type="checkbox" role="switch" checked={prefs.showTags()} onChange={event => prefs.setShowTags(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Pretend time</strong><small>A clock in the top bar that makes the app act as if it's another moment. Turning this off goes back to real time.</small></span><input aria-label="Pretend time" type="checkbox" role="switch" checked={prefs.showTimeControl()} onChange={event => { prefs.setShowTimeControl(event.currentTarget.checked); if (!event.currentTarget.checked) pretend(null); }} /></label>
+              </section>
+            </Show>
+            <Show when={settingsTab() === "notifications"}>
+              <section class="appearance-settings" aria-label="Notifications">
+                <Show when={notifyAccess() === "denied"}><p class="solid-menu-error">Notifications are off for this app in Android's settings, so none go off.</p></Show>
+                <label class="animation-setting"><span><strong>Tasks you can start</strong><small>When a task reaches its can-start time (in a window, when the window opens then).</small></span><input aria-label="Tasks you can start" type="checkbox" role="switch" checked={prefs.notifyTaskStarts()} onChange={event => prefs.setNotifyTaskStarts(event.currentTarget.checked)} /></label>
+                <label class="field"><span>Event reminders</span><select value={prefs.eventReminderMinutes() ?? "off"} onChange={event => prefs.setEventReminderMinutes(event.currentTarget.value === "off" ? null : Number(event.currentTarget.value))}>
+                  <option value="off">Off</option><option value="0">When it starts</option><option value="5">5 minutes before</option><option value="10">10 minutes before</option><option value="15">15 minutes before</option><option value="30">30 minutes before</option><option value="60">1 hour before</option><option value="120">2 hours before</option><option value="1440">1 day before</option>
+                </select></label>
+                <p class="field-hint">For this phone. Each kind has its own channel in Android's notification settings.</p>
               </section>
             </Show>
             <Show when={settingsTab() === "animations"}>

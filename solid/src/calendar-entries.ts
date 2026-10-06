@@ -17,6 +17,8 @@ export type CalendarEntry = {
   at: Date;
   // A start at a window's opening: when the window shuts (null: it runs on into the next day).
   until?: Date | null;
+  // A start only because the task's window is shut now (the task could otherwise start already).
+  reopens?: boolean;
   pushed?: boolean;
   overdue?: boolean;
 };
@@ -42,7 +44,7 @@ export function calendarEntries(items: Item[], from: Date, to: Date, now: Date):
     const schedule = isDormant(item, byId) ? null : taskSchedule(task, windows);
     const opening = schedule ? nextOpening(schedule, from) : null;
     const at = opening && opening.opens > from ? opening.opens : start && start > now ? start : null;
-    if (inRange(at)) entries.push({ item, kind: "start", at, pushed, ...(opening && at === opening.opens ? { until: shutsAt(schedule!, opening) } : {}) });
+    if (inRange(at)) entries.push({ item, kind: "start", at, pushed, ...(opening && at === opening.opens ? { until: shutsAt(schedule!, opening) } : {}), ...(start && start > now ? {} : { reopens: true }) });
     const due = time(task.deadline);
     if (inRange(due)) entries.push({ item, kind: "due", at: due, pushed, overdue: due < now });
     // Later occurrences of a repeating task.
