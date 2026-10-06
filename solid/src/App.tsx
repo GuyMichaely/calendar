@@ -316,7 +316,7 @@ export function App() {
     }} />}>
       <div class="app-shell">
         <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = ""; }} />
-        <WorkspaceShell notice={<TimeControl now={clock()} pretending={!!prefs.timeOffset()} onSet={pretend} onStep={ms => pretend(new Date(appNow().getTime() + ms))} onReset={() => pretend(null)} />}
+        <WorkspaceShell notice={prefs.showTimeControl() || prefs.timeOffset() ? <TimeControl now={clock()} pretending={!!prefs.timeOffset()} onSet={pretend} onStep={ms => pretend(new Date(appNow().getTime() + ms))} onReset={() => pretend(null)} /> : undefined}
           view={view()} openCount={openCount()} query={query()} onQuery={setQuery}
           onNavigate={(next) => { navigate(next); window.scrollTo({top: 0, behavior: "instant"}); }}
           onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
@@ -365,6 +365,7 @@ export function App() {
               <section class="appearance-settings" aria-label="Display">
                 <label class="animation-setting"><span><strong>Show board on rows</strong><small>A task's board name at the right of its row.</small></span><input aria-label="Show board on rows" type="checkbox" role="switch" checked={prefs.showBoard()} onChange={event => prefs.setShowBoard(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Show tags on rows</strong><small>A task's tags beside its other details.</small></span><input aria-label="Show tags on rows" type="checkbox" role="switch" checked={prefs.showTags()} onChange={event => prefs.setShowTags(event.currentTarget.checked)} /></label>
+                <label class="animation-setting"><span><strong>Pretend time</strong><small>A clock in the top bar that makes the app act as if it's another moment. Turning this off goes back to real time.</small></span><input aria-label="Pretend time" type="checkbox" role="switch" checked={prefs.showTimeControl()} onChange={event => { prefs.setShowTimeControl(event.currentTarget.checked); if (!event.currentTarget.checked) pretend(null); }} /></label>
               </section>
             </Show>
             <Show when={settingsTab() === "animations"}>

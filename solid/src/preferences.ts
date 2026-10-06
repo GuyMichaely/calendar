@@ -26,7 +26,9 @@ export function createPreferences() {
   const [showTags, setShowTags] = shown("calendar.rows.showTags");
   const [pullTimed, setPullTimed] = flag("calendar.boards.pullTimed");
   const [subtaskMode, setSubtaskMode] = choice("calendar.today.subtasks", ["context", "nested"] as const);
-  // Pretend time: milliseconds added to the real clock (0 = real time).
+  // Pretend time: milliseconds added to the real clock (0 = real time). Its clock in the top bar is
+  // hidden unless Settings → Display turns it on (or time is being pretended).
+  const [showTimeControl, setShowTimeControl] = flag("calendar.showTimeControl");
   const [timeOffset, setTimeOffset] = stored("calendar.timeOffset", raw => Number(raw) || 0, value => value ? String(value) : null);
   const [pollSeconds, setPollSeconds] = stored("calendar.pollSeconds", () => loadPollSeconds(), value => String(value));
   return {
@@ -37,6 +39,7 @@ export function createPreferences() {
     showTags, setShowTags,
     pullTimed, setPullTimed,
     subtaskMode, setSubtaskMode,
+    showTimeControl, setShowTimeControl,
     timeOffset, setTimeOffset,
     pollSeconds, setPollSeconds,
   };
