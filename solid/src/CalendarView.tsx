@@ -3,13 +3,17 @@ import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import { textMatches } from "../../site/domain.js";
 import { addDays, clockText, dayKey as dateKey, formatIn, partsOf, startOfDay, zonedDate } from "./zone";
 import { calendarEntries, todaysWork, windowsFor, type CalendarEntry } from "./calendar-entries";
-import { placementOf } from "./today";
+import { placementOf, type Placement, type SectionId } from "./today";
+import { SECTION_LABELS, when } from "./TodayView";
+import { shutsAt, windowsById } from "./windows";
 import { describeRepeat } from "./repeats";
 import type { CalendarEvent, Item, Task } from "./types";
 
 type Shown = CalendarEntry & { className: string; label: string; title: string; kindLabel: string };
-// A row in the selected day's list: an entry, or one of today's tasks that has none that day.
+// A row in the selected day's list: an entry, or one of today's tasks.
 type Listed = Pick<Shown, "item" | "className" | "kindLabel">;
+// Today's tasks in the selected day's list go in the Agenda's sections, in its order.
+const DAY_SECTIONS: SectionId[] = ["firm", "closing", "later", "available"];
 
 function shortTime(date: Date | null | undefined) {
   return date ? clockText(date) : "";
@@ -68,7 +72,7 @@ export function CalendarView(props: {
       const shown: Shown = entry.kind === "event" ? { ...entry, className: "event", label: `${shortTime(entry.at)} ${title}`, title, kindLabel: shortTime(entry.at) }
         : entry.kind === "due" ? { ...entry, className: `task due${entry.overdue ? " overdue" : ""}`, label: ["Due", timeOf(entry.at), title].filter(Boolean).join(" "), title: `${title}: due ${shortTime(entry.at)}${entry.overdue ? " (overdue)" : ""}`, kindLabel: ["Due", timeOf(entry.at)].filter(Boolean).join(" · ") }
         : entry.kind === "repeat" ? { ...entry, className: "task repeat", label: `↻ ${title}`, title: `${title}: a later occurrence (${describeRepeat(task!.repeat!)})`, kindLabel: `Repeats${timeOf(entry.at) ? ` · ${timeOf(entry.at)}` : ""}` }
-        : { ...entry, className: "task start", label: title, title: `${title}: can start${entry.window ? ` (${entry.window.title} opens)` : ""}`, kindLabel: [`Can start`, timeOf(entry.at), entry.window?.title].filter(Boolean).join(" · ") };
+        : { ...entry, className: "task start", label: title, title: `${title}: can start`, kindLabel: `Can start${timeOf(entry.at) ? ` · ${timeOf(entry.at)}${entry.until ? `–${shortTime(entry.until)}` : ""}` : ""}` };
       if (entry.pushed) { shown.className += " pushed-entry"; shown.title += " (pushed down)"; }
       if (ghost) { shown.className += " ghost-entry"; shown.label = `If started: ${shown.label}`; shown.title += " (dependent task, if started on its parent task's due date)"; }
       const key = dateKey(entry.at);
@@ -83,8 +87,7 @@ export function CalendarView(props: {
   const matchingPending = (day: Date) => props.query ? pendingForDay(day).filter(item => textMatches(item, props.query)) : pendingForDay(day);
   const pendingText = (day: Date) => {
     const count = matchingPending(day).length;
-    const noun = count === 1 ? "task" : "tasks";
-    return `${props.query ? `${count} matching ${noun}` : `${count} ${noun}`} for today`;
+    return `${count}${props.query ? " matching" : ""} ${count === 1 ? "task" : "tasks"}`;
   };
   // The windows the selected day's tasks (its entries, and today's work) are done in.
   const dayWindows = createMemo(() => {
@@ -92,23 +95,34 @@ export function CalendarView(props: {
     const tasks = [...entriesForDay(day).map(entry => entry.item), ...pendingForDay(day)].filter((item): item is Task => item.kind === "task");
     return windowsFor(props.items, tasks, day);
   });
-  // The selected day's entries, then (on today) the rest of today's work, labelled the way the Agenda places it.
-  const selectedEntries = createMemo((): Listed[] => {
+  // The selected day's entries; on today, its tasks go in the Agenda's sections instead, each
+  // labelled with what it waits on, and the entries left (events, pushed-down tasks) come first.
+  const dayList = createMemo(() => {
     const day = selectedDay();
-    const entries = entriesForDay(day);
-    const listed = new Set(entries.map(entry => entry.item.id));
-    const order = ["firm", "closing", "later", "available"];
-    const rest = pendingForDay(day).filter(task => !listed.has(task.id)).map(task => ({ task, placement: placementOf(task, props.items, props.now) }))
-      .sort((a, b) => order.indexOf(a.placement.section) - order.indexOf(b.placement.section)).map(({ task, placement }): Listed => {
-      const window = task.windowId ? props.items.find(item => item.id === task.windowId)?.title : undefined;
-      const kindLabel = placement.section === "firm" ? `Firm · ${placement.overdue ? "overdue" : "due soon"}`
-        : placement.section === "closing" && placement.closes ? [`Closes ${shortTime(placement.closes)}`, window].filter(Boolean).join(" · ")
-        : placement.section === "later" && placement.opens ? [`Can start · ${shortTime(placement.opens)}`, window].filter(Boolean).join(" · ")
-        : "Available";
-      return { item: task, className: placement.section === "firm" ? "task due" : "task start", kindLabel };
-    });
-    return [...entries, ...rest].filter(entry => !props.query || textMatches(entry.item, props.query));
+    const shown = (item: Item) => !props.query || textMatches(item, props.query);
+    const work = pendingForDay(day);
+    const inWork = new Set(work.map(task => task.id));
+    const entries: Listed[] = entriesForDay(day).filter(entry => !inWork.has(entry.item.id) && shown(entry.item));
+    const windows = windowsById(props.items);
+    const label = (task: Task, placement: Placement) => {
+      const schedule = task.windowId ? windows.get(task.windowId) : undefined;
+      if (placement.section === "firm") return !placement.due ? "Due soon" : placement.overdue ? `Overdue · was due ${when(placement.due, props.now)}` : `Due ${when(placement.due, props.now)}`;
+      if (placement.section === "closing" && placement.closes) { const shuts = schedule ? shutsAt(schedule, { closes: placement.closes }) : placement.closes; return shuts ? `Closes ${shortTime(shuts)}` : "Open now"; }
+      if (placement.section === "later" && placement.opens) { const shuts = schedule && placement.closes ? shutsAt(schedule, { closes: placement.closes }) : null; return shuts ? `${shortTime(placement.opens)}–${shortTime(shuts)}` : `From ${shortTime(placement.opens)}`; }
+      return placement.due ? `Due ${when(placement.due, props.now)}` : "";
+    };
+    const placed = work.filter(shown).map(task => ({ task, placement: placementOf(task, props.items, props.now) }));
+    const moment = (placement: Placement) => (placement.section === "closing" ? placement.closes : placement.section === "later" ? placement.opens : placement.due)?.getTime() ?? Infinity;
+    const sections = DAY_SECTIONS.map(id => ({
+      id,
+      rows: placed.filter(({ placement }) => placement.section === id).sort((a, b) => moment(a.placement) - moment(b.placement))
+        .map(({ task, placement }): Listed => ({ item: task, className: id === "firm" ? "task due" : "task start", kindLabel: label(task, placement) })),
+    })).filter(section => section.rows.length);
+    return { entries, sections };
   });
+  const [folded, setFolded] = createSignal(new Set<SectionId>());
+  const fold = (id: SectionId) => setFolded(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const row = (entry: Listed) => <button class="agenda-entry" onClick={() => props.onEdit(entry.item)}><span class={`agenda-entry-mark ${entry.className}`} /><span><Show when={entry.kindLabel}><small>{entry.kindLabel}</small></Show><strong>{displayTitle(entry.item)}</strong></span><Icon name="arrow" size={15} /></button>;
   return <section class="panel calendar-panel" style={{"--calendar-weeks": days().length / 7}}>
     <div class="calendar-toolbar">
       <div class="calendar-titlebar">
@@ -143,12 +157,32 @@ export function CalendarView(props: {
         </div>
       </div>
       <aside class="day-agenda" aria-label="Selected day">
-        <div class="agenda-date"><span>{formatIn(selectedDay(), {weekday: "long"})}</span><h2>{formatIn(selectedDay(), {month: "long", day: "numeric"})}</h2><Show when={dateKey(selectedDay()) === today()}><span class="today-label">Today</span></Show></div>
-        <Show when={matchingPending(selectedDay()).length}><button class="agenda-tasks" onClick={props.onOpenTodayTasks}><Icon name="sun" /><span>{pendingText(selectedDay())}</span><Icon name="arrow" size={16} /></button></Show>
-        <Show when={dayWindows().length}>
-          <ul class="agenda-windows" aria-label="Windows this day's tasks are done in"><For each={dayWindows()}>{opening => <li><span>{opening.window.title}</span><small>{shortTime(opening.opens)}–{shortTime(opening.closes)}</small></li>}</For></ul>
-        </Show>
-        <div class="agenda-entries"><For each={selectedEntries()} fallback={<div class="agenda-empty"><Icon name="calendar" size={29} /><strong>A little breathing room</strong><p>{props.query ? "No matches on this day." : "Nothing scheduled for this day."}</p></div>}>{entry => <button class="agenda-entry" onClick={() => props.onEdit(entry.item)}><span class={`agenda-entry-mark ${entry.className}`} /><span><small>{entry.kindLabel}</small><strong>{displayTitle(entry.item)}</strong></span><Icon name="arrow" size={15} /></button>}</For></div>
+        <div class="agenda-date">
+          <span>{formatIn(selectedDay(), {weekday: "long"})}</span>
+          <Show when={dateKey(selectedDay()) === today()}><span class="today-label">Today</span></Show>
+          <div class="agenda-date-line">
+            <h2>{formatIn(selectedDay(), {month: "long", day: "numeric"})}</h2>
+            <Show when={matchingPending(selectedDay()).length}><button class="agenda-count" title="Open in the Agenda" onClick={props.onOpenTodayTasks}>{pendingText(selectedDay())}<Icon name="arrow" size={13} /></button></Show>
+          </div>
+        </div>
+        <div class="agenda-scroll">
+          <Show when={dayWindows().length}>
+            <ul class="agenda-windows" aria-label="Windows this day's tasks are done in"><For each={dayWindows()}>{opening => <li><span>{opening.window.title}</span><small>{shortTime(opening.opens)}–{shortTime(opening.closes)}</small></li>}</For></ul>
+          </Show>
+          <Show when={dayList().entries.length || dayList().sections.length} fallback={<div class="agenda-empty"><Icon name="calendar" size={29} /><strong>A little breathing room</strong><p>{props.query ? "No matches on this day." : "Nothing scheduled for this day."}</p></div>}>
+            <div class="agenda-entries"><For each={dayList().entries}>{row}</For></div>
+            <For each={dayList().sections}>{section =>
+              <section class="day-section" data-section={section.id}>
+                <button class="today-section-heading" aria-expanded={!folded().has(section.id)} onClick={() => fold(section.id)}>
+                  <span class="section-chevron" aria-hidden="true">›</span>
+                  <strong>{SECTION_LABELS[section.id].title}</strong>
+                  <span class="section-count">{section.rows.length}</span>
+                </button>
+                <Show when={!folded().has(section.id)}><div class="agenda-entries"><For each={section.rows}>{row}</For></div></Show>
+              </section>}
+            </For>
+          </Show>
+        </div>
         <button class="secondary-button agenda-add" onClick={() => props.onCreateForDay(selectedDay())}><Icon name="plus" size={16} />Add an event</button>
       </aside>
     </div>

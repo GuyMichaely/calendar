@@ -34,6 +34,12 @@ export function nextOpening(schedule: Schedule, from: Date) {
   return null;
 }
 
+/** When an opening really shuts: its close, or null when the window opens again right then (running on into the next day). */
+export function shutsAt(schedule: Schedule, opening: { closes: Date }): Date | null {
+  const next = openingOn(schedule, opening.closes);
+  return next && next.opens.getTime() === opening.closes.getTime() ? null : opening.closes;
+}
+
 export function describeSchedule(schedule: Schedule) {
   const days = [...schedule.days].sort((a, b) => a - b);
   // Consecutive days read as a range ("Mon–Fri").

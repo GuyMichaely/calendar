@@ -132,13 +132,17 @@ body.task-dragging { overflow-anchor: none; }
 .legend-dot { display: inline-block; width: 6px; height: 6px; border-radius: 2px; background: #91a5b3; }
 .legend-dot.start { background: #8caa7c; }.legend-dot.due { background: #d39378; }
 .calendar-day-dots { display: none; }
-.day-agenda { background: var(--surface); border-radius: 10px; padding: 16px 14px; }
+.day-agenda { display: flex; flex-direction: column; background: var(--surface); border-radius: 10px; padding: 16px 14px; }
+.agenda-scroll { min-height: 0; overflow-y: auto; margin-right: -8px; padding-right: 8px; }
 .agenda-date { position: relative; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .agenda-date > span:first-child { display: block; color: var(--muted); font-size: 10px; margin-bottom: 6px; }
 .agenda-date h2 { font-size: 21px; margin: 0; }
+.agenda-date-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.agenda-count { display: inline-flex; align-items: center; gap: 4px; flex: none; border: 0; background: none; padding: 0; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.agenda-count:hover { color: var(--text); }
+.day-section { margin-top: 14px; }
+.day-section .today-section-heading strong { font-size: 12px; }
 .today-label { color: var(--accent); font-size: 9px; position: absolute; top: 2px; right: 0; }
-.agenda-tasks { display: flex; align-items: center; gap: 8px; border: 0; background: var(--ready-bg); color: var(--ready); border-radius: 6px; padding: 11px; font-size: 10px; width: 100%; margin-top: 16px; text-align: left; }
-.agenda-tasks span { flex: 1; }
 .agenda-empty { display: grid; justify-items: center; padding: 33px 0 25px; color: var(--muted); text-align: center; }
 .agenda-empty strong { color: var(--text); font-size: 12px; font-weight: 500; margin-top: 14px; }
 .agenda-empty p { font-size: 10px; margin: 5px 0; }
@@ -284,6 +288,8 @@ main:has(.calendar-panel) { padding: 14px 20px 20px; }
 .calendar-toolbar { justify-content: space-between; margin-bottom: 12px; }
 .calendar-toolbar h1 { font-size: 28px; margin: 0; letter-spacing: -.7px; }
 @media (min-width: 761px) {
+  /* The selected day's panel is no taller than the grid; its list scrolls instead of the page. */
+  .day-agenda { max-height: max(calc(100dvh - 166px), calc(28px + var(--calendar-weeks) * 82px)); }
   .calendar-grid { height: calc(100dvh - 166px); min-height: calc(28px + var(--calendar-weeks) * 82px); grid-template-rows: 28px repeat(var(--calendar-weeks), minmax(82px, 1fr)); }
   .weekday { padding: 6px 0; }
 }
@@ -419,8 +425,8 @@ main:has(.calendar-panel) { padding: 14px 20px 20px; }
 .today-section-heading .section-chevron { font-size: 17px; transform: rotate(90deg); transition: transform .15s; }
 .today-section-heading[aria-expanded="false"] .section-chevron { transform: none; }
 .today-hint { color: var(--muted); font-size: 11px; }
-.today-section[data-section="firm"] .today-section-heading strong { color: var(--due); }
-.today-section[data-section="closing"] .today-section-heading strong { color: var(--waiting); }
+.today-section[data-section="firm"] .today-section-heading strong, .day-section[data-section="firm"] .today-section-heading strong { color: var(--due); }
+.today-section[data-section="closing"] .today-section-heading strong, .day-section[data-section="closing"] .today-section-heading strong { color: var(--waiting); }
 .today-row { display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 5px 6px 5px 10px; border-radius: 6px; cursor: pointer; }
 .today-row:hover { background: var(--surface); }
 .today-row { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { calendarEntries, todaysWork, windowsFor } from "../src/calendar-entries";
 import type { Item, Task, TimeWindow } from "../src/types";
 import { partsOf, setCalendarZone, zonedDate } from "../src/zone";
+import { shutsAt } from "../src/windows";
 
 // Dates are read in the calendar's zone, not the device's (the suite runs with the device elsewhere).
 setCalendarZone("America/New_York");
@@ -16,9 +17,13 @@ const range = (items: Item[]) => calendarEntries(items, local(1, 0), local(31, 0
 
 test("a task that could start but whose window is shut shows at the window's next opening", () => {
   // 2:20 pm Tuesday: an evening window opens later today; business hours are open now (nothing to show).
+  // A late window shuts at midnight; one that opens again right then runs on, so it has no end.
   const evening: TimeWindow = { ...business, id: "evening", title: "Evening", start: "18:00", end: "22:00" };
-  const entries = calendarEntries([evening, business, task("e", { windowId: "evening" }), task("b", { windowId: "business" })], local(1, 0), local(31, 0), now);
-  expect(entries.map(entry => [entry.item.id, entry.kind, partsOf(entry.at).day, partsOf(entry.at).hour, entry.window?.id])).toEqual([["e", "start", 6, 18, "evening"]]);
+  const late: TimeWindow = { ...business, id: "late", title: "Late", days: [0, 1, 2, 3, 4, 5, 6], start: "21:00", end: "00:00" };
+  const allDay: TimeWindow = { ...late, id: "all", title: "All day", start: "00:00", end: "00:00" };
+  const entries = calendarEntries([evening, business, late, task("e", { windowId: "evening" }), task("b", { windowId: "business" }), task("l", { windowId: "late" })], local(1, 0), local(31, 0), now);
+  expect(entries.map(entry => [entry.item.id, entry.kind, partsOf(entry.at).day, partsOf(entry.at).hour, entry.until && partsOf(entry.until).hour])).toEqual([["e", "start", 6, 18, 22], ["l", "start", 6, 21, 0]]);
+  expect(shutsAt(allDay, { closes: local(7, 0) })).toBeNull();
 });
 
 test("a task shows when it can start (at its window's opening) and when it's due", () => {

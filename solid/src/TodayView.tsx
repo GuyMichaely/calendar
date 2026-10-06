@@ -63,7 +63,7 @@ export type TodayViewProps = {
   registerMotion?: (motion: (run: () => Promise<unknown>) => Promise<void>) => () => void;
 };
 
-const SECTION_LABELS: Record<SectionId, { title: string; hint?: string }> = {
+export const SECTION_LABELS: Record<SectionId, { title: string; hint?: string }> = {
   firm: { title: "Firm", hint: "due soon or overdue" },
   closing: { title: "Closing today", hint: "window open now" },
   later: { title: "Opens later today" },

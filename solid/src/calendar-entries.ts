@@ -1,6 +1,6 @@
 import { effectivelyDone, openWork, placementOf, pushedDownInfo, type SectionId } from "./today";
 import { currentOccurrence, nextStart, occurrenceTask } from "./repeats";
-import { nextOpening, openingOn, taskSchedule, windowsById } from "./windows";
+import { nextOpening, openingOn, shutsAt, taskSchedule, windowsById } from "./windows";
 import { isDormant } from "./dependencies";
 import { endOfDay } from "./zone";
 import type { CalendarEvent, Item, Task, TimeWindow } from "./types";
@@ -15,8 +15,8 @@ export type CalendarEntry = {
   item: Task | CalendarEvent;
   kind: "event" | "start" | "due" | "repeat";
   at: Date;
-  // A start at a window's opening: that window.
-  window?: TimeWindow;
+  // A start at a window's opening: when the window shuts (null: it runs on into the next day).
+  until?: Date | null;
   pushed?: boolean;
   overdue?: boolean;
 };
@@ -42,7 +42,7 @@ export function calendarEntries(items: Item[], from: Date, to: Date, now: Date):
     const schedule = isDormant(item, byId) ? null : taskSchedule(task, windows);
     const opening = schedule ? nextOpening(schedule, from) : null;
     const at = opening && opening.opens > from ? opening.opens : start && start > now ? start : null;
-    if (inRange(at)) entries.push({ item, kind: "start", at, pushed, ...(at === opening?.opens ? { window: windows.get(task.windowId!) } : {}) });
+    if (inRange(at)) entries.push({ item, kind: "start", at, pushed, ...(opening && at === opening.opens ? { until: shutsAt(schedule!, opening) } : {}) });
     const due = time(task.deadline);
     if (inRange(due)) entries.push({ item, kind: "due", at: due, pushed, overdue: due < now });
     // Later occurrences of a repeating task.
