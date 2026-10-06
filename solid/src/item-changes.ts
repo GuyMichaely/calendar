@@ -1,5 +1,4 @@
 import { toDate } from "../../site/domain.js";
-import { addDays } from "./zone";
 import type { RelativeDateField } from "./dependencies";
 import type { Attachment, CalendarEvent, Group, HistoryEntry, Item, PushedDown, Task, TaskState, TimeWindow } from "./types";
 import type { RelativeDates } from "../../site/model";
@@ -139,14 +138,14 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
   };
 }
 
-/** The event an editor draft describes. With only one end chosen, the event lasts a day. */
+/** The event an editor draft describes. With only one end chosen, the event lasts an hour. */
 export function eventFromDraft(draft: EventDraft, { id, previous, now }: DraftContext): CalendarEvent {
   const at = now.toISOString();
   let { start, end } = draft;
   if (start && !end) {
-    end = addDays(toDate(start)!, 1).toISOString();
+    end = new Date(toDate(start)!.getTime() + 60 * 60 * 1000).toISOString();
   } else if (!start && end) {
-    start = addDays(toDate(end)!, -1).toISOString();
+    start = new Date(toDate(end)!.getTime() - 60 * 60 * 1000).toISOString();
   }
   return {
     ...(previous?.kind === "event" ? previous : {}),

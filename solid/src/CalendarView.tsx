@@ -2,7 +2,7 @@ import { Icon } from "./Icon";
 import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import { textMatches } from "../../site/domain.js";
 import { addDays, clockText, dayKey as dateKey, formatIn, partsOf, startOfDay, zonedDate } from "./zone";
-import { calendarEntries, todaysWork, windowBands, type CalendarEntry } from "./calendar-entries";
+import { calendarEntries, todaysWork, windowsFor, type CalendarEntry } from "./calendar-entries";
 import { describeRepeat } from "./repeats";
 import type { CalendarEvent, Item, Task } from "./types";
 
@@ -83,12 +83,12 @@ export function CalendarView(props: {
     const noun = count === 1 ? "task" : "tasks";
     return `${props.query ? `${count} matching ${noun}` : `${count} ${noun}`} for today`;
   };
-  // Windows as bands across the day, midnight to midnight.
-  const bandStyle = (day: Date, opens: Date, closes: Date) => {
-    const start = startOfDay(day).getTime(), length = addDays(startOfDay(day), 1).getTime() - start;
-    const left = Math.max(0, (opens.getTime() - start) / length), right = Math.min(1, (closes.getTime() - start) / length);
-    return { left: `${left * 100}%`, width: `${Math.max(0.02, right - left) * 100}%` };
-  };
+  // The windows the selected day's tasks (its entries, and today's work) are done in.
+  const dayWindows = createMemo(() => {
+    const day = selectedDay();
+    const tasks = [...entriesForDay(day).map(entry => entry.item), ...pendingForDay(day)].filter((item): item is Task => item.kind === "task");
+    return windowsFor(props.items, tasks, day);
+  });
   const selectedEntries = createMemo(() => entriesForDay(selectedDay()).filter(entry => !props.query || textMatches(entry.item, props.query)));
   return <section class="panel calendar-panel" style={{"--calendar-weeks": days().length / 7}}>
     <div class="calendar-toolbar">
@@ -109,7 +109,6 @@ export function CalendarView(props: {
             const matching = () => props.query ? entries().filter(entry => textMatches(entry.item, props.query)) : entries();
             return <div class={`calendar-day ${!sameMonth(day, props.month) ? "outside" : ""} ${dateKey(day) === today() ? "today" : ""}`} classList={{selected: dateKey(day) === dateKey(selectedDay())}} onClick={() => setSelectedDay(day)}>
               <button class="day-number" aria-label={formatIn(day, {dateStyle: "full"})} aria-pressed={dateKey(day) === dateKey(selectedDay())} onClick={() => setSelectedDay(day)}>{partsOf(day).day}</button>
-              <div class="window-bands" aria-hidden="true"><For each={windowBands(props.items, day)}>{band => <div class="window-track"><span class={`window-band c${band.color}`} style={bandStyle(day, band.opens, band.closes)} title={`${band.window.title}: ${shortTime(band.opens)}–${shortTime(band.closes)}`} /></div>}</For></div>
               <div class="calendar-cell-entries">
                 <Show when={matchingPending(day).length}><button class="calendar-chip task start" title="Open today's tasks" onClick={event => { event.stopPropagation(); props.onOpenTodayTasks(); }}>{matchingPending(day).length} tasks for today</button></Show>
                 <For each={entries().slice(0, pendingForDay(day).length ? 2 : 3)}>{entry => <button class={`calendar-chip ${entry.className} ${props.query && !textMatches(entry.item, props.query) ? "search-dimmed" : ""}`} title={entry.title} onClick={event => { event.stopPropagation(); props.onEdit(entry.item); }}>{entry.label}</button>}</For>
@@ -119,14 +118,14 @@ export function CalendarView(props: {
             </div>;
           }}</For>
         </div>
-        <div class="calendar-footnotes"><div class="calendar-legend"><span><i class="legend-dot event" />Event</span><span><i class="legend-dot start" />Can start</span><span><i class="legend-dot due" />Due</span><span><i class="legend-dot repeat" />Repeats</span><span><i class="legend-band" />Window open</span></div>
+        <div class="calendar-footnotes"><div class="calendar-legend"><span><i class="legend-dot event" />Event</span><span><i class="legend-dot start" />Can start</span><span><i class="legend-dot due" />Due</span><span><i class="legend-dot repeat" />Repeats</span></div>
         </div>
       </div>
       <aside class="day-agenda" aria-label="Selected day">
         <div class="agenda-date"><span>{formatIn(selectedDay(), {weekday: "long"})}</span><h2>{formatIn(selectedDay(), {month: "long", day: "numeric"})}</h2><Show when={dateKey(selectedDay()) === today()}><span class="today-label">Today</span></Show></div>
         <Show when={matchingPending(selectedDay()).length}><button class="agenda-tasks" onClick={props.onOpenTodayTasks}><Icon name="sun" /><span>{pendingText(selectedDay())}</span><Icon name="arrow" size={16} /></button></Show>
-        <Show when={windowBands(props.items, selectedDay()).length}>
-          <ul class="agenda-windows" aria-label="Windows open this day"><For each={windowBands(props.items, selectedDay())}>{band => <li><i class={`window-swatch c${band.color}`} /><span>{band.window.title}</span><small>{shortTime(band.opens)}–{shortTime(band.closes)}</small></li>}</For></ul>
+        <Show when={dayWindows().length}>
+          <ul class="agenda-windows" aria-label="Windows this day's tasks are done in"><For each={dayWindows()}>{opening => <li><span>{opening.window.title}</span><small>{shortTime(opening.opens)}–{shortTime(opening.closes)}</small></li>}</For></ul>
         </Show>
         <div class="agenda-entries"><For each={selectedEntries()} fallback={<div class="agenda-empty"><Icon name="calendar" size={29} /><strong>A little breathing room</strong><p>{props.query ? "No matches on this day." : "Nothing scheduled for this day."}</p></div>}>{entry => <button class="agenda-entry" onClick={() => props.onEdit(entry.item)}><span class={`agenda-entry-mark ${entry.className}`} /><span><small>{entry.kindLabel}</small><strong>{displayTitle(entry.item)}</strong></span><Icon name="arrow" size={15} /></button>}</For></div>
         <button class="secondary-button agenda-add" onClick={() => props.onCreateForDay(selectedDay())}><Icon name="plus" size={16} />Add an event</button>

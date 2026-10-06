@@ -60,15 +60,17 @@ export function calendarEntries(items: Item[], from: Date, to: Date, now: Date):
   return entries.sort((a, b) => a.at.getTime() - b.at.getTime() || (a.item.createdAt || "").localeCompare(b.item.createdAt || ""));
 }
 
-export type WindowBand = { window: TimeWindow; opens: Date; closes: Date; color: number };
+export type WindowOpening = { window: TimeWindow; opens: Date; closes: Date };
 
 /** The windows open on a day, earliest first, each with a stable color. */
-export function windowBands(items: Item[], day: Date): WindowBand[] {
-  const windows = items.filter((item): item is TimeWindow => item.kind === "window").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  return windows.flatMap((window, index) => {
+/** The windows these tasks are done in, with their hours, that open on this day. */
+export function windowsFor(items: Item[], tasks: Task[], day: Date): WindowOpening[] {
+  const used = new Set(tasks.map(task => task.windowId).filter(Boolean));
+  const windows = items.filter((item): item is TimeWindow => item.kind === "window" && used.has(item.id));
+  return windows.flatMap(window => {
     const opening = openingOn(window, day);
-    return opening ? [{ window, ...opening, color: index % 5 }] : [];
-  }).sort((a, b) => a.opens.getTime() - b.opens.getTime());
+    return opening ? [{ window, ...opening }] : [];
+  }).sort((a, b) => a.opens.getTime() - b.opens.getTime() || a.window.title.localeCompare(b.window.title));
 }
 
 const TODAY: SectionId[] = ["firm", "closing", "later", "available"];
