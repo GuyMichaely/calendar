@@ -131,11 +131,12 @@ export function TodayView(props: TodayViewProps) {
     return found;
   };
   // `ids` are the rows that may fold away; "all" (for undo and redo) watches every row.
-  const moving = async (ids: string[] | "all", run: () => Promise<unknown>) => {
+  // `from` gives rows that start somewhere else (a dragged row, where it was let go).
+  const moving = async (ids: string[] | "all", run: () => Promise<unknown>, from?: Map<string, DOMRect>) => {
     if (!boardRef?.isConnected || !boardRef.closest('[data-animations="on"]')) { await run(); return; }
     const beforeRows = rowElements();
-    const before = new Map([...beforeRows].map(([id, element]) => [id, element.getBoundingClientRect()]));
-    const ghosts = (ids === "all" ? [...beforeRows.keys()] : ids).flatMap(id => { const element = beforeRows.get(id); return element ? [{ id, clone: element.cloneNode(true) as HTMLElement, rect: element.getBoundingClientRect() }] : []; });
+    const before = new Map([...beforeRows].map(([id, element]) => [id, from?.get(id) ?? element.getBoundingClientRect()]));
+    const ghosts = (ids === "all" ? [...beforeRows.keys()] : ids).flatMap(id => { const element = beforeRows.get(id); return element ? [{ id, clone: element.cloneNode(true) as HTMLElement, rect: before.get(id)! }] : []; });
     await run();
     const after = rowElements();
     const ease = "cubic-bezier(.2, .8, .2, 1)";
@@ -372,8 +373,7 @@ export function TodayView(props: TodayViewProps) {
     const end = (drop: boolean) => {
       clearTimeout(hold);
       cancelAnimationFrame(frame);
-      ghost?.remove(); hint?.remove();
-      target?.element.classList.remove("task-drop-target");
+      hint?.remove();
       document.body.classList.remove("task-dragging");
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", up);
@@ -381,12 +381,21 @@ export function TodayView(props: TodayViewProps) {
       document.removeEventListener("keydown", escape, true);
       document.removeEventListener("touchmove", still);
       document.removeEventListener("contextmenu", still, true);
-      setDraggingId(null);
-      if (!started) return;
+      // The dragged row stays where it was let go until the move is in, then slides from
+      // there to its new place (or back to where it was).
+      const dropped = target;
+      const settle = () => {
+        ghost?.remove();
+        dropped?.element.classList.remove("task-drop-target");
+        setDraggingId(null);
+      };
+      if (!started) return settle();
       // The click that ends a drag doesn't also open the task.
       addEventListener("click", swallow, { capture: true, once: true });
       setTimeout(() => removeEventListener("click", swallow, { capture: true }), 0);
-      if (drop && target) { const to = target.to; void moving([task.id], () => props.onMoveTask(task, to)); }
+      const from = new Map(ghost ? [[task.id, ghost.getBoundingClientRect()]] : []);
+      if (drop && dropped) { const to = dropped.to; void moving([task.id], async () => { try { await props.onMoveTask(task, to); } finally { settle(); } }, from); }
+      else void moving([task.id], async () => settle(), from);
     };
     const swallow = (next: Event) => { next.stopPropagation(); next.preventDefault(); };
     const up = () => end(true);
