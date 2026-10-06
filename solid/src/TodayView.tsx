@@ -534,8 +534,8 @@ export function TodayView(props: TodayViewProps) {
 
   // Dragging a board by its heading. Over a column, where it would land in that column
   // opens up (above or below the board under the pointer); past a column's edge, between
-  // columns, a new column opens there, ahead of the pointer: the column it just left
-  // stays put and the others make room. That space then stays open, unhighlighted, while
+  // columns, a new column opens there, centred on the pointer: the columns either side
+  // move apart to make room. That space then stays open, unhighlighted, while
   // the pointer goes on over the next column, and moves only once the pointer is past
   // that column too, so nothing slides under the pointer as it goes. Back over the column
   // the board started in, the space closes. Spots that change nothing don't open.
@@ -578,19 +578,21 @@ export function TodayView(props: TodayViewProps) {
       const rect = cards[row].getBoundingClientRect();
       return y < rect.top || y < rect.top + rect.height / 2 ? `slot:${column}:${row}` : `slot:${column}:${row + 1}`;
     };
-    // Which column stays put while the space opens, moves, or closes: the row of columns
-    // is shifted sideways (`pan`, undone on drop) to hold it still.
+    // What stays put while the space opens, moves, or closes (the new space's middle, under
+    // the pointer; or, as the space closes, the board's own column): the row of columns is
+    // shifted sideways (`pan`, undone on drop) to hold it still.
     const own = shown.findIndex(column => column.includes(key));
-    let lastSeen = own, pan = 0, anchor: { element: HTMLElement; at: number } | null = null;
+    let pan = 0, anchor: { element: HTMLElement; at: number; middle: boolean } | null = null;
     const stacks = () => [...boardRef.querySelectorAll<HTMLElement>(".board-stack")];
     const setPan = (value: number) => {
       pan = value;
       for (const child of boardRef.children) (child as HTMLElement).style.transform = pan ? `translateX(${pan}px)` : "";
     };
-    const keep = (element: HTMLElement | undefined) => { anchor = element ? { element, at: element.getBoundingClientRect().left } : null; };
+    const placeOf = (element: HTMLElement, middle: boolean) => { const rect = element.getBoundingClientRect(); return middle ? (rect.left + rect.right) / 2 : rect.left; };
+    const keep = (element: HTMLElement | null | undefined, at?: number) => { anchor = element ? { element, at: at ?? placeOf(element, false), middle: at != null } : null; };
     const holdAnchor = () => {
       if (!anchor) return;
-      const drift = anchor.at - anchor.element.getBoundingClientRect().left;
+      const drift = anchor.at - placeOf(anchor.element, anchor.middle);
       if (Math.abs(drift) > 0.5) setPan(pan + drift);
     };
     const aim = () => {
@@ -607,8 +609,7 @@ export function TodayView(props: TodayViewProps) {
       }
       holdAnchor();
       if (ghost) ghost.style.transform = `translate(${x - x0}px, ${y - y0}px)`;
-      const from = lastSeen, spot = spotAt();
-      if (lastColumn != null) lastSeen = lastColumn;
+      const spot = spotAt();
       const useful = !!spot && changes(spot);
       if (lastColumn === own && spaceKey()) {
         // Back over the board's own column: the space closes around it.
@@ -616,9 +617,9 @@ export function TodayView(props: TodayViewProps) {
         setSpaceKey("");
         holdAnchor();
       } else if (useful && spot.startsWith("column:") && spot !== spaceKey()) {
-        // A new column's space moves only to another new column that would change something.
-        const gap = Number(spot.split(":")[1]);
-        keep(stacks()[from < gap ? gap - 1 : gap]);
+        // A new column's space moves only to another new column that would change something,
+        // and opens with the pointer in its middle.
+        keep(boardRef.querySelector<HTMLElement>(`[data-drop="${spot}"]`), x);
         setSpaceKey(spot);
         holdAnchor();
       }
