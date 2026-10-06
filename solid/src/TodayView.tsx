@@ -534,10 +534,11 @@ export function TodayView(props: TodayViewProps) {
 
   // Dragging a board by its heading. Over a column, where it would land in that column
   // opens up (above or below the board under the pointer); past a column's edge, between
-  // columns, a new column opens there. That new column's space then stays
-  // open, unhighlighted, while the pointer goes on over the next column, and moves only once
-  // the pointer is past that column too, so nothing slides under the pointer as it goes.
-  // Spots that change nothing don't open.
+  // columns, a new column opens there, ahead of the pointer: the column it just left
+  // stays put and the others make room. That space then stays open, unhighlighted, while
+  // the pointer goes on over the next column, and moves only once the pointer is past
+  // that column too, so nothing slides under the pointer as it goes. Back over the column
+  // the board started in, the space closes. Spots that change nothing don't open.
   const [dragKey, setDragKey] = createSignal<string | null>(null);
   const [dropKey, setDropKey] = createSignal("");
   const [spaceKey, setSpaceKey] = createSignal("");
@@ -577,14 +578,50 @@ export function TodayView(props: TodayViewProps) {
       const rect = cards[row].getBoundingClientRect();
       return y < rect.top || y < rect.top + rect.height / 2 ? `slot:${column}:${row}` : `slot:${column}:${row + 1}`;
     };
+    // Which column stays put while the space opens, moves, or closes: the row of columns
+    // is shifted sideways (`pan`, undone on drop) to hold it still.
+    const own = shown.findIndex(column => column.includes(key));
+    let lastSeen = own, pan = 0, anchor: { element: HTMLElement; at: number } | null = null;
+    const stacks = () => [...boardRef.querySelectorAll<HTMLElement>(".board-stack")];
+    const setPan = (value: number) => {
+      pan = value;
+      for (const child of boardRef.children) (child as HTMLElement).style.transform = pan ? `translateX(${pan}px)` : "";
+    };
+    const keep = (element: HTMLElement | undefined) => { anchor = element ? { element, at: element.getBoundingClientRect().left } : null; };
+    const holdAnchor = () => {
+      if (!anchor) return;
+      const drift = anchor.at - anchor.element.getBoundingClientRect().left;
+      if (Math.abs(drift) > 0.5) setPan(pan + drift);
+    };
     const aim = () => {
+      // Near an edge the boards scroll, and once they can't, any shift that hid columns past that edge goes.
       const box = boardRef.getBoundingClientRect();
-      if (x > box.right - 48) boardRef.scrollLeft += 18; else if (x < box.left + 48) boardRef.scrollLeft -= 18;
+      const push = x > box.right - 48 ? -18 : x < box.left + 48 ? 18 : 0;
+      if (push) {
+        const before = boardRef.scrollLeft;
+        boardRef.scrollLeft -= push;
+        const scrolled = before - boardRef.scrollLeft, rest = push - scrolled;
+        const back = rest < 0 ? Math.max(rest, -Math.max(pan, 0)) : Math.min(rest, Math.max(-pan, 0));
+        if (back) setPan(pan + back);
+        if (anchor) anchor.at += scrolled + back;
+      }
+      holdAnchor();
       if (ghost) ghost.style.transform = `translate(${x - x0}px, ${y - y0}px)`;
-      const spot = spotAt();
+      const from = lastSeen, spot = spotAt();
+      if (lastColumn != null) lastSeen = lastColumn;
       const useful = !!spot && changes(spot);
-      // A new column's space moves only to another new column that would change something.
-      if (useful && spot.startsWith("column:")) setSpaceKey(spot);
+      if (lastColumn === own && spaceKey()) {
+        // Back over the board's own column: the space closes around it.
+        keep(stacks()[own]);
+        setSpaceKey("");
+        holdAnchor();
+      } else if (useful && spot.startsWith("column:") && spot !== spaceKey()) {
+        // A new column's space moves only to another new column that would change something.
+        const gap = Number(spot.split(":")[1]);
+        keep(stacks()[from < gap ? gap - 1 : gap]);
+        setSpaceKey(spot);
+        holdAnchor();
+      }
       setDropKey(useful ? spot : "");
       frame = requestAnimationFrame(aim);
     };
@@ -625,7 +662,13 @@ export function TodayView(props: TodayViewProps) {
       setDragKey(null); setDropKey(""); setSpaceKey("");
       // The click that ends a drag isn't a click on the board's name.
       if (started) { boardDragged = true; setTimeout(() => { boardDragged = false; }); }
-      if (drop && started && target) void moveBoards(() => props.onLayoutBoards(placeBoard(layout, shown, key, target)));
+      // The boards slide from where they show (shift and all) to their new places, or back.
+      if (drop && started && target) void moveBoards(() => { setPan(0); return props.onLayoutBoards(placeBoard(layout, shown, key, target)); });
+      else if (pan) {
+        const shift = pan;
+        setPan(0);
+        if (boardRef.closest('[data-animations="on"]')) for (const child of boardRef.children) child.animate([{ transform: `translateX(${shift}px)` }, { transform: "none" }], { duration: MOTION_MS, easing: "cubic-bezier(.2, .8, .2, 1)" });
+      }
     };
     const up = (next: PointerEvent) => { if (next.pointerId === pointer) end(true); };
     const cancel = (next: PointerEvent) => { if (next.pointerId === pointer) end(false); };
