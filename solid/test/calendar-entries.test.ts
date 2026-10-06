@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { calendarEntries, todaysWork, windowsFor } from "../src/calendar-entries";
+import { calendarEntries, leafTasks, todaysWork, windowsFor } from "../src/calendar-entries";
 import type { Item, Task, TimeWindow } from "../src/types";
 import { partsOf, setCalendarZone, zonedDate } from "../src/zone";
 import { shutsAt } from "../src/windows";
@@ -24,6 +24,12 @@ test("a task that could start but whose window is shut shows at the window's nex
   const entries = calendarEntries([evening, business, late, task("e", { windowId: "evening" }), task("b", { windowId: "business" }), task("l", { windowId: "late" })], local(1, 0), local(31, 0), now);
   expect(entries.map(entry => [entry.item.id, entry.kind, partsOf(entry.at).day, partsOf(entry.at).hour, entry.until && partsOf(entry.until).hour])).toEqual([["e", "start", 6, 18, 22], ["l", "start", 6, 21, 0]]);
   expect(shutsAt(allDay, { closes: local(7, 0) })).toBeNull();
+});
+
+test("a container's work is its open leaf tasks", () => {
+  const items: Item[] = [task("house"), task("room", { parentId: "house" }), task("vacuum", { parentId: "room" }), task("dust", { parentId: "room", state: "completed" }), task("dishes", { parentId: "house" }), task("solo")];
+  expect(leafTasks(items, items[0] as Task).map(leaf => leaf.id)).toEqual(["vacuum", "dishes"]);
+  expect(leafTasks(items, items[5] as Task).map(leaf => leaf.id)).toEqual(["solo"]);
 });
 
 test("a task shows when it can start (at its window's opening) and when it's due", () => {

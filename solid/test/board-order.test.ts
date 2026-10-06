@@ -7,9 +7,9 @@ const board = (id: string, extra: Partial<Group> = {}): Group => ({ id, kind: "g
 
 test("a drop lands next to the visible board it's dropped beside; hidden boards keep their places", () => {
   const layout = [["firm", "closing", "later"], ["available"], ["notes"], ["upcoming"], ["completed"]];
-  // Firm and Opens later today are hidden.
+  // Deadline and Opens later today are hidden.
   const shown = [["closing"], ["available"], ["notes"], ["upcoming"], ["completed"]];
-  // Stack Notes above Closing today: right before it, so Firm stays on top.
+  // Stack Notes above Closing today: right before it, so Deadline stays on top.
   expect(placeBoard(layout, shown, "notes", { column: 0, index: 0 })).toEqual([["firm", "notes", "closing", "later"], ["available"], ["upcoming"], ["completed"]]);
   // Below Closing today: right after it, above the hidden Opens later today.
   expect(placeBoard(layout, shown, "notes", { column: 0, index: 1 })).toEqual([["firm", "closing", "notes", "later"], ["available"], ["upcoming"], ["completed"]]);

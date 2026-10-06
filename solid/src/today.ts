@@ -6,7 +6,7 @@ import type { Item, Task, TimeWindow } from "./types";
 
 /*
  * The Agenda puts every task in exactly one section, by the first rule that fits:
- * due and past its warning time (Firm); a window open now (Closing today) or opening
+ * due and past its warning time (Deadline); a window open now (Closing today) or opening
  * later today (Opens later today); can't start yet (Upcoming); else Available. Pushed-down tasks stay in their section, at the bottom.
  */
 export type SectionId = "firm" | "closing" | "later" | "available" | "upcoming" | "completed";
@@ -27,7 +27,7 @@ export type Placement = {
 const HOUR = 3_600_000;
 const time = (value?: string | null) => { if (!value) return null; const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date; };
 
-/** When a due task joins Firm: some hours before it's due (24 unless it says). */
+/** When a due task joins Deadline: some hours before it's due (24 unless it says). */
 export function warnTime(task: Task) {
   const due = time(task.deadline);
   return due ? new Date(due.getTime() - (task.warnHours ?? 24) * HOUR) : null;

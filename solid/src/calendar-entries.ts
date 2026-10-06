@@ -61,6 +61,21 @@ export function calendarEntries(items: Item[], from: Date, to: Date, now: Date):
   return entries.sort((a, b) => a.at.getTime() - b.at.getTime() || (a.item.createdAt || "").localeCompare(b.item.createdAt || ""));
 }
 
+/**
+ * What's actually done for a task: its open leaf tasks (a task with open subtasks is a
+ * container), or the task itself when nothing open is under it.
+ */
+export function leafTasks(items: Item[], task: Task): Task[] {
+  const byId = new Map(items.map(item => [item.id, item]));
+  const under = (leaf: Task) => {
+    for (let parent = leaf.parentId ? byId.get(leaf.parentId) : undefined, seen = new Set<string>(); parent?.kind === "task" && !seen.has(parent.id); seen.add(parent.id), parent = parent.parentId ? byId.get(parent.parentId) : undefined)
+      if (parent.id === task.id) return true;
+    return false;
+  };
+  const leaves = openWork(items).filter(under);
+  return leaves.length ? leaves : [task];
+}
+
 export type WindowOpening = { window: TimeWindow; opens: Date; closes: Date };
 
 /** The windows these tasks are done in, with their hours, that open on this day. */

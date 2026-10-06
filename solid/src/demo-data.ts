@@ -57,7 +57,7 @@ export function demoItems(now = new Date()): Item[] {
     task("demo-photo", "Get passport photos", { parentId: "demo-passport", windowId: "demo-pharmacy" }),
     task("demo-mail-form", "Mail the application", { parentId: "demo-passport", availableFrom: days(2) }),
 
-    // A deep chain: the grandchild is due soon, so it shows under Firm with two context rows.
+    // A deep chain: the grandchild is due soon, so it shows under Deadline with two context rows.
     task("demo-move", "Apartment move", { groupId: "demo-home" }),
     task("demo-utilities", "Sort out utilities", { parentId: "demo-move", availableFrom: days(4) }),
     task("demo-cancel", "Cancel old internet plan", { parentId: "demo-utilities", deadline: hours(10) }),
@@ -96,7 +96,7 @@ export function sampleSubtaskItems(now = new Date()): Item[] {
     task("photos", "Get passport photos", { parentId: parent("passport"), windowId: "sample-window" }),
     task("mail", "Mail the application", { parentId: parent("passport"), availableFrom: days(2) }),
     // Three levels: the grandchild is due soon.
-    task("move", "Apartment move", { groupId: group, notes: "Spread out: the due grandchild shows under Firm below its two containers. Keep together: the same, as one family." }),
+    task("move", "Apartment move", { groupId: group, notes: "Spread out: the due grandchild shows under Deadline below its two containers. Keep together: the same, as one family." }),
     task("utilities", "Sort out utilities", { parentId: parent("move"), availableFrom: days(4) }),
     task("internet", "Cancel old internet plan", { parentId: parent("utilities"), deadline: hours(10) }),
     // One step can be done now, the other can't start yet.
@@ -104,7 +104,7 @@ export function sampleSubtaskItems(now = new Date()): Item[] {
     task("w2", "Gather W-2s", { parentId: parent("taxes") }),
     task("file", "File the return", { parentId: parent("taxes"), availableFrom: days(3) }),
     // A container's due date passes down to its subtasks.
-    task("house", "Clean the house", { groupId: group, deadline: hours(18), notes: "Due tomorrow, so both rooms are due then too: they show under Firm in either setting. Checking this off takes both rooms off your list." }),
+    task("house", "Clean the house", { groupId: group, deadline: hours(18), notes: "Due tomorrow, so both rooms are due then too: they show under Deadline in either setting. Checking this off takes both rooms off your list." }),
     task("room", "Clean my room", { parentId: parent("house") }),
     task("kitchen", "Clean the kitchen", { parentId: parent("house") }),
     // Tasks without subtasks, for comparison.

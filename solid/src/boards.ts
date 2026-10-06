@@ -4,7 +4,7 @@ import { effectivelyDone } from "./today";
 import type { Group, Item, Task } from "./types";
 
 /*
- * Boards are stored as `group` items. A built-in board (Firm, Available, …) is stored as a
+ * Boards are stored as `group` items. A built-in board (Deadline, Available, …) is stored as a
  * group with a `builtin` key only to remember where it sits in the Boards view.
  */
 type Ordered = { sortOrder?: number; createdAt: string };

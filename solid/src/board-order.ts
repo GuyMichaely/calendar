@@ -3,7 +3,7 @@ import type { SectionId } from "./today";
 import type { Group, Item } from "./types";
 
 /*
- * The Boards view arranges your boards and the built-in ones (Firm, Closing today, …) in
+ * The Boards view arranges your boards and the built-in ones (Deadline, Closing today, …) in
  * columns, several stacked in a column. One saved layout covers every board, including
  * those not showing now (an empty built-in one is hidden): each board stores its column
  * (`layoutColumn`) and its place in that column (`layoutRow`). A built-in board is stored

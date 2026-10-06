@@ -2,7 +2,7 @@ import { Icon } from "./Icon";
 import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import { textMatches } from "../../site/domain.js";
 import { addDays, clockText, dayKey as dateKey, formatIn, partsOf, startOfDay, zonedDate } from "./zone";
-import { calendarEntries, todaysWork, windowsFor, type CalendarEntry } from "./calendar-entries";
+import { calendarEntries, leafTasks, todaysWork, windowsFor, type CalendarEntry } from "./calendar-entries";
 import { placementOf, type Placement, type SectionId } from "./today";
 import { SECTION_LABELS, when } from "./TodayView";
 import { shutsAt, windowsById } from "./windows";
@@ -85,10 +85,6 @@ export function CalendarView(props: {
   const work = createMemo(() => todaysWork(props.items, props.now));
   const pendingForDay = (day: Date) => dateKey(day) === today() ? work() : [];
   const matchingPending = (day: Date) => props.query ? pendingForDay(day).filter(item => textMatches(item, props.query)) : pendingForDay(day);
-  const pendingText = (day: Date) => {
-    const count = matchingPending(day).length;
-    return `${count}${props.query ? " matching" : ""} ${count === 1 ? "task" : "tasks"}`;
-  };
   // The windows the selected day's tasks (its entries, and today's work) are done in.
   const dayWindows = createMemo(() => {
     const day = selectedDay();
@@ -97,12 +93,14 @@ export function CalendarView(props: {
   });
   // The selected day's entries; on today, its tasks go in the Agenda's sections instead, each
   // labelled with what it waits on, and the entries left (events, pushed-down tasks) come first.
+  // Only work shows: a container's entry lists its open leaf tasks instead, once each.
   const dayList = createMemo(() => {
     const day = selectedDay();
     const shown = (item: Item) => !props.query || textMatches(item, props.query);
     const work = pendingForDay(day);
-    const inWork = new Set(work.map(task => task.id));
-    const entries: Listed[] = entriesForDay(day).filter(entry => !inWork.has(entry.item.id) && shown(entry.item));
+    const listed = new Set(work.map(task => task.id));
+    const entries: Listed[] = entriesForDay(day).flatMap(entry => entry.item.kind === "task" ? leafTasks(props.items, entry.item).map(leaf => ({ ...entry, item: leaf })) : [entry])
+      .filter(entry => !listed.has(entry.item.id) && shown(entry.item) && listed.add(entry.item.id));
     const windows = windowsById(props.items);
     const label = (task: Task, placement: Placement) => {
       const schedule = task.windowId ? windows.get(task.windowId) : undefined;
@@ -118,7 +116,8 @@ export function CalendarView(props: {
       rows: placed.filter(({ placement }) => placement.section === id).sort((a, b) => moment(a.placement) - moment(b.placement))
         .map(({ task, placement }): Listed => ({ item: task, className: id === "firm" ? "task due" : "task start", kindLabel: label(task, placement) })),
     })).filter(section => section.rows.length);
-    return { entries, sections };
+    const count = entries.length + sections.reduce((total, section) => total + section.rows.length, 0);
+    return { entries, sections, count };
   });
   const [folded, setFolded] = createSignal(new Set<SectionId>());
   const fold = (id: SectionId) => setFolded(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
@@ -162,7 +161,12 @@ export function CalendarView(props: {
           <Show when={dateKey(selectedDay()) === today()}><span class="today-label">Today</span></Show>
           <div class="agenda-date-line">
             <h2>{formatIn(selectedDay(), {month: "long", day: "numeric"})}</h2>
-            <Show when={matchingPending(selectedDay()).length}><button class="agenda-count" title="Open in the Agenda" onClick={props.onOpenTodayTasks}>{pendingText(selectedDay())}<Icon name="arrow" size={13} /></button></Show>
+            <Show when={dayList().count}>{count => {
+              const text = () => `${count()}${props.query ? " matching" : ""} ${count() === 1 ? "task" : "tasks"}`;
+              return <Show when={dateKey(selectedDay()) === today()} fallback={<span class="agenda-count">{text()}</span>}>
+                <button class="agenda-count" title="Open today's tasks in the Agenda" onClick={props.onOpenTodayTasks}>{text()}<Icon name="arrow" size={13} /></button>
+              </Show>;
+            }}</Show>
           </div>
         </div>
         <div class="agenda-scroll">

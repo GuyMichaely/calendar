@@ -386,7 +386,7 @@ export function ItemEditor(props: {
 
   const pushUntil = isoToLocalInput(initialPush?.until);
   const windowList = createMemo(() => props.items.filter((item): item is TimeWindow => item.kind === "window").sort((a, b) => a.title.localeCompare(b.title)));
-  // How long before it's due a task joins Firm.
+  // How long before it's due a task joins Deadline.
   const warnOptions: [number, string][] = [[1, "1 hour before"], [3, "3 hours before"], [12, "12 hours before"], [24, "1 day before"], [48, "2 days before"], [72, "3 days before"], [168, "1 week before"]];
   if (task?.warnHours && !warnOptions.some(([hours]) => hours === task.warnHours)) warnOptions.push([task.warnHours, `${task.warnHours} hours before`]);
   const removeAttachment = (attachment: Attachment) => {
@@ -434,7 +434,7 @@ export function ItemEditor(props: {
     const pushed = pushedDownInfo(stored, now());
     if (pushed.pushed) return pushed.until ? `Pushed down until ${dateTimeText(pushed.until, now())}` : "Pushed down";
     const placement = placementOf(stored, props.items, now());
-    return { firm: placement.overdue ? "Firm · overdue" : "Firm · due soon", closing: "Closing today · window open now", later: "Opens later today", available: "Available now", upcoming: "Upcoming · can't start yet", completed: "Completed" }[placement.section];
+    return { firm: placement.overdue ? "Deadline · overdue" : "Deadline · due soon", closing: "Closing today · window open now", later: "Opens later today", available: "Available now", upcoming: "Upcoming · can't start yet", completed: "Completed" }[placement.section];
   };
   const [subtaskDraft, setSubtaskDraft] = createSignal("");
   const addSubtaskInline = async () => {
@@ -552,7 +552,7 @@ export function ItemEditor(props: {
               {dateField("deadline", "Due", <DateTimeField name="deadline" label="Due" value={deadlineInput()} onChange={value => { setDeadlineInput(value); syncDirty(); }} />)}
               <label class="field"><span>Board</span><select name="groupId" value={task?.groupId || props.request.groupId || ""}><option value="">{isSubtask ? `Same as parent${inheritedBoard() ? ` (${inheritedBoard()})` : ""}` : "No board"}</option><For each={boardChoices().map(board => board.id)}>{id => <option value={id}>{boardLabel(id)}</option>}</For></select></label>
               {/* Always shown (disabled without a due date) so setting one doesn't move the other fields. */}
-              <label class="field" title="When this joins the Firm section, measured from its due date"><span>Firm from</span>
+              <label class="field" title="When this joins the Deadline section, measured from its due date"><span>Deadline from</span>
                 <select name="warnHours" disabled={!deadlineInput()} value={String(task?.warnHours ?? 24)} onChange={syncDirty}>
                   <For each={warnOptions}>{([hours, label]) => <option value={hours}>{label}</option>}</For>
                 </select>

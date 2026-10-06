@@ -25,7 +25,7 @@ export type TodayViewProps = {
   showTags: boolean;
   subtaskMode: SubtaskMode;
   onSubtaskModeChange: (value: SubtaskMode) => void;
-  // Boards: move a board's tasks that are Firm, closing or opening today, or upcoming into
+  // Boards: move a board's tasks that are in Deadline, closing or opening today, or upcoming into
   // those built-in columns; the rest (just Available) stay on their board.
   pullTimed: boolean;
   onPullTimedChange: (value: boolean) => void;
@@ -64,7 +64,7 @@ export type TodayViewProps = {
 };
 
 export const SECTION_LABELS: Record<SectionId, { title: string; hint?: string }> = {
-  firm: { title: "Firm", hint: "due soon or overdue" },
+  firm: { title: "Deadline", hint: "due soon or overdue" },
   closing: { title: "Closing today", hint: "window open now" },
   later: { title: "Opens later today" },
   available: { title: "Available" },
@@ -853,7 +853,7 @@ export function TodayView(props: TodayViewProps) {
             }}
             onBlur={event => { if (naming()) void addBoard(event.currentTarget); }} />
         </Show>
-        <label class="check-row" title="Tasks on a board that are Firm, closing or opening today, or upcoming move to that column; the rest stay on their board"><input type="checkbox" checked={props.pullTimed} onChange={event => props.onPullTimedChange(event.currentTarget.checked)} />Pull timed tasks off boards</label>
+        <label class="check-row" title="Tasks on a board that are in Deadline, closing or opening today, or upcoming move to that column; the rest stay on their board"><input type="checkbox" checked={props.pullTimed} onChange={event => props.onPullTimedChange(event.currentTarget.checked)} />Pull timed tasks off boards</label>
       </Show>
       <label class="check-row" title="Fold pushed-down tasks beside each other into one row you can open"><input type="checkbox" checked={props.compact} onChange={event => props.onCompactChange(event.currentTarget.checked)} />Compact</label>
       <Show when={props.view === "today"}>
