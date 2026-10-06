@@ -7,3 +7,6 @@ const root = document.querySelector("#app");
 if (!root) throw new Error("Missing #app mount point");
 
 render(() => <App />, root);
+
+// The offline copy (solid/sw.js); built copies only.
+if (import.meta.env.PROD && "serviceWorker" in navigator) void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);

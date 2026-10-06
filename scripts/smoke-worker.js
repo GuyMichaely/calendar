@@ -18,7 +18,8 @@ const child = Bun.spawn(["./scripts/worker", "dev", "--local", "--port", "8791",
   env: { ...process.env, CALENDAR_WORKER_CONFIG: configPath },
   stdout: Bun.file(directory + "/runtime.log"), stderr: Bun.file(directory + "/runtime.log"),
 });
-const endpoint = "http://127.0.0.1:8791";
+const origin = "http://127.0.0.1:8791";
+const endpoint = origin + "/calendar";
 try {
   let ready = false;
   for (let attempt = 0; attempt < 300; attempt++) {
@@ -30,7 +31,9 @@ try {
   assert.match(await (await fetch(endpoint + "/")).text(), /<div id="app">/u);
   const signin = await fetch(endpoint + "/sync/signin", { redirect: "manual" });
   assert.equal(signin.status, 302);
-  assert.equal(signin.headers.get("location"), "/#sync-signed-in");
+  assert.equal(signin.headers.get("location"), "/calendar/#sync-signed-in");
+  // Only the app's own path is served.
+  assert.equal((await fetch(origin + "/sync", { method: "POST" })).status, 404);
 
   const live = new WebSocket(endpoint.replace("http", "ws") + "/sync/live");
   const heard = [];

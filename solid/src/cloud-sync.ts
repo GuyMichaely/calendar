@@ -23,14 +23,17 @@ function requestError(message: string, status: number) {
   return Object.assign(new Error(`${message} (${status}).`), { status });
 }
 
+// The sync server sits beside the app: /calendar/sync.
+const SYNC = `${import.meta.env.BASE_URL}sync`;
+
 /**
- * Sync with the calendar's server at /sync, on this origin and behind Cloudflare Access.
+ * Sync with the calendar's server at /calendar/sync, on this origin and behind Cloudflare Access.
  * @guymichaely/app-sync decides when (after edits, on opening and coming back, as the live
  * connection hears other devices' changes, and when asked); one sync is Automerge's sync protocol
  * (sync/client.js). Call it before anything reads the address: it takes the sign-in return off it.
  */
 export function createCloudSync({ onSynced }: { onSynced: () => Promise<void> }) {
-  const attachmentUrl = (id: string) => `/sync/attachments/${encodeURIComponent(id)}`;
+  const attachmentUrl = (id: string) => `${SYNC}/attachments/${encodeURIComponent(id)}`;
   configureRemoteAttachments({
     async upload(attachments: Attachment[]) {
       for (const attachment of attachments) {
@@ -51,7 +54,7 @@ export function createCloudSync({ onSynced }: { onSynced: () => Promise<void> })
 
   const client = createCalendarSyncClient(
     { readSnapshot: readSyncSnapshot, mergeSnapshot: mergeSyncSnapshot, readDocument: readSyncDocument, receiveMessage: receiveSyncMessage },
-    { endpoint: "/sync", fetch: ((input, init) => syncFetch(input as string, init)) as typeof fetch, credentials: "same-origin" },
+    { endpoint: SYNC, fetch: ((input, init) => syncFetch(input as string, init)) as typeof fetch, credentials: "same-origin" },
   );
   // The calendar's heads as of the last sync. The live connection's heads are news when they
   // differ (at worst, one sync more than needed: one that finds nothing).
@@ -73,9 +76,9 @@ export function createCloudSync({ onSynced }: { onSynced: () => Promise<void> })
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
       if (!settings.enabled) localStorage.removeItem(SYNCED_AT_KEY);
     },
-    signInUrl: "/sync/signin",
+    signInUrl: `${SYNC}/signin`,
     live: {
-      url: liveUrl("/sync/live"),
+      url: liveUrl(`${SYNC}/live`),
       onMessage(message) {
         const heads = (message as { heads?: unknown })?.heads;
         if (!Array.isArray(heads) || !heads.every(head => typeof head === "string")) return false;
