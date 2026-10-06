@@ -1,9 +1,9 @@
 import { effectivelyDone, openWork, placementOf, pushedDownInfo, type SectionId } from "./today";
 import { currentOccurrence, nextStart, occurrenceTask } from "./repeats";
-import { nextOpening, openingOn, shutsAt, taskSchedule, windowsById } from "./windows";
+import { nextOpening, shutsAt, taskSchedule, windowsById } from "./windows";
 import { isDormant } from "./dependencies";
 import { endOfDay } from "./zone";
-import type { CalendarEvent, Item, Task, TimeWindow } from "./types";
+import type { CalendarEvent, Item, Task } from "./types";
 
 /*
  * What the month calendar shows for a task: when it can start, if it can't now (a task in a
@@ -74,18 +74,6 @@ export function leafTasks(items: Item[], task: Task): Task[] {
   };
   const leaves = openWork(items).filter(under);
   return leaves.length ? leaves : [task];
-}
-
-export type WindowOpening = { window: TimeWindow; opens: Date; closes: Date };
-
-/** The windows these tasks are done in, with their hours, that open on this day. */
-export function windowsFor(items: Item[], tasks: Task[], day: Date): WindowOpening[] {
-  const used = new Set(tasks.map(task => task.windowId).filter(Boolean));
-  const windows = items.filter((item): item is TimeWindow => item.kind === "window" && used.has(item.id));
-  return windows.flatMap(window => {
-    const opening = openingOn(window, day);
-    return opening ? [{ window, ...opening }] : [];
-  }).sort((a, b) => a.opens.getTime() - b.opens.getTime() || a.window.title.localeCompare(b.window.title));
 }
 
 const TODAY: SectionId[] = ["firm", "closing", "later", "available"];

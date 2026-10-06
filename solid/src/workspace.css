@@ -122,9 +122,6 @@ body.task-dragging { overflow-anchor: none; }
 .calendar-chip.pushed-entry, .agenda-entry:has(.pushed-entry) { opacity: .55; }
 /* Windows: one thin 24-hour track per window open that day, filled for its hours. */
 .legend-dot.repeat { background: transparent; box-shadow: inset 0 0 0 1.5px #8caa7c; }
-.agenda-windows { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 5px; font-size: 11px; }
-.agenda-windows li { display: flex; align-items: center; gap: 8px; }
-.agenda-windows small { margin-left: auto; color: var(--muted); }
 .more-count { border: 0; background: transparent; padding: 3px 2px; font-size: 9px; color: var(--muted); }
 .calendar-footnotes { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
 .calendar-legend { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 9px; }

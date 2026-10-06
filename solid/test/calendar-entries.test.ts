@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { calendarEntries, leafTasks, todaysWork, windowsFor } from "../src/calendar-entries";
+import { calendarEntries, leafTasks, todaysWork } from "../src/calendar-entries";
 import type { Item, Task, TimeWindow } from "../src/types";
 import { partsOf, setCalendarZone, zonedDate } from "../src/zone";
 import { shutsAt } from "../src/windows";
@@ -45,11 +45,7 @@ test("a repeating task shows its current occurrence and its later ones, up to it
   expect(range([weekly])).toEqual([["w", "start", 12, 9], ["w", "due", 12, 17], ["w", "repeat", 19, 17]]);
 });
 
-test("a day lists the windows its tasks use that open then; today's work leaves out pushed-down and later tasks", () => {
-  const user = task("u", { windowId: "business" });
-  expect(windowsFor([business], [user], local(6, 0)).map(opening => [opening.window.id, partsOf(opening.opens).hour, partsOf(opening.closes).hour])).toEqual([["business", 9, 17]]);
-  expect(windowsFor([business], [user], local(4, 0))).toEqual([]);
-  expect(windowsFor([business], [task("free")], local(6, 0))).toEqual([]);
+test("today's work leaves out pushed-down and later tasks", () => {
   const items: Item[] = [task("now"), task("pushed", { pushedDown: { until: null, at } }), task("later", { availableFrom: local(9, 9).toISOString() })];
   expect(todaysWork(items, now).map(item => item.id)).toEqual(["now"]);
 });

@@ -2,7 +2,7 @@ import { Icon } from "./Icon";
 import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import { textMatches } from "../../site/domain.js";
 import { addDays, clockText, dayKey as dateKey, formatIn, partsOf, startOfDay, zonedDate } from "./zone";
-import { calendarEntries, leafTasks, todaysWork, windowsFor, type CalendarEntry } from "./calendar-entries";
+import { calendarEntries, leafTasks, todaysWork, type CalendarEntry } from "./calendar-entries";
 import { placementOf, type Placement, type SectionId } from "./today";
 import { SECTION_LABELS, when } from "./TodayView";
 import { shutsAt, windowsById } from "./windows";
@@ -85,12 +85,6 @@ export function CalendarView(props: {
   const work = createMemo(() => todaysWork(props.items, props.now));
   const pendingForDay = (day: Date) => dateKey(day) === today() ? work() : [];
   const matchingPending = (day: Date) => props.query ? pendingForDay(day).filter(item => textMatches(item, props.query)) : pendingForDay(day);
-  // The windows the selected day's tasks (its entries, and today's work) are done in.
-  const dayWindows = createMemo(() => {
-    const day = selectedDay();
-    const tasks = [...entriesForDay(day).map(entry => entry.item), ...pendingForDay(day)].filter((item): item is Task => item.kind === "task");
-    return windowsFor(props.items, tasks, day);
-  });
   // The selected day's entries; on today, its tasks go in the Agenda's sections instead, each
   // labelled with what it waits on, and the entries left (events, pushed-down tasks) come first.
   // Only work shows: a container's entry lists its open leaf tasks instead, once each.
@@ -170,9 +164,6 @@ export function CalendarView(props: {
           </div>
         </div>
         <div class="agenda-scroll">
-          <Show when={dayWindows().length}>
-            <ul class="agenda-windows" aria-label="Windows this day's tasks are done in"><For each={dayWindows()}>{opening => <li><span>{opening.window.title}</span><small>{shortTime(opening.opens)}–{shortTime(opening.closes)}</small></li>}</For></ul>
-          </Show>
           <Show when={dayList().entries.length || dayList().sections.length} fallback={<div class="agenda-empty"><Icon name="calendar" size={29} /><strong>A little breathing room</strong><p>{props.query ? "No matches on this day." : "Nothing scheduled for this day."}</p></div>}>
             <div class="agenda-entries"><For each={dayList().entries}>{row}</For></div>
             <For each={dayList().sections}>{section =>
