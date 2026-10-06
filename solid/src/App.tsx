@@ -7,7 +7,7 @@ import { DialogShell } from "./DialogShell";
 import { CalendarView } from "./CalendarView";
 import { ItemEditor, type EditorRequest } from "./ItemEditor";
 import { createCloudSync } from "./cloud-sync";
-import { inApp, onReminderOpened, scheduleReminders, type NotificationAccess } from "./notifications";
+import { inApp, onReminderOpened, registerDevice, scheduleReminders, type NotificationAccess } from "./notifications";
 import { upcomingReminders } from "./reminders";
 import { createCalendarStore } from "./calendar-store";
 import { createPreferences } from "./preferences";
@@ -187,23 +187,38 @@ export function App() {
   const openEditor = (item: Task | CalendarEvent | null = null, kind?: "task" | "event", date?: Date) => { editorParents.length = 0; setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() }); };
   // In the Android app: notifications for tasks reaching their can-start time and before events,
   // rescheduled (in real time, not pretend time) whenever the calendar or these settings change
-  // and on coming back to the app. Tapping one opens its item.
+  // and on coming back to the app. While the app's closed, the server tells the phone (FCM) when the
+  // calendar changes and it fetches them itself, so once synced, the phone registers for that.
+  // Tapping one opens its item (once the calendar has loaded, if the tap opened the app).
   const [notifyAccess, setNotifyAccess] = createSignal<NotificationAccess | null>(null);
   if (inApp) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const reschedule = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => void scheduleReminders(upcomingReminders(items(), new Date(), { taskStarts: prefs.notifyTaskStarts(), eventMinutes: prefs.eventReminderMinutes() }))
-        .then(setNotifyAccess, error => console.error("Could not schedule notifications", error)), 1000);
+      timer = setTimeout(() => {
+        const settings = { taskStarts: prefs.notifyTaskStarts(), eventMinutes: prefs.eventReminderMinutes() };
+        void scheduleReminders(upcomingReminders(items(), new Date(), settings), settings).then(setNotifyAccess, error => console.error("Could not schedule notifications", error));
+      }, 1000);
     };
     createEffect(() => { items(); prefs.notifyTaskStarts(); prefs.eventReminderMinutes(); if (ready()) reschedule(); });
     const onVisible = () => { if (document.visibilityState === "visible") reschedule(); };
     document.addEventListener("visibilitychange", onVisible);
     onCleanup(() => { clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); });
-    onReminderOpened(id => {
-      const item = items().find(entry => entry.id === id);
-      if (item?.kind === "task") { if (view() === "calendar") navigate("tasks"); editTask(item); }
-      else if (item?.kind === "event") openEditor(item);
+    let registered = false;
+    createEffect(() => {
+      if (registered || syncSnapshot().state.kind !== "synced") return;
+      registered = true;
+      registerDevice().catch(error => { registered = false; console.error("Could not register for reminder updates", error); });
+    });
+    const [openedId, setOpenedId] = createSignal<string | null>(null);
+    onReminderOpened(setOpenedId);
+    createEffect(() => {
+      const id = openedId();
+      const item = id && ready() ? items().find(entry => entry.id === id) : undefined;
+      if (!item) return;
+      setOpenedId(null);
+      if (item.kind === "task") untrack(() => { if (view() === "calendar") navigate("tasks"); editTask(item); });
+      else if (item.kind === "event") untrack(() => openEditor(item));
     });
   }
   const saveItem = (item: Item, _created: boolean, baseline: Item | null) => store.saveItem(item, baseline);

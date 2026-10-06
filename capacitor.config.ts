@@ -15,7 +15,6 @@ const config: CapacitorConfig = {
     allowNavigation: ["*.cloudflareaccess.com", "*.cloudflare.com"],
   },
   plugins: {
-    LocalNotifications: { smallIcon: "ic_stat_calendar", iconColor: "#EC9773" },
     // Light status and navigation bar icons over the app's dark background.
     SystemBars: { style: "DARK" },
   },

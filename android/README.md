@@ -1,6 +1,12 @@
 # Calendar for Android
 
-A Capacitor shell around the calendar at <https://calendar.guymichaely.com/> (`../capacitor.config.ts`). It loads the site, so it shares its Cloudflare Access sign-in and gets its updates without a new APK; the site's service worker opens it offline. Its native part adds notifications: when tasks can start and before events (Settings → Notifications, in the app only).
+A Capacitor shell around the calendar at <https://calendar.guymichaely.com/> (`../capacitor.config.ts`). It loads the site, so it shares its Cloudflare Access sign-in and gets its updates without a new APK; the site's service worker opens it offline. Its native part (`app/src/main/java/com/guymichaely/calendar/`) adds notifications: when tasks can start and before events (Settings → Notifications, in the app only).
+
+## Notifications
+
+`Reminders.java` schedules each reminder as an exact alarm (`ReminderReceiver` shows it, and schedules them all again after a restart). The app sets them whenever the calendar or the settings change, through `RemindersPlugin` (`solid/src/notifications.ts`), working them out with `solid/src/reminders.ts`.
+
+While the app is closed, the server keeps them current through Firebase Cloud Messaging: once synced, the app registers the phone's FCM token at `/sync/devices`; after the calendar changes (on any device), the Worker sends each registered phone a data message, and `ReminderMessagingService` fetches `/sync/reminders` (worked out on the server with the same code, for this phone's settings) with the app's Access cookie and reschedules. The Firebase project is `calendar-af059` (console.firebase.google.com); its Android app's `google-services.json` is the `GOOGLE_SERVICES_JSON` Actions secret, written into `app/` by the workflow, and its service account's key is the Worker's `FCM_SERVICE_ACCOUNT` secret.
 
 ## Installing and updating
 

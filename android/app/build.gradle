@@ -50,6 +50,10 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    implementation "androidx.core:core:$androidxCoreVersion"
+    // FCM (ReminderMessagingService); configured by google-services.json, which CI writes from a secret.
+    implementation platform("com.google.firebase:firebase-bom:34.19.0")
+    implementation "com.google.firebase:firebase-messaging"
     implementation project(':capacitor-cordova-android-plugins')
 }
 

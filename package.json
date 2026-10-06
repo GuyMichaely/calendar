@@ -19,7 +19,6 @@
   "dependencies": {
     "@automerge/automerge": "3.4.1",
     "@capacitor/core": "8.5.2",
-    "@capacitor/local-notifications": "8.3.1",
     "@guymichaely/app-sync": "0.1.2",
     "@tiptap/core": "3.31.3",
     "@tiptap/extension-table": "3.31.3",

@@ -42,18 +42,25 @@ try {
     return current;
   };
   await sync(createCalendarDocument([{ id: "a", kind: "task", title: "First device" }]));
-  const merged = await sync(createCalendarDocument([{ id: "b", kind: "task", title: "Second device" }]));
+  const merged = await sync(createCalendarDocument([{ id: "b", kind: "task", title: "Second device", availableFrom: new Date(Date.now() + 86_400_000).toISOString() }]));
   assert.deepEqual(materializeItems(merged).map(item => item.id).sort(), ["a", "b", "seed"]);
   for (let attempt = 0; attempt < 50 && heard.length < 3; attempt++) await Bun.sleep(50);
   // On connecting, then once for each device's change.
   assert.ok(heard.length >= 3 && heard.every(message => Array.isArray(message.heads)), JSON.stringify(heard));
   live.close();
 
+  // A phone registers, and reads its reminders: the second device's task, when it can start tomorrow.
+  assert.equal((await fetch(endpoint + "/sync/devices", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: "test-device" }) })).status, 204);
+  const reminders = await (await fetch(endpoint + "/sync/reminders?taskStarts=1&eventMinutes=30")).json();
+  assert.deepEqual(reminders.map(reminder => [reminder.itemId, reminder.channel, reminder.title]), [["b", "starts", "Second device"]]);
+  assert.deepEqual(await (await fetch(endpoint + "/sync/reminders?taskStarts=0&eventMinutes=off")).json(), []);
+  assert.equal((await fetch(endpoint + "/sync/devices", { method: "PUT", body: "{}" })).status, 400);
+
   const file = { "content-type": "text/plain" };
   assert.equal((await fetch(endpoint + "/sync/attachments/test", { method: "PUT", headers: file, body: "original" })).status, 204);
   await fetch(endpoint + "/sync/attachments/test", { method: "PUT", headers: file, body: "replacement" });
   assert.equal(await (await fetch(endpoint + "/sync/attachments/test")).text(), "original");
-  console.log("Worker smoke passed: the app's files, sign-in's return, a stored calendar loading, two devices merging, live announcements, and immutable R2 attachments.");
+  console.log("Worker smoke passed: the app's files, sign-in's return, a stored calendar loading, two devices merging, live announcements, device registration and reminders, and immutable R2 attachments.");
 } finally {
   child.kill();
   await child.exited;

@@ -11,6 +11,7 @@ One Durable Object (`CalendarStore`) holds the calendar as an Automerge document
 - `POST /sync` is one round of Automerge's sync protocol ([docs/incremental-sync.md](../docs/incremental-sync.md)); devices merge, so there are no conflicts to settle.
 - `GET /sync/live` is a WebSocket. It's sent `{ heads }` on connecting and whenever the calendar changes; a device whose heads differ syncs. Hibernation keeps idle connections open without running anything, and pings are answered without waking the object.
 - `HEAD`, `GET`, `PUT /sync/attachments/:id` store an attachment's bytes once, before its entry is saved in the calendar.
+- `PUT`, `DELETE /sync/devices` with `{ token }` add or remove a phone's FCM token, and `GET /sync/reminders?taskStarts=1&eventMinutes=30` gives that phone's coming reminders, worked out here with the app's own code (`solid/src/reminders.ts`, read in the calendar's time zone). Thirty seconds after the calendar changes (so a burst of edits sends one), the Durable Object's alarm sends each registered phone a data message through FCM (`fcm.js`, signed in with the Firebase service account in the `FCM_SERVICE_ACCOUNT` secret); the phone then fetches its reminders and reschedules them ([android/README.md](../android/README.md)). Tokens FCM no longer knows are dropped.
 
 Each device chooses when it syncs (Settings → Data): **Automatically**, **When I edit**, or **Manually** ([@guymichaely/app-sync](https://github.com/GuyMichaely/app-sync) decides when, in `solid/src/cloud-sync.ts`).
 

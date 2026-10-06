@@ -31,6 +31,13 @@ jobs:
         run: ./scripts/bun install --frozen-lockfile
       - name: Build the web files and sync the Android project
         run: ./scripts/bun run android:sync
+      - name: Add the Firebase configuration
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          # Without it the app still works, but can't hear (FCM) when reminders change elsewhere.
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then echo "::warning::No GOOGLE_SERVICES_JSON secret: this APK has no FCM (see android/README.md)"; exit 0; fi
+          printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
       - name: Build the signed APK
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
