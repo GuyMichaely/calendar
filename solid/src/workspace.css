@@ -8,7 +8,7 @@
   --danger: #ff9c95; --shadow: 0 18px 65px #00000066;
   --ready: #afd2a2; --ready-bg: #243627; --event: #a5cce3; --event-bg: #21323d;
   --waiting: #ddc48a; --waiting-bg: #373221; --due: #ffb297; --due-bg: #3f2926;
-  --sleep: #c3a7de; --control-border: #718076;
+  --control-border: #718076;
 }
 * { box-sizing: border-box; }
 html { background: var(--bg); scroll-padding-top: 100px; }
