@@ -533,8 +533,8 @@ export function TodayView(props: TodayViewProps) {
   const hintOf = (id: string) => SECTION_LABELS[id as SectionId]?.hint;
 
   // Dragging a board by its heading. Over a column, where it would land in that column
-  // opens up (above or below the board under the pointer); between columns, or over a
-  // column's outer sixths, a new column opens there. That new column's space then stays
+  // opens up (above or below the board under the pointer); past a column's edge, between
+  // columns, a new column opens there. That new column's space then stays
   // open, unhighlighted, while the pointer goes on over the next column, and moves only once
   // the pointer is past that column too, so nothing slides under the pointer as it goes.
   // Spots that change nothing don't open.
@@ -555,23 +555,27 @@ export function TodayView(props: TodayViewProps) {
     let x = x0, y = y0, started = false, frame = 0, ghost: HTMLElement | null = null, hold: ReturnType<typeof setTimeout> | undefined;
     const layout = boardLayout(props.items), shown = shownLayout();
     const changes = (drop: string) => { const target = targetOf(drop); return !!target && !sameLayout(placeBoard(layout, shown, key, target), layout); };
-    // Where the pointer is: a spot in a column ("slot:column:index") or between columns ("column:index").
+    // Where the pointer is, by the columns' edges: inside a column, a spot in it
+    // ("slot:column:index"); outside every column, the new column there ("column:index").
+    // A move that jumps straight from one column into the next still counts as crossing
+    // the gap between them.
+    let lastColumn: number | null = null;
     const spotAt = () => {
-      const hit = document.elementFromPoint(x, y);
-      const opening = hit?.closest<HTMLElement>("[data-drop]")?.dataset.drop;
-      if (opening) return opening;
-      // The empty space under a column counts as its bottom slot.
-      if (hit?.matches(".board-stack")) return (hit as HTMLElement).dataset.end ?? "";
-      const over = hit?.closest<HTMLElement>(".board-card[data-column]");
-      if (over) {
-        const rect = over.getBoundingClientRect(), column = Number(over.dataset.column), row = Number(over.dataset.row);
-        const across = (x - rect.left) / rect.width;
-        return across < 1 / 6 ? `column:${column}` : across > 5 / 6 ? `column:${column + 1}` : (y - rect.top) / rect.height < 0.5 ? `slot:${column}:${row}` : `slot:${column}:${row + 1}`;
-      }
-      // Past the last column: a new column at the end.
-      const stacks = boardRef.querySelectorAll(".board-stack");
-      if (hit && boardRef.contains(hit) && stacks.length && x > stacks[stacks.length - 1].getBoundingClientRect().right) return `column:${stacks.length}`;
-      return "";
+      const box = boardRef.getBoundingClientRect();
+      if (x < box.left || x > box.right || y < box.top - 40) { lastColumn = null; return ""; }
+      const stacks = [...boardRef.querySelectorAll<HTMLElement>(".board-stack")];
+      const rects = stacks.map(stack => stack.getBoundingClientRect());
+      const column = rects.findIndex(rect => x >= rect.left && x <= rect.right);
+      if (column < 0) { lastColumn = null; return `column:${rects.filter(rect => rect.right < x).length}`; }
+      const crossed = lastColumn != null && lastColumn !== column ? `column:${column > lastColumn ? column : column + 1}` : "";
+      lastColumn = column;
+      if (crossed) return crossed;
+      // Over a board's top or bottom half, above or below it; in the opening above a board, there; below them all, at the bottom.
+      const cards = [...stacks[column].querySelectorAll<HTMLElement>(".board-card")];
+      const row = cards.findIndex(card => card.getBoundingClientRect().bottom > y);
+      if (row < 0) return `slot:${column}:${cards.length}`;
+      const rect = cards[row].getBoundingClientRect();
+      return y < rect.top || y < rect.top + rect.height / 2 ? `slot:${column}:${row}` : `slot:${column}:${row + 1}`;
     };
     const aim = () => {
       const box = boardRef.getBoundingClientRect();
