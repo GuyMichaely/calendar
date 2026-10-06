@@ -100,7 +100,9 @@ main:focus { outline: none; }
 body.task-dragging { overflow-anchor: none; }
 [data-drop="inside"], [data-drop="root"] { outline: 2px solid var(--accent); background: var(--accent-soft); }
 /* Month overview and a readable day agenda, including entries behind +more. */
-.month-controls { display: flex; gap: 6px; align-items: center; }
+.month-controls { display: flex; gap: 0; align-items: center; }
+.month-controls .icon-button { width: 28px; height: 32px; border: 0; border-radius: 50%; }
+.month-today { border-radius: 99px; padding: 7px 16px; }
 .calendar-layout { display: grid; grid-template-columns: minmax(0, 1fr) 224px; gap: 14px; align-items: start; }
 .calendar-board { min-width: 0; }
 .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
@@ -264,7 +266,7 @@ body.task-dragging { overflow-anchor: none; }
   .mobile-nav > button { display: flex; flex-direction: column; align-items: center; gap: 4px; border: 0; background: transparent; font-size: 9px; padding: 3px 0; color: var(--muted); }.mobile-nav > button.active { color: var(--accent); }.mobile-nav > .mobile-create > span { display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); width: 42px; height: 39px; border-radius: 10px; }
   main { padding: 20px 17px 100px; min-height: calc(100dvh - 120px); }.page-eyebrow { font-size: 9px; letter-spacing: 1px; margin-bottom: 8px; }
   .quick-capture { padding: 9px; gap: 7px; }.quick-capture input { font-size: 16px; }.quick-capture button > span { display: none; }.quick-capture button { width: 30px; height: 30px; padding: 0; justify-content: center; }.tags, .attachments { margin-left: 16px; }
-  .calendar-panel h1 { font-size: 23px; }.month-controls { gap: 3px; }.month-controls .icon-button { width: 25px; height: 29px; font-size: 20px; border: 0; }.month-controls .secondary-button { padding: 6px 8px; font-size: 10px; }
+  .calendar-panel h1 { font-size: 23px; }.month-controls .icon-button { width: 25px; height: 29px; font-size: 20px; }.month-today { padding: 6px 10px; font-size: 10px; }
   .calendar-layout { grid-template-columns: 1fr; gap: 22px; }.calendar-day { min-height: 54px; padding: 4px; }.day-number { width: 23px; height: 23px; margin-inline: auto; margin-bottom: 4px; font-size: 10px; }.calendar-cell-entries { display: none; }.calendar-day-dots { display: flex; justify-content: center; gap: 3px; }.calendar-day-dots .legend-dot { width: 4px; height: 4px; }.weekday { font-size: 8px; padding: 8px 0; }.calendar-footnotes { gap: 8px; }.calendar-legend { gap: 9px; font-size: 8px; }
   .day-agenda { padding: 14px; }.agenda-date h2 { font-size: 21px; }.agenda-empty { padding-block: 20px; }.agenda-entry strong { font-size: 13px; }.agenda-add { font-size: 11px; }
   .solid-dialog-backdrop { padding: 10px; }.editor-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); }.item-editor-dialog { width: 100vw; max-height: 100dvh; }.item-editor-dialog form { padding: 23px 20px 25px; }.editor-title-input { font-size: 23px; }.item-editor-dialog .dialog-actions { bottom: -25px; margin-inline: -20px; margin-bottom: -25px; padding: 17px 20px calc(17px + env(safe-area-inset-bottom)); }.field input, .field select, .notes-editor textarea, .solid-menu-remote input { font-size: 16px; }.field input[type="datetime-local"] { font-size: 12px; min-height: 40px; }.form-grid { gap: 10px; }.field > span { font-size: 10px; }.notes-editor { margin-top: 16px; }.notes-richtext { font-size: 14px; }.attachment-actions { gap: 0; }.dialog-actions { gap: 9px; }.dialog-actions > [role="status"] { font-size: 9px; }
@@ -277,7 +279,8 @@ body.task-dragging { overflow-anchor: none; }
 /* Let month content fill the viewport, with one compact toolbar. */
 main:has(.calendar-panel) { padding: 14px 20px 20px; }
 .calendar-panel { max-width: none; }
-.calendar-toolbar, .calendar-titlebar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; }
+.calendar-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; }
+.calendar-titlebar { display: flex; align-items: center; gap: 8px; }
 .calendar-toolbar { justify-content: space-between; margin-bottom: 12px; }
 .calendar-toolbar h1 { font-size: 28px; margin: 0; letter-spacing: -.7px; }
 @media (min-width: 761px) {
@@ -287,7 +290,7 @@ main:has(.calendar-panel) { padding: 14px 20px 20px; }
 @media (max-width: 760px) {
   main:has(.calendar-panel) { padding: 12px 12px 88px; }
   .calendar-toolbar { gap: 6px; margin-bottom: 8px; }
-  .calendar-titlebar { width: 100%; justify-content: space-between; gap: 8px; }
+  .calendar-titlebar { gap: 6px; }
   .calendar-toolbar h1 { font-size: 23px; }
   .calendar-layout { gap: 14px; }
 }

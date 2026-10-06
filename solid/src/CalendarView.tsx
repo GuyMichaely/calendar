@@ -92,12 +92,14 @@ export function CalendarView(props: {
   const selectedEntries = createMemo(() => entriesForDay(selectedDay()).filter(entry => !props.query || textMatches(entry.item, props.query)));
   return <section class="panel calendar-panel" style={{"--calendar-weeks": days().length / 7}}>
     <div class="calendar-toolbar">
-      <div class="calendar-titlebar"><h1>{formatIn(props.month, {month: "long", year: "numeric"})}</h1>
-      <div class="month-controls">
-        <button class="icon-button" aria-label="Previous month" onClick={() => props.onMonthChange(monthOf(props.month, -1))}>‹</button>
-        <button class="secondary-button" onClick={() => { props.onMonthChange(monthOf(props.now)); setSelectedDay(props.now); }}>Today</button>
-        <button class="icon-button" aria-label="Next month" onClick={() => props.onMonthChange(monthOf(props.month, 1))}>›</button>
-      </div></div>
+      <div class="calendar-titlebar">
+        <button class="secondary-button month-today" onClick={() => { props.onMonthChange(monthOf(props.now)); setSelectedDay(props.now); }}>Today</button>
+        <div class="month-controls">
+          <button class="icon-button" aria-label="Previous month" onClick={() => props.onMonthChange(monthOf(props.month, -1))}>‹</button>
+          <button class="icon-button" aria-label="Next month" onClick={() => props.onMonthChange(monthOf(props.month, 1))}>›</button>
+        </div>
+        <h1>{formatIn(props.month, {month: "long", year: "numeric"})}</h1>
+      </div>
       <label class="check-row"><input type="checkbox" checked={props.showDependents} onChange={event => props.onShowDependentsChange(event.currentTarget.checked)} />Show dependent tasks</label>
     </div>
     <div class="calendar-layout">
