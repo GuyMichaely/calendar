@@ -8,7 +8,7 @@ const config: CapacitorConfig = {
   appId: "com.guymichaely.calendar",
   appName: "Calendar",
   // Capacitor requires local files; the app runs from server.url.
-  webDir: "dist/calendar",
+  webDir: "dist",
   server: {
     url: "https://calendar.guymichaely.com/",
     // Signing in to Access (and through it, to Cloudflare) stays inside the app.
