@@ -636,7 +636,8 @@ export function TodayView(props: TodayViewProps) {
         Object.assign(ghost.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, maxHeight: "50vh", overflow: "hidden", margin: "0", zIndex: "60", pointerEvents: "none" });
         document.body.appendChild(ghost);
         boardRef.style.setProperty("--drop-h", `${Math.min(rect.height, innerHeight * 0.5)}px`);
-        boardRef.style.setProperty("--drop-w", `${rect.width}px`);
+        // A new column opens at half a column's width.
+        boardRef.style.setProperty("--drop-w", `${rect.width / 2}px`);
       }
       frame = requestAnimationFrame(aim);
     };
