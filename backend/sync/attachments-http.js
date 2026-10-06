@@ -23,15 +23,8 @@ export function createMemoryBlobStore(initial = {}) {
   };
 }
 
-function normalizeBasePath(value) {
-  const raw = String(value || "").trim();
-  if (!raw || raw === "/") return "";
-  const prefixed = raw.startsWith("/") ? raw : `/${raw}`;
-  return prefixed.replace(/\/+$/u, "");
-}
-
-function attachmentId(pathname, basePath) {
-  const prefix = `${normalizeBasePath(basePath)}/attachments/`;
+function attachmentId(pathname) {
+  const prefix = "/sync/attachments/";
   if (!pathname.startsWith(prefix)) return null;
   const encoded = pathname.slice(prefix.length);
   if (!encoded || encoded.includes("/")) return null;
@@ -45,24 +38,19 @@ function attachmentId(pathname, basePath) {
   return id;
 }
 
+/** /sync/attachments/:id: an attachment's bytes, written once (GET, HEAD, PUT). Access guards it. */
 export function createAttachmentHandler({
-  authenticate,
   blobStore,
-  basePath = "",
 }) {
-  if (typeof authenticate !== "function") throw new Error("Attachment service requires authenticate(request).");
   if (!blobStore?.get || !blobStore?.putIfAbsent) throw new Error("Attachment service requires get and putIfAbsent blob storage.");
 
   return async function handleAttachment(request) {
     const url = new URL(request.url);
-    const id = attachmentId(url.pathname, basePath);
+    const id = attachmentId(url.pathname);
     if (!id) return new Response("Not found", { status: 404 });
     if (!["GET", "HEAD", "PUT"].includes(request.method)) {
       return new Response("Method not allowed", { status: 405, headers: { allow: "GET, HEAD, PUT" } });
     }
-
-    const session = await authenticate(request);
-    if (!session) return new Response("Unauthorized", { status: 401 });
 
     if (request.method === "GET" || request.method === "HEAD") {
       const stored = await blobStore.get(id);

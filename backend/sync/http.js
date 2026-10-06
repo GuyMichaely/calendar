@@ -45,39 +45,31 @@ export function createMemoryDocumentStore(initial = {}) {
   };
 }
 
-function normalizeBasePath(value) {
-  const raw = String(value || "").trim();
-  if (!raw || raw === "/") return "";
-  const prefixed = raw.startsWith("/") ? raw : `/${raw}`;
-  return prefixed.replace(/\/+$/u, "");
-}
-
-function syncPath(basePath) {
-  return `${normalizeBasePath(basePath)}/sync` || "/sync";
-}
-
 function mediaType(request) {
   return (request.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
 }
 
+/**
+ * POST /sync: one round of Automerge's sync protocol with a device. Cloudflare Access decides who
+ * reaches it, so it doesn't check. `onChanged(heads)` hears each stored change, for the live connection.
+ */
 export function createSyncHandler({
-  authenticate, documentStore, documentKey = "calendar:primary", basePath = "",
+  documentStore, documentKey = "calendar:primary", onChanged = () => {},
   now = () => Date.now(), sessionTtlMs = 300_000, maxSessions = 100,
 }) {
-  if (typeof authenticate !== "function" || !documentStore?.update) throw new Error("Sync requires authentication and atomic document storage.");
-  const endpointPath = syncPath(basePath);
+  if (!documentStore?.update) throw new Error("Sync requires atomic document storage.");
   const peers = new Map();
   let tail = Promise.resolve();
 
-  async function exchange(owner, sessionId, sequence, incoming) {
-    for (const [key, peer] of peers) if (now() - peer.touched > sessionTtlMs) peers.delete(key);
-    const key = JSON.stringify([owner, sessionId]);
+  async function exchange(key, sequence, incoming) {
+    for (const [stale, peer] of peers) if (now() - peer.touched > sessionTtlMs) peers.delete(stale);
     const existing = peers.get(key);
     if (!existing && sequence !== 0) throw new SyncSessionReset();
     const peer = existing || { state: Automerge.initSyncState(), sequence: 0 };
     if (sequence !== peer.sequence) throw new SyncSessionReset();
     const outcome = await documentStore.update(documentKey, async storedBytes => {
       let doc = storedBytes ? loadCalendarDocument(storedBytes) : createCalendarDocument();
+      const before = Automerge.getHeads(doc).join();
       let state = peer.state;
       if (incoming.byteLength) {
         try { [doc, state] = Automerge.receiveSyncMessage(doc, state, incoming); }
@@ -90,8 +82,10 @@ export function createSyncHandler({
         throw error;
       }
       const [nextState, reply] = Automerge.generateSyncMessage(doc, state);
-      return { value: bytes, result: { state: nextState, reply: reply || new Uint8Array() } };
+      const heads = Automerge.getHeads(doc);
+      return { value: bytes, result: { state: nextState, reply: reply || new Uint8Array(), changed: heads.join() !== before ? heads : null } };
     });
+    if (outcome.changed) onChanged(outcome.changed);
     // Advance protocol state only after durable document storage succeeds.
     peers.delete(key);
     peers.set(key, { state: outcome.state, sequence: sequence + 1, touched: now() });
@@ -100,10 +94,8 @@ export function createSyncHandler({
   }
 
   return async function handleSync(request) {
-    if (new URL(request.url).pathname !== endpointPath) return new Response("Not found", { status: 404 });
+    if (new URL(request.url).pathname !== "/sync") return new Response("Not found", { status: 404 });
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
-    const session = await authenticate(request);
-    if (!session) return new Response("Unauthorized", { status: 401 });
     if (mediaType(request) !== AUTOMERGE_MEDIA_TYPE) return new Response(`Refresh the app. Content-Type must be ${AUTOMERGE_MEDIA_TYPE}`, { status: 415 });
     const sessionId = request.headers.get(SYNC_SESSION_HEADER) || "";
     const sequenceText = request.headers.get(SYNC_SEQUENCE_HEADER) || "";
@@ -116,8 +108,7 @@ export function createSyncHandler({
       try { Automerge.decodeSyncMessage(incoming); }
       catch (cause) { return new Response("Invalid sync message", { status: 400 }); }
     }
-    const owner = [session.identity?.issuer, session.identity?.subject];
-    const run = () => exchange(owner, sessionId, sequence, incoming);
+    const run = () => exchange(sessionId, sequence, incoming);
     const result = tail.then(run);
     tail = result.catch(() => {});
     try {

@@ -1,5 +1,4 @@
 import { createSignal, type Accessor } from "solid-js";
-import { loadPollSeconds } from "./settings";
 
 // Per-browser view preferences, kept in localStorage.
 function stored<T>(key: string, read: (raw: string | null) => T, write: (value: T) => string | null): [Accessor<T>, (value: T) => void] {
@@ -30,7 +29,6 @@ export function createPreferences() {
   // hidden unless Settings → Display turns it on (or time is being pretended).
   const [showTimeControl, setShowTimeControl] = flag("calendar.showTimeControl");
   const [timeOffset, setTimeOffset] = stored("calendar.timeOffset", raw => Number(raw) || 0, value => value ? String(value) : null);
-  const [pollSeconds, setPollSeconds] = stored("calendar.pollSeconds", () => loadPollSeconds(), value => String(value));
   return {
     compact, setCompact,
     showDependents, setShowDependents,
@@ -41,6 +39,5 @@ export function createPreferences() {
     subtaskMode, setSubtaskMode,
     showTimeControl, setShowTimeControl,
     timeOffset, setTimeOffset,
-    pollSeconds, setPollSeconds,
   };
 }

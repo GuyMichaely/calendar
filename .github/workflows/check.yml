@@ -1,0 +1,24 @@
+name: Check Calendar
+
+# Cloudflare Workers Builds deploys the Worker (see backend/README.md); this only verifies.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install locked dependencies
+        run: ./scripts/bun install --frozen-lockfile
+      - name: Test, typecheck, and build
+        run: ./scripts/bun run check
+      - name: Smoke test the Worker
+        run: ./scripts/bun scripts/smoke-worker.js

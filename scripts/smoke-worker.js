@@ -1,3 +1,6 @@
+// Runs the Worker locally (wrangler dev, with no Access in front) against the built app, and
+// tries what devices do: sign-in's return, two devices merging, the live connection hearing a
+// change, attachments in R2, and the app's files. Needs `bun run build:solid` first.
 import { syncCalendarStorage } from "../sync/client.js";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
@@ -5,59 +8,52 @@ import { resolve } from "node:path";
 import { createCalendarDocument, loadCalendarDocument, materializeItems, saveCalendarDocument } from "../sync/automerge-document.js";
 
 const directory = await mkdtemp(resolve(".local/worker-smoke-"));
-const config = JSON.parse(await Bun.file("backend/cloudflare/wrangler.jsonc").text());
+const config = JSON.parse((await Bun.file("backend/wrangler.jsonc").text()).replace(/^\s*\/\/.*$/gmu, ""));
 config.main = resolve("tests/fixtures/cloudflare-worker.js");
-config.vars = {
-  CALENDAR_APP_URL: "https://app.example/",
-  CALENDAR_ADDITIONAL_APP_URLS_JSON: JSON.stringify(["http://127.0.0.1:5177/calendar/", "http://localhost:5177/calendar/"]),
-  CALENDAR_PUBLIC_BASE_URL: "https://sync.example/",
-  GOOGLE_CLIENT_ID: "local-test", GOOGLE_CLIENT_SECRET: "local-test", ALLOWED_GOOGLE_SUBJECT: "test",
-};
-delete config.limits;
+config.assets.directory = resolve("dist");
+delete config.routes;
 const configPath = directory + "/wrangler.json";
 await Bun.write(configPath, JSON.stringify(config));
 const child = Bun.spawn(["./scripts/worker", "dev", "--local", "--port", "8791", "--persist-to", directory + "/state"], {
   env: { ...process.env, CALENDAR_WORKER_CONFIG: configPath },
   stdout: Bun.file(directory + "/runtime.log"), stderr: Bun.file(directory + "/runtime.log"),
 });
+const endpoint = "http://127.0.0.1:8791";
 try {
   let ready = false;
   for (let attempt = 0; attempt < 300; attempt++) {
-    try { if ((await fetch("http://127.0.0.1:8791/healthz", { signal: AbortSignal.timeout(1000) })).ok) { ready = true; break; } } catch {}
+    try { if ((await fetch(endpoint + "/", { signal: AbortSignal.timeout(1000) })).ok) { ready = true; break; } } catch {}
     if (child.exitCode != null) break;
     await Bun.sleep(200);
   }
   assert.ok(ready, "Worker did not start; see " + directory + "/runtime.log");
-  const endpoint = "http://127.0.0.1:8791";
-  assert.equal((await fetch(endpoint + "/sync", { method: "POST" })).status, 401);
-  for (const origin of ["https://app.example", "http://127.0.0.1:5177", "http://localhost:5177"]) {
-    const preflight=await fetch(endpoint + "/sync",{method:"OPTIONS",headers:{origin,"access-control-request-method":"POST","access-control-request-headers":"content-type,x-automerge-session,x-automerge-sequence"}});
-    assert.equal(preflight.status,204);
-    assert.equal(preflight.headers.get("access-control-allow-origin"),origin);
-    assert.equal(preflight.headers.get("access-control-allow-credentials"),"true");
-    const signedOut=await fetch(endpoint + "/auth/me",{headers:{origin}});
-    assert.equal(signedOut.status,401);
-    assert.equal(signedOut.headers.get("access-control-allow-origin"),origin);
-  }
-  const headers = { origin: "http://127.0.0.1:5177", cookie: "__Host-calendar_session=local-test", "content-type": "application/vnd.automerge.sync" };
-  async function sync(doc) {
+  assert.match(await (await fetch(endpoint + "/")).text(), /<div id="app">/u);
+  const signin = await fetch(endpoint + "/sync/signin", { redirect: "manual" });
+  assert.equal(signin.status, 302);
+  assert.equal(signin.headers.get("location"), "/#sync-signed-in");
+
+  const live = new WebSocket(endpoint.replace("http", "ws") + "/sync/live");
+  const heard = [];
+  live.addEventListener("message", event => heard.push(JSON.parse(event.data)));
+  await new Promise((done, fail) => { live.addEventListener("open", done); live.addEventListener("error", fail); });
+  const sync = async doc => {
     let current = doc;
-    await syncCalendarStorage({ readSnapshot: async () => saveCalendarDocument(current), mergeSnapshot: async bytes => { current = loadCalendarDocument(bytes); } }, {
-      endpoint: endpoint + "/sync",
-      fetch: (url, init) => fetch(url, { ...init, headers: { ...init.headers, cookie: headers.cookie, origin: headers.origin } }),
-    });
+    await syncCalendarStorage({ readSnapshot: async () => saveCalendarDocument(current), mergeSnapshot: async bytes => { current = loadCalendarDocument(bytes); } }, { endpoint: endpoint + "/sync" });
     return current;
-  }
+  };
   await sync(createCalendarDocument([{ id: "a", kind: "task", title: "First device" }]));
   const merged = await sync(createCalendarDocument([{ id: "b", kind: "task", title: "Second device" }]));
   assert.deepEqual(materializeItems(merged).map(item => item.id).sort(), ["a", "b", "seed"]);
-  const fileHeaders = { cookie: headers.cookie, origin: headers.origin, "content-type": "text/plain" };
-  assert.equal((await fetch(endpoint + "/attachments/test", { method: "PUT", headers: fileHeaders, body: "original" })).status, 204);
-  await fetch(endpoint + "/attachments/test", { method: "PUT", headers: fileHeaders, body: "replacement" });
-  assert.equal(await (await fetch(endpoint + "/attachments/test", { headers: fileHeaders })).text(), "original");
-  assert.equal((await fetch(endpoint + "/attachments/test")).status, 401);
-  assert.equal((await fetch(endpoint + "/sync", { method: "POST", headers: { ...headers, origin: "https://untrusted.example" } })).status, 403);
-  console.log("Worker smoke passed: health, auth, persisted snapshot loading, independent-device merges, immutable R2 attachments, and origin rejection.");
+  for (let attempt = 0; attempt < 50 && heard.length < 3; attempt++) await Bun.sleep(50);
+  // On connecting, then once for each device's change.
+  assert.ok(heard.length >= 3 && heard.every(message => Array.isArray(message.heads)), JSON.stringify(heard));
+  live.close();
+
+  const file = { "content-type": "text/plain" };
+  assert.equal((await fetch(endpoint + "/sync/attachments/test", { method: "PUT", headers: file, body: "original" })).status, 204);
+  await fetch(endpoint + "/sync/attachments/test", { method: "PUT", headers: file, body: "replacement" });
+  assert.equal(await (await fetch(endpoint + "/sync/attachments/test")).text(), "original");
+  console.log("Worker smoke passed: the app's files, sign-in's return, a stored calendar loading, two devices merging, live announcements, and immutable R2 attachments.");
 } finally {
   child.kill();
   await child.exited;

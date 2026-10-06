@@ -9,3 +9,5 @@ backend/.env
 *.log
 .codex
 .claude
+dist-android/
+.wrangler/

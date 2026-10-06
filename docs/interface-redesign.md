@@ -1,6 +1,6 @@
 # Interface redesign
 
-The redesign provides a quieter planning workspace while preserving the Automerge document and native sync protocol. Authentication also supports returning to the explicitly allowed local preview after Google sign-in.
+The redesign provides a quieter planning workspace while preserving the Automerge document and native sync protocol.
 
 ## The design
 
@@ -79,6 +79,6 @@ The Agenda puts every open task in exactly one section, by the first rule that f
 - **Pretend time** (the clock in the top bar, shown when Settings → Display turns it on or while time is being pretended; turning it off returns to real time) shifts what the lists, calendar, and task details treat as now by an offset kept in this browser; the clock keeps running from the chosen moment, and the clock stays highlighted while it's on (× returns to real time). Saved timestamps stay real; dates chosen while pretending (such as pushing down until tomorrow) count from the pretend time.
 - **Old data**: the app reads only this model, and importing a backup with fields it doesn't know is refused. `scripts/migrate-backup.js` converts a backup from before prototype2: sleep becomes pushed down, inline working hours become named windows (one per distinct set of hours), an exact warn time becomes a lead time, a latest start becomes the due date when there's none, and boards lose nesting and keep their old columns as their place in the Boards view. To migrate: export a backup from this version (Settings → Data → Export backup), run `./scripts/bun scripts/migrate-backup.js <backup.json>`, and import the `-converted.json` file it writes; importing updates each item and removes its old fields. The main branch's app still writes the old fields, so editing there afterwards needs another migration.
 - If the stored document can't be read, the app offers to import a backup or start fresh, downloading the unreadable bytes first.
-- A local development copy with no sync server starts with sample tasks (`solid/src/demo-data.ts`), and Settings → Data can add or remove a "Sample: subtasks" group anywhere.
+- A local development copy that isn't syncing starts with sample tasks (`solid/src/demo-data.ts`), and Settings → Data can add or remove a "Sample: subtasks" group anywhere.
 
 The old board page (`GroupsView.tsx`), its planner, and the sleep dialog and controls have been removed.

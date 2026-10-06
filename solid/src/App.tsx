@@ -6,8 +6,7 @@ import { Icon } from "./Icon";
 import { DialogShell } from "./DialogShell";
 import { CalendarView } from "./CalendarView";
 import { ItemEditor, type EditorRequest } from "./ItemEditor";
-import { configuredBackendUrl, saveConfiguredBackendUrl } from "./remote-sync";
-import { createRemoteSync } from "./remote-session";
+import { createCloudSync } from "./cloud-sync";
 import { createCalendarStore } from "./calendar-store";
 import { createPreferences } from "./preferences";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
@@ -21,6 +20,7 @@ import { boardTasks } from "./boards";
 import { ToastStack, type ToastMessage } from "./ToastStack";
 import { animationsEnabled } from "./settings";
 import type { CalendarEvent, CalendarSettings, Group, Item, Task, View } from "./types";
+import type { SyncMode } from "@guymichaely/app-sync";
 
 function readView(): View { return location.hash === "#calendar" ? "calendar" : /^#boards(\/|$)/.test(location.hash) ? "boards" : "tasks"; }
 // Agenda lives at #tasks and Boards at #boards; a selected task follows a slash.
@@ -30,12 +30,12 @@ function editableTarget(target: EventTarget | null) { return target instanceof E
 function errorMessage(error: unknown, fallback: string) { return error instanceof Error && error.message ? error.message : fallback; }
 
 export function App() {
+  // Changes sync once saved locally; other devices' changes reload the items once merged.
+  // (Created first: it takes the return from signing in off the address.)
+  const store = createCalendarStore({ onChanged: () => sync.changed() });
+  const { controller: sync, snapshot: syncSnapshot } = createCloudSync({ onSynced: store.refresh });
   if (!/^#(tasks|boards|calendar)$/.test(location.hash) && !readSelectedTask()) history.replaceState(null, "", "#tasks");
-  const backendUrl = configuredBackendUrl();
   const prefs = createPreferences();
-  // Changes sync once saved locally; remote changes reload the items once merged.
-  const store = createCalendarStore({ onChanged: () => void remote.request() });
-  const remote = createRemoteSync({ backendUrl, pollSeconds: prefs.pollSeconds, onSynced: store.refresh });
   const items = store.items;
   // The calendar's time zone, synced. A calendar that has none yet gets this device's, once
   // it holds something and (with sync) has caught up, so a new device doesn't impose its own.
@@ -44,11 +44,10 @@ export function App() {
   createEffect(() => { const zone = settings()?.timeZone; if (zone) setCalendarZone(zone); });
   let creatingSettings = false;
   createEffect(() => {
-    if (!ready() || settings() || creatingSettings || !items().length || (remote.enabled && remote.session()?.authenticated && !remote.lastSyncedAt())) return;
+    if (!ready() || settings() || creatingSettings || !items().length || (syncSnapshot().settings?.enabled && !syncSnapshot().lastSyncedAt)) return;
     creatingSettings = true;
     void attempt(() => store.createSettings(deviceZone()), "Could not save the calendar's time zone.").finally(() => { creatingSettings = false; });
   });
-  const [remoteUrlDraft, setRemoteUrlDraft] = createSignal(backendUrl);
   const [loadingError, setLoadingError] = createSignal("");
   const [view, setView] = createSignal<View>(readView());
   const [query, setQuery] = createSignal("");
@@ -77,12 +76,13 @@ export function App() {
   });
   // What the top bar says about sync. Edits are always saved in this browser first.
   const syncStatus = createMemo((): { state: "busy" | "error" | "synced" | "local"; label: string; detail: string } => {
-    if (!remote.enabled) return { state: "local", label: "Only in this browser", detail: "No sync server is set, so your edits are saved in this browser only. Settings → Data can set one, or export a backup." };
-    if (remote.busy()) return { state: "busy", label: "Syncing", detail: "Sending your edits and fetching your other devices' edits." };
-    if (remote.error()) return { state: "error", label: "Sync needs attention", detail: `${remote.error()} Your edits are still saved in this browser.` };
-    if (!remote.session()?.authenticated) return { state: "local", label: "Not signed in", detail: "Your edits are saved in this browser only. Sign in (Settings → Data) to sync them with your other devices." };
-    const last = remote.lastSyncedAt();
-    return last ? { state: "synced", label: "Synced", detail: `Synced with your other devices at ${clockText(last)}.` } : { state: "busy", label: "Not synced yet", detail: "Signed in; the first sync hasn't finished." };
+    const { settings, state, running, lastSyncedAt } = syncSnapshot();
+    if (!settings?.enabled || state.kind === "off") return { state: "local", label: "Only in this browser", detail: "Your edits are saved in this browser only. Sign in (Settings → Data) to sync them with your other devices, or export a backup." };
+    if (running) return { state: "busy", label: "Syncing", detail: "Sending your edits and fetching your other devices' edits." };
+    if (state.kind === "signed-out") return { state: "error", label: "Sign in again", detail: "Your sign-in has expired. Your edits are saved in this browser and sync once you sign in again (Settings → Data)." };
+    if (state.kind === "offline") return { state: "error", label: "Offline", detail: state.message };
+    if (state.kind === "error") return { state: "error", label: "Sync needs attention", detail: `${state.message} Your edits are still saved in this browser.` };
+    return lastSyncedAt ? { state: "synced", label: "Synced", detail: `Synced with your other devices at ${clockText(new Date(lastSyncedAt))}.` } : { state: "busy", label: "Not synced yet", detail: "Signed in; the first sync hasn't finished." };
   });
   const openCount = createMemo(() => openWork(items()).length);
   const [calendarMonth, setCalendarMonth] = createSignal(zonedDate(partsOf(nowAtStart).year, partsOf(nowAtStart).month, 1));
@@ -122,18 +122,8 @@ export function App() {
     if (success) showToast(success);
     return true;
   };
-  const saveRemoteServer = () => {
-    try {
-      const normalized = saveConfiguredBackendUrl(remoteUrlDraft());
-      setRemoteUrlDraft(normalized);
-
-      window.location.reload();
-    } catch (error) {
-      showToast(errorMessage(error, "Invalid remote sync URL."));
-    }
-  };
-  const syncNow = async () => { const failure = await remote.request(); showToast(failure || "Synced"); };
-  const signOutRemote = () => attempt(remote.signOut, "Could not sign out.", "Signed out");
+  const syncNow = async () => { const state = await sync.syncNow(); showToast(state.kind === "synced" || state.kind === "idle" ? "Synced" : "message" in state ? state.message : "Sign in again to sync"); };
+  const signOut = async () => { await sync.turnOff(true); showToast("Signed out; your edits stay in this browser"); };
   const navigate = (next: View) => {
     setView(next);
     const hash = next === "calendar" ? "#calendar" : tasksHash(selectedTaskId(), next);
@@ -272,9 +262,9 @@ export function App() {
   onMount(() => {
     void (async () => {
       try { await store.refresh(); } catch (error) { console.error(error); setLoadingError(errorMessage(error, "Could not open local storage.")); return; }
-      // A fresh local development copy with no sync server starts with sample tasks.
-      if (import.meta.env.DEV && !backendUrl && !items().length) await attempt(() => store.importBackup(JSON.stringify({ items: demoItems() })), "Could not add the sample tasks.");
-      await remote.checkSession();
+      // A fresh local development copy that isn't syncing starts with sample tasks.
+      if (import.meta.env.DEV && !syncSnapshot().settings?.enabled && !items().length) await attempt(() => store.importBackup(JSON.stringify({ items: demoItems() })), "Could not add the sample tasks.");
+      sync.start();
       setReady(true);
     })();
     const clockTimer = window.setInterval(() => { if (!document.querySelector(".solid-dialog-backdrop")) setClock(appNow()); }, 30_000);
@@ -304,7 +294,7 @@ export function App() {
     };
     window.addEventListener("hashchange", syncLocation); window.addEventListener("popstate", syncLocation); document.addEventListener("keydown", onKeyDown);
     onCleanup(() => {
-      window.clearInterval(clockTimer); window.removeEventListener("hashchange", syncLocation); window.removeEventListener("popstate", syncLocation); document.removeEventListener("keydown", onKeyDown);
+      sync.stop(); window.clearInterval(clockTimer); window.removeEventListener("hashchange", syncLocation); window.removeEventListener("popstate", syncLocation); document.removeEventListener("keydown", onKeyDown);
     });
   });
 
@@ -313,7 +303,7 @@ export function App() {
       await store.reset();
       if (text) await store.importBackup(text);
       setLoadingError("");
-      await remote.checkSession();
+      sync.start();
       showToast(text ? "Backup imported" : "Started with an empty calendar");
     }} />}>
       <div class="app-shell">
@@ -324,7 +314,6 @@ export function App() {
           onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
           onSettings={() => { setSettingsTab("data"); openSettings(); }}
           syncState={syncStatus().state} syncLabel={syncStatus().label} syncDetail={syncStatus().detail}
-          identity={remote.session()?.authenticated ? remote.identityLabel() : ""}
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
           <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
             <div class="tasks-workspace" classList={{ split: paneOpen() }}>
@@ -378,7 +367,26 @@ export function App() {
             </Show>
             <Show when={settingsTab() === "data"} fallback={<Show when={settingsTab() === "keyboard"}><KeyboardShortcutSettings onDirtyChange={setShortcutsDirty} shortcuts={shortcuts()} onClose={closeSettings} onSave={(next) => { setShortcuts(next); showToast("Shortcuts saved"); }} /></Show>}>
               <section class="data-settings" aria-label="Data settings">
-                <h3>Backup &amp; sync</h3>
+                <h3>Sync</h3>
+                <Show when={syncSnapshot().settings?.enabled} fallback={<>
+                  <p class="field-hint">Signing in keeps this calendar the same on every device you sign in on. Until then, it stays in this browser.</p>
+                  <button class="text-button" onClick={() => sync.signIn()}>Sign in with Cloudflare</button>
+                </>}>
+                  <Show when={syncSnapshot().state.kind === "signed-out"}>
+                    <div class="solid-menu-error">Your sign-in has expired.</div>
+                    <button class="text-button" onClick={() => sync.signIn()}>Sign in again</button>
+                  </Show>
+                  <label class="field"><span>When to sync</span><select value={syncSnapshot().settings!.mode} onChange={(event) => void sync.setMode(event.currentTarget.value as SyncMode)}>
+                    <option value="automatic">Automatically</option><option value="on-edit">When I edit</option><option value="manual">Manually</option>
+                  </select></label>
+                  <p class="field-hint">{{ automatic: "After your edits, on opening the app, and as soon as another device changes something.", "on-edit": "After your edits, on opening the app, and on coming back to it.", manual: "Only when you press Sync now." }[syncSnapshot().settings!.mode]}</p>
+                  <button class="text-button" disabled={syncSnapshot().running} onClick={() => void syncNow()}>{syncSnapshot().running ? "Syncing…" : "Sync now"}</button>
+                  <button class="text-button" onClick={() => void signOut()}>Sign out</button>
+                  <Show when={syncSnapshot().lastSyncedAt} keyed>{(syncedAt) => <div class="solid-menu-status">Last synced {clockText(new Date(syncedAt))}</div>}</Show>
+                  <Show when={"message" in syncSnapshot().state && (syncSnapshot().state as { message: string }).message} keyed>{(message) => <div class="solid-menu-error">{message}</div>}</Show>
+                </Show>
+                <div class="solid-menu-divider" />
+                <h3>Backup</h3>
                 <button class="text-button" onClick={() => void exportBackup()}>Export backup</button>
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>
                 <div class="solid-menu-divider" />
@@ -386,38 +394,6 @@ export function App() {
                 <p class="field-hint">Adds a “Sample: subtasks” group whose tasks show how the Subtasks setting (Keep together / Spread out) differs. Filter Today to that group to see only them. Removing deletes every sample item; both can be undone.</p>
                 <button class="text-button" onClick={() => void attempt(() => store.importBackup(JSON.stringify({ items: sampleSubtaskItems() })), "Could not add the samples.", "Added the sample tasks")}>Add sample subtasks</button>
                 <button class="text-button" disabled={!items().some(item => item.id.startsWith(SAMPLE_PREFIX))} onClick={() => void attempt(() => store.removeByPrefix(SAMPLE_PREFIX, "Remove samples"), "Could not remove the samples.", "Removed the sample tasks")}>Remove sample tasks</button>
-                <div class="solid-menu-divider" />
-                <form class="solid-menu-remote" onSubmit={(event) => { event.preventDefault(); saveRemoteServer(); }}>
-                  <label>
-                    <span>Remote sync server</span>
-                    <input
-                      type="url"
-                      inputmode="url"
-                      placeholder="https://calendar-sync.guymichaely.com/"
-                      value={remoteUrlDraft()}
-                      onInput={(event) => setRemoteUrlDraft(event.currentTarget.value)}
-                    />
-                  </label>
-                  <div class="solid-menu-status">Paste the backend base URL. Leave blank to disable remote sync.</div>
-                  <button class="text-button" type="submit">Save sync server</button>
-                </form>
-                <Show when={remote.enabled}>
-                  <div class="solid-menu-divider" />
-                  <Show when={remote.session() !== null} fallback={<button class="text-button" disabled={!remote.error()} onClick={() => void remote.checkSession()}>{remote.error() ? "Retry remote connection" : "Checking remote…"}</button>}>
-                    <Show when={remote.session()?.authenticated} fallback={<button class="text-button" onClick={() => {  window.location.assign(remote.loginUrl(new URL(import.meta.env.VITE_CALENDAR_PRIMARY_BASE || import.meta.env.BASE_URL, location.origin).href + location.hash)); }}>Sign in with Google</button>}>
-                      <div class="solid-menu-status">Signed in as {remote.identityLabel()}</div>
-                      <button class="text-button" disabled={remote.busy()} onClick={() => void syncNow()}>{remote.busy() ? "Syncing…" : "Sync now"}</button>
-                      <button class="text-button" onClick={() => void signOutRemote()}>Sign out</button>
-                      <Show when={remote.lastSyncedAt()} keyed>{(syncedAt) => <div class="solid-menu-status">Last synced {clockText(syncedAt)}</div>}</Show>
-                    </Show>
-                  </Show>
-                  <Show when={remote.error()} keyed>{(message) => <div class="solid-menu-error">{message}</div>}</Show>
-                </Show>
-
-                <label class="field"><span>Check for remote changes</span><select value={prefs.pollSeconds()} onChange={(event) => prefs.setPollSeconds(Number(event.currentTarget.value))}>
-                  <option value="5">Every 5 seconds</option><option value="15">Every 15 seconds</option><option value="30">Every 30 seconds</option><option value="60">Every minute</option><option value="300">Every 5 minutes</option><option value="0">Manual / after my edits</option>
-                </select></label>
-                <p class="field-hint">Applies on this device while the app is visible. Your edits save locally automatically and sync after editing, reconnecting, or returning to the app. Sync now is always available when signed in.</p>
               </section>
             </Show>
           </div>

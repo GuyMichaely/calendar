@@ -22,33 +22,15 @@ JSON backup/export is metadata-only for attachments. A backup containing embedde
 
 Undo/redo history is stored separately in `calendar-history` IndexedDB and is session-scoped. It is never synchronized. Undo and redo are applied as new CRDT changes rather than replacing the synchronized document wholesale.
 
-## Remote authentication and sync
+## Where it runs, and sync
 
-The remote-sync implementation is split into runtime-neutral application pieces:
+The calendar is one Cloudflare Worker at <https://calendar.guymichaely.com> ([backend/README.md](backend/README.md)): it serves the built app as static files and runs the sync server under `/sync`. Cloudflare Access guards `/sync`, so only your Cloudflare sign-in reaches it; the app itself is public and works without signing in, keeping everything in the browser.
 
-- `backend/auth/oidc.js`: provider-agnostic OpenID Connect using authorization code, PKCE, state, and nonce validation through `openid-client`;
-- `backend/auth/http.js`: login, callback, session inspection, logout, exact `(issuer, subject)` authorization, and opaque server-side sessions;
-- `backend/sync/http.js`: authenticated `POST /sync` with an atomic document-store contract;
-- `backend/sync/attachments-http.js`: authenticated attachment routes;
-- `sync/client.js`: serialized Automerge snapshot exchange and merge;
-- `solid/src/remote-sync.ts`: browser session handling, queued sync, and attachment transfer;
-- `backend/app.js`: composition of auth, sync, attachment storage, and the browser-origin allowlist;
-- `backend/file-stores.js`: persistent single-process filesystem stores;
-- `backend/bun-http.js`: Bun HTTP listener with the configured public origin for tunneled OAuth callbacks;
-- `backend/bun-server.js`: optional persistent Bun entrypoint for local development;
-- `backend/cloudflare/worker.js`: production Cloudflare Worker with Durable Object and R2 storage.
-
-Google is the first configured OIDC provider, but the auth core is provider-agnostic. Authorization is based on exact issuer and subject, not email address.
-
-Production serializes calendar updates in a Cloudflare Durable Object and stores attachment bytes in R2. The optional local filesystem store serializes writes only within one Bun process; do not share its data directory between processes.
-
-The Solid frontend has a **Remote sync server** field in the hamburger menu. A browser-saved URL takes precedence over the optional `VITE_CALENDAR_BACKEND_URL` build-time default. Saving an empty value explicitly disables remote sync in that browser.
-
-## Backend deployment
-
-The backend runs on Cloudflare Workers at `https://calendar-sync.guymichaely.com/`, with calendar data in Durable Object SQLite and attachment files in private R2. The frontend runs on GitHub Pages at <https://guymichaely.com/calendar/>; each browser chooses its **Remote sync server** URL. Backend secrets stay in Worker secrets and are never included in frontend builds.
-
-Follow [backend/README.md](backend/README.md) for Google registration, local backend development, and storage details, and [the Cloudflare deployment guide](backend/cloudflare/README.md) for production setup and deployment. Docker is not required.
+- `backend/worker.js`: the Worker and its Durable Object, which holds the one calendar (SQLite) and announces changes over a live WebSocket; attachment bytes are in R2.
+- `backend/sync/http.js`: `POST /sync`, one round of Automerge's sync protocol, over an atomic document-store contract.
+- `backend/sync/attachments-http.js`: attachment bytes at `/sync/attachments/:id`.
+- `sync/client.js`: the device side of the sync protocol.
+- `solid/src/cloud-sync.ts`: when to sync, through [@guymichaely/app-sync](https://github.com/GuyMichaely/app-sync): after edits, on opening and coming back, as the live connection hears other devices' changes, and on Sync now; sign-in; and attachment transfer.
 
 ## Local development
 
@@ -59,47 +41,35 @@ Use the repository wrapper on Linux or macOS. It downloads the exact Bun version
 ./scripts/bun run dev:solid
 ```
 
-Open <http://localhost:5173/calendar/>. The selected frontend is Solid + TypeScript + Vite. Vite emits `dist/` with the `/calendar/` asset base. Runtime dependencies are bundled into the frontend; it does not fetch libraries from a CDN.
+Open <http://localhost:5173/>. A copy that isn't syncing starts with sample tasks. To try sync, build once and run the Worker locally (no Access in front, so Sign in goes straight through); the Vite server forwards `/sync` to it:
+
+```bash
+./scripts/bun run build:solid
+./scripts/bun run dev:worker
+```
 
 Run all checks:
 
 ```bash
 ./scripts/bun run check
+./scripts/bun scripts/smoke-worker.js
 ```
 
-This runs the backend/domain/storage tests, Solid tests, typechecking, and the production build. To deliberately update dependencies, edit `package.json`, run `./scripts/bun install`, and commit `bun.lock`. A Bun upgrade must update `.bun-version`, `package.json`, and the official release hashes in `scripts/bun-checksums.txt` together. Local development and CI read the same `.bun-version`.
+`check` runs the backend/domain/storage tests, Solid tests, typechecking, and the production build; the smoke test runs the built Worker locally and syncs two devices through it. To deliberately update dependencies, edit `package.json`, run `./scripts/bun install`, and commit `bun.lock`. A Bun upgrade must update `.bun-version`, `package.json`, and the official release hashes in `scripts/bun-checksums.txt` together. Local development and CI read the same `.bun-version`.
 
-The wrapper disables automatic dotenv loading. Backend setup credentials live in ignored `.local/backend.env`; the Cloudflare setup helper converts them to a private file for uploading Worker secrets. Avoid exporting backend credentials into frontend build shells. Bun runs package binaries with its own runtime, so an unrelated system Node installation is not used.
+## Deployment
 
-`./scripts/bun run dev:backend` is an optional in-memory backend for development with explicitly supplied environment variables. It loses its data when stopped. For durable local storage, see the direct Bun server instructions in [backend/README.md](backend/README.md).
-
-## Frontend deployment
-
-`main` is the default branch and the only production deployment stream. `.github/workflows/deploy-pages.yml` verifies each push to `main`, smoke-tests the Cloudflare adapter, then publishes `dist/` to GitHub Pages. Pull requests against `main` run the same checks without publishing. A manual run can republish `main`.
-
-Branches named `prototype*` (lowercase letters, digits, hyphens) are published beside production at `https://guymichaely.com/calendar/<branch>/`, with the branch name shown in the header. A push to one runs the same checks in its own concurrency group, then starts a manual run of `main`; that run publishes production together with every existing prototype branch. The Pages environment therefore still deploys only from `main`. Deleting a prototype branch removes it at the next production publish. Prototypes share the origin, so they use the same browser data and sync session as production. Only put interface changes on them; a prototype that changes the document model must use a separate backend. Signing in from a prototype returns to the production app, because the backend accepts only listed return URLs; sync itself works from any path on the origin.
-
-The production concurrency group includes the entire workflow; an active deployment is never interrupted. At most one newer run waits, so superseded pending revisions are skipped. The existing domain setup is inherited from the account's Pages site; no `CNAME` or DNS changes are required in this repository.
-
-The old manifest, per-unit candidates, promotion workflows, and action-trigger requests are retired. The former control branches are preserved as archive tags when the migration is applied. Historical app snapshots remain in Git, rather than separate published `/old/` and `/vanilla/` sites. Revert a commit on `main` to roll back through the same tested deployment stream.
-
-Backend updates are explicit through the Cloudflare wrapper:
-
-```bash
-./scripts/worker deploy
-```
-
-The existing Durable Object and R2 bindings preserve server data across code deployments. Backend deployments are separate from frontend publishing.
+`.github/workflows/check.yml` runs the checks and the Worker smoke test on every push and pull request. Cloudflare Workers Builds deploys the Worker, with the app, from the `prototype2` branch (see [backend/README.md](backend/README.md)). The Durable Object and R2 bucket keep the calendar across deployments.
 
 ## Saving, syncing, and backups
 
 Valid item edits autosave locally after 800 ms of inactivity. Closing the editor flushes pending edits; incomplete fields or storage/upload errors remain visible instead of silently dropping changes. The open editor retains its Automerge editing branch so subsequent autosaves preserve concurrent remote changes. Remote changes appear in the task/calendar views after sync; reopen an editor to see changes made elsewhere.
 
-Authenticated devices sync after local changes, on reconnect/resume, and every 15 seconds while visible. The status distinguishes local saves, sync activity, and errors. This is periodic cross-device convergence, not character-by-character multiplayer presence.
+Each device chooses when it syncs (Settings → Data): **Automatically** (after edits, on opening and coming back, and as soon as another device changes something, through the live connection, with a five-minute backstop), **When I edit**, or **Manually**. The top bar's status distinguishes local saves, sync activity, an expired sign-in, being offline, and errors.
 
-The menu's Data submenu contains backups and remote sync configuration. Import previews new/matching item counts, updates matching IDs, retains items absent from the file, and supports undo. A JSON backup contains item values and attachment references; it excludes attachment files and CRDT history. Full server backups must include both the calendar document storage and attachment blobs (Durable Object storage and R2 in production).
+Settings → Data has sign-in and sync, and backups. Import previews new/matching item counts, updates matching IDs, retains items absent from the file, and supports undo. A JSON backup contains item values and attachment references; it excludes attachment files and CRDT history. Full server backups must include both the calendar document storage and attachment blobs (Durable Object storage and R2 in production).
 
-Server-only code lives under backend/. The sync/ directory holds the shared Automerge model and browser protocol client. Obsolete one-time migrations have been removed; previous versions remain in Git.
+Server code lives under backend/. The sync/ directory holds the shared Automerge model and browser protocol client. Obsolete one-time migrations have been removed; previous versions remain in Git.
 
 # User added to do list; ignore if you are an agent
 - have a view for the calendar and on the to do list to filter out what doesn't have a due date today/this week/this month

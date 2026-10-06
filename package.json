@@ -7,26 +7,31 @@
   },
   "packageManager": "bun@1.4.2",
   "scripts": {
-    "start": "bun backend/bun-server.js",
     "test": "bun test ./tests",
     "dev:solid": "vite --config solid/vite.config.ts",
-    "dev:backend": "bun backend/bun-dev.js",
-    "start:backend": "bun backend/bun-server.js",
+    "dev:worker": "./scripts/worker dev --port 8787",
     "test:solid": "TZ=Pacific/Kiritimati bun test ./solid/test",
     "typecheck:solid": "tsc -p solid/tsconfig.json --noEmit",
     "build:solid": "vite build --config solid/vite.config.ts",
+    "build:android": "vite build --config solid/vite.config.ts --base ./ --outDir ../dist-android --emptyOutDir",
+    "android:sync": "bun run build:android && ./scripts/node node_modules/@capacitor/cli/bin/capacitor sync android",
     "check": "bun run test && bun run test:solid && bun run typecheck:solid && bun run build:solid"
   },
   "dependencies": {
     "@automerge/automerge": "3.4.1",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/local-notifications": "8.3.1",
+    "@guymichaely/app-sync": "0.1.2",
     "@tiptap/core": "3.31.3",
     "@tiptap/extension-table": "3.31.3",
     "@tiptap/markdown": "3.31.3",
     "@tiptap/starter-kit": "3.31.3",
-    "markdown-it": "15.0.1",
-    "openid-client": "6.8.7"
+    "markdown-it": "15.0.1"
   },
   "devDependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/cli": "8.5.2",
     "fake-indexeddb": "6.2.4",
     "solid-js": "1.9.15",
     "typescript": "7.0.2",

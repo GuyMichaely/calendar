@@ -4,7 +4,7 @@ import test from 'node:test';
 import {createCalendarDocument,saveCalendarDocument,loadCalendarDocument,mergeCalendarDocuments,patchItem} from '../sync/automerge-document.js';
 import {createCalendarSyncClient,CalendarSyncError} from '../sync/client.js';
 import {createSyncHandler,createMemoryDocumentStore} from '../backend/sync/http.js';
-const server=store=>createSyncHandler({authenticate:async()=>({identity:{issuer:'issuer',subject:'owner'}}),documentStore:store});
+const server=store=>createSyncHandler({documentStore:store});
 function replica(fetch,items=[]){let doc=createCalendarDocument(items);const client=createCalendarSyncClient({readSnapshot:async()=>saveCalendarDocument(doc),mergeSnapshot:async bytes=>{doc=mergeCalendarDocuments(doc,loadCalendarDocument(bytes));}},{endpoint:'https://sync.example/sync',fetch});return{sync:()=>client.sync(),edit:(id,p)=>{doc=patchItem(doc,id,p);},get doc(){return doc;}};}
 const task={id:'a',kind:'task',title:'Task',state:'open'};
 test('native sync is incremental, includes credentials and survives server restart',async()=>{
@@ -24,7 +24,7 @@ test('edits during an exchange and overlapping sync calls converge',async()=>{
  const peer=replica(async(url,init)=>{const response=await handler(new Request(url,init));if(!edited){edited=true;peer.edit('a',{notes:'edited in flight'});}return response;},[task]);
  await Promise.all([peer.sync(),peer.sync()]);assert.equal(loadCalendarDocument(await store.get('calendar:primary')).items.a.notes,'edited in flight');
 });
-test('HTTP auth and invalid response types are surfaced',async()=>{
+test('HTTP errors and invalid response types are surfaced',async()=>{
  await assert.rejects(replica(async()=>new Response('Unauthorized',{status:401}),[task]).sync(),error=>error instanceof CalendarSyncError&&error.status===401);
  await assert.rejects(replica(async()=>new Response('wrong',{headers:{'content-type':'text/plain'}}),[task]).sync(),/Invalid sync response/);
 });

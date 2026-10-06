@@ -302,8 +302,6 @@ main:has(.calendar-panel) { padding: 14px 20px 20px; }
   .quick-capture { padding: 5px 8px; }
 }
 
-.prototype-badge { align-self: flex-start; margin: -22px 0 22px 52px; padding: 2px 7px; border-radius: 99px; background: #e89678; color: #1b1411; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
-.mobile-word .prototype-badge { margin: 0 0 0 8px; vertical-align: 3px; }
 
 /* Wide screens keep the task list beside the selected task's editor. The pane's
    track is always present (0% when closed) so its width changes can animate. */

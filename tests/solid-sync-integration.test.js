@@ -66,12 +66,11 @@ function storageAdapter() {
   };
 }
 
-test("Solid IndexedDB storage preserves local edits made while authenticated snapshot sync is in flight", async () => {
+test("Solid IndexedDB storage preserves local edits made while sync is in flight", async () => {
   await storage.putItem(task());
 
   const documentStore = createMemoryDocumentStore();
   const handler = createSyncHandler({
-    authenticate: async () => ({ identity: { issuer: "issuer", subject: "guy" } }),
     documentStore,
   });
   const endpoint = "https://sync.example/sync";
