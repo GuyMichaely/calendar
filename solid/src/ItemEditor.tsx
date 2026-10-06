@@ -247,18 +247,25 @@ export function ItemEditor(props: {
     syncDirty();
   };
 
+  // Setting one end of an event fills in a missing other end, and moves it when it would come
+  // out on the wrong side: an end before the start becomes an hour after it, and vice versa.
+  const HOUR = 60 * 60 * 1000;
   const deriveEnd = (value: string) => {
     setEventStart(value);
-    if (!value || eventEnd()) return;
-    const start = fromInputValue(value);
-    if (start) setEventEnd(isoToLocalInput(addDays(start, 1)));
+    const start = value ? fromInputValue(value) : null;
+    if (!start) return;
+    const end = eventEnd() ? fromInputValue(eventEnd()) : null;
+    if (!eventEnd()) setEventEnd(isoToLocalInput(addDays(start, 1)));
+    else if (end && end < start) setEventEnd(isoToLocalInput(new Date(start.getTime() + HOUR)));
   };
 
   const deriveStart = (value: string) => {
     setEventEnd(value);
-    if (!value || eventStart()) return;
-    const end = fromInputValue(value);
-    if (end) setEventStart(isoToLocalInput(addDays(end, -1)));
+    const end = value ? fromInputValue(value) : null;
+    if (!end) return;
+    const start = eventStart() ? fromInputValue(eventStart()) : null;
+    if (!eventStart()) setEventStart(isoToLocalInput(addDays(end, -1)));
+    else if (start && start > end) setEventStart(isoToLocalInput(new Date(end.getTime() - HOUR)));
   };
 
   const saveOnce = async (): Promise<boolean> => {

@@ -154,7 +154,7 @@ body.task-dragging { overflow-anchor: none; }
 .agenda-entry-mark { width: 3px; align-self: stretch; background: #91a5b3; border-radius: 3px; flex: 0 0 auto; }
 .agenda-entry-mark.task { background: #8caa7c; }.agenda-entry-mark.due { background: #d39378; }.agenda-entry-mark.repeat { background: transparent; box-shadow: inset 0 0 0 1.5px #8caa7c; }
 .agenda-entry > span:nth-child(2) { flex: 1; min-width: 0; }
-.agenda-entry small { display: block; font-size: 9px; color: var(--muted); margin-bottom: 4px; }
+.agenda-entry small { display: block; font-size: 11.5px; font-weight: 500; color: color-mix(in srgb, var(--text) 70%, var(--muted)); margin-bottom: 4px; }
 .agenda-entry strong { display: block; font-size: 12px; font-weight: 550; overflow-wrap: anywhere; }
 .agenda-entry > .ui-icon { color: var(--muted); }
 .agenda-add { background: transparent; border: 1px dashed var(--control-border); font-size: 10px; width: 100%; margin-top: 18px; }

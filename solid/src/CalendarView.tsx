@@ -65,7 +65,7 @@ export function CalendarView(props: {
       const shown: Shown = entry.kind === "event" ? { ...entry, className: "event", label: `${shortTime(entry.at)} ${title}`, title, kindLabel: shortTime(entry.at) }
         : entry.kind === "due" ? { ...entry, className: `task due${entry.overdue ? " overdue" : ""}`, label: ["Due", timeOf(entry.at), title].filter(Boolean).join(" "), title: `${title}: due ${shortTime(entry.at)}${entry.overdue ? " (overdue)" : ""}`, kindLabel: ["Due", timeOf(entry.at)].filter(Boolean).join(" · ") }
         : entry.kind === "repeat" ? { ...entry, className: "task repeat", label: `↻ ${title}`, title: `${title}: a later occurrence (${describeRepeat(task!.repeat!)})`, kindLabel: `Repeats${timeOf(entry.at) ? ` · ${timeOf(entry.at)}` : ""}` }
-        : { ...entry, className: "task start", label: [timeOf(entry.at), title].filter(Boolean).join(" "), title: `${title}: can start`, kindLabel: `Can start${timeOf(entry.at) ? ` · ${timeOf(entry.at)}` : ""}` };
+        : { ...entry, className: "task start", label: title, title: `${title}: can start`, kindLabel: `Can start${timeOf(entry.at) ? ` · ${timeOf(entry.at)}` : ""}` };
       if (entry.pushed) { shown.className += " pushed-entry"; shown.title += " (pushed down)"; }
       if (ghost) { shown.className += " ghost-entry"; shown.label = `If started: ${shown.label}`; shown.title += " (dependent task, if started on its parent task's due date)"; }
       const key = dateKey(entry.at);
