@@ -40,3 +40,23 @@ self.addEventListener("fetch", event => {
   const key = event.request.mode === "navigate" ? scope.href : url.href;
   event.respondWith(caches.match(key).then(cached => cached || fetch(event.request)));
 });
+
+// Reminders the server pushes at their time ({ title, body, tag, url }: backend/worker.js); tapping
+// one opens its page, in a window already showing it if there is one.
+self.addEventListener("push", event => {
+  const { title, body, tag, url } = event.data?.json() ?? {};
+  if (title) event.waitUntil(self.registration.showNotification(title, { body, tag, data: { url } }));
+});
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const url = event.notification.data?.url;
+  if (!url) return;
+  event.waitUntil((async () => {
+    const page = new URL(url);
+    for (const client of await self.clients.matchAll({ type: "window" })) {
+      const at = new URL(client.url);
+      if (at.origin === page.origin && at.pathname === page.pathname) { await client.focus(); return client.navigate(url); }
+    }
+    return self.clients.openWindow(url);
+  })());
+});

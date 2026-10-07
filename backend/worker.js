@@ -10,19 +10,28 @@
 //   PUT/DELETE /sync/devices       { token }: a phone's FCM token, to tell it when reminders change
 //   GET  /sync/reminders?taskStarts=1&events=1
 //                                  that phone's coming reminders, worked out here (solid/src/reminders.ts)
+//   PUT  /sync/push                { subscription, settings, open }: a browser's Web Push subscription
+//   DELETE /sync/push              { endpoint }
 //
 // After the calendar changes (30 seconds after, so a burst of edits sends one message), each phone is
-// sent a data message through FCM; its app then fetches /sync/reminders and reschedules.
+// sent a data message through FCM; its app then fetches /sync/reminders and reschedules. Browsers
+// can't schedule notifications, so each reminder is pushed to them at its time.
 import * as Automerge from "@automerge/automerge";
 import { DurableObject } from "cloudflare:workers";
+import { VAPID_PUBLIC_KEY } from "../solid/src/push-key.ts";
 import { upcomingReminders } from "../solid/src/reminders.ts";
 import { setCalendarZone } from "../solid/src/zone.ts";
 import { loadCalendarDocument, materializeItems } from "../sync/automerge-document.js";
 import { createFcm } from "./fcm.js";
 import { createAttachmentHandler } from "./sync/attachments-http.js";
 import { createSyncHandler } from "./sync/http.js";
+import { createWebPush } from "./web-push.js";
 
 const DOCUMENT = "calendar:primary";
+// The pages that show the app in a frame (guymichaely.com/calendar/, from the homepage repo): signing
+// in and notifications go back to them.
+const frames = ["https://guymichaely.com/calendar/"];
+const MINUTE = 60_000;
 
 // One object holds the one calendar, so its updates are serialized.
 export class CalendarStore extends DurableObject {
@@ -33,6 +42,9 @@ export class CalendarStore extends DurableObject {
     const sql = ctx.storage.sql;
     sql.exec("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, bytes BLOB NOT NULL)");
     sql.exec("CREATE TABLE IF NOT EXISTS devices (token TEXT PRIMARY KEY, updated_at INTEGER NOT NULL)");
+    // A browser's push subscription, what it reminds about ({ taskStarts, events }), and the page a
+    // tapped notification opens (the app, or a page framing it).
+    sql.exec("CREATE TABLE IF NOT EXISTS pushes (endpoint TEXT PRIMARY KEY, subscription TEXT NOT NULL, settings TEXT NOT NULL, open TEXT NOT NULL)");
     const documentStore = {
       async update(key, updater) {
         const row = sql.exec("SELECT bytes FROM documents WHERE id = ?", key).toArray()[0];
@@ -55,6 +67,7 @@ export class CalendarStore extends DurableObject {
     this.sql = sql;
     this.sync = createSyncHandler({ documentStore, documentKey: DOCUMENT, onChanged: heads => { this.announce(heads); void this.remindLater(); } });
     this.fcm = env.FCM_SERVICE_ACCOUNT ? createFcm(env.FCM_SERVICE_ACCOUNT) : null;
+    this.webPush = env.VAPID_PRIVATE_KEY ? createWebPush({ publicKey: VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: "https://guymichaely.com/" }) : null;
     this.attachments = createAttachmentHandler({ blobStore });
     this.tail = Promise.resolve();
   }
@@ -70,30 +83,96 @@ export class CalendarStore extends DurableObject {
     return doc ? Automerge.getHeads(doc) : [];
   }
 
-  /** A phone's coming reminders, as its app would work them out, read in the calendar's time zone. */
-  reminders(settings) {
+  /** The calendar's items, with its time zone set for reading them. */
+  items() {
     const doc = this.document();
     const items = doc ? materializeItems(doc) : [];
     const zone = items.find(item => item.kind === "settings")?.timeZone;
     if (zone) setCalendarZone(zone);
-    return upcomingReminders(items, new Date(), settings).map(reminder => ({ ...reminder, at: reminder.at.getTime() }));
+    return items;
   }
 
-  // Phones hear about changes once a burst of them has settled.
+  /** A phone's coming reminders, as its app would work them out. */
+  reminders(settings) {
+    return upcomingReminders(this.items(), new Date(), settings).map(reminder => ({ ...reminder, at: reminder.at.getTime() }));
+  }
+
+  // One alarm does both jobs: telling phones the calendar changed (fcmAt, once a burst of changes
+  // has settled) and pushing browsers' reminders as they come due (those after pushedUntil).
   async remindLater() {
-    if (!this.fcm || await this.ctx.storage.getAlarm() != null) return;
-    if (this.sql.exec("SELECT 1 FROM devices LIMIT 1").toArray().length) await this.ctx.storage.setAlarm(Date.now() + 30_000);
+    if (this.fcm && await this.ctx.storage.get("fcmAt") == null && this.sql.exec("SELECT 1 FROM devices LIMIT 1").toArray().length) await this.ctx.storage.put("fcmAt", Date.now() + 30_000);
+    await this.schedule();
+  }
+
+  pushes() {
+    return this.sql.exec("SELECT endpoint, subscription, settings, open FROM pushes").toArray()
+      .map(row => ({ endpoint: row.endpoint, subscription: JSON.parse(row.subscription), settings: JSON.parse(row.settings), open: row.open }));
+  }
+
+  async schedule() {
+    const times = [await this.ctx.storage.get("fcmAt")];
+    const pushes = this.webPush ? this.pushes() : [];
+    if (pushes.length) {
+      const from = new Date(Math.max(Date.now(), await this.ctx.storage.get("pushedUntil") ?? 0));
+      const items = this.items();
+      for (const { settings } of pushes) times.push(upcomingReminders(items, from, settings, 14, 1)[0]?.at.getTime());
+    }
+    const next = Math.min(...times.filter(time => time != null));
+    if (Number.isFinite(next)) await this.ctx.storage.setAlarm(next); else await this.ctx.storage.deleteAlarm();
   }
 
   async alarm() {
-    if (!this.fcm) return;
-    for (const { token } of this.sql.exec("SELECT token FROM devices").toArray()) {
-      try {
-        if (await this.fcm.send(token, { type: "reminders" }, { collapseKey: "reminders" }) === "gone") this.sql.exec("DELETE FROM devices WHERE token = ?", token);
-      } catch (error) {
-        console.error("Could not tell a phone its reminders changed", error);
+    const now = Date.now();
+    const fcmAt = await this.ctx.storage.get("fcmAt");
+    if (fcmAt != null && fcmAt <= now) {
+      await this.ctx.storage.delete("fcmAt");
+      if (this.fcm) for (const { token } of this.sql.exec("SELECT token FROM devices").toArray()) {
+        try {
+          if (await this.fcm.send(token, { type: "reminders" }, { collapseKey: "reminders" }) === "gone") this.sql.exec("DELETE FROM devices WHERE token = ?", token);
+        } catch (error) {
+          console.error("Could not tell a phone its reminders changed", error);
+        }
       }
     }
+    const pushes = this.webPush ? this.pushes() : [];
+    if (pushes.length) {
+      // What came due since the last time, unless it's more than a few minutes late.
+      const from = Math.max(await this.ctx.storage.get("pushedUntil") ?? now, now - 5 * MINUTE);
+      const items = this.items();
+      for (const { endpoint, subscription, settings, open } of pushes) {
+        for (const reminder of upcomingReminders(items, new Date(from), settings).filter(reminder => reminder.at.getTime() <= now)) {
+          const url = open + (reminder.channel === "starts" ? `#tasks/${encodeURIComponent(reminder.itemId)}` : "#calendar");
+          try {
+            if (await this.webPush.send(subscription, { title: reminder.title, body: reminder.body, tag: String(reminder.id), url }) === "gone") { this.sql.exec("DELETE FROM pushes WHERE endpoint = ?", endpoint); break; }
+          } catch (error) {
+            console.error("Could not push a reminder", error);
+          }
+        }
+      }
+    }
+    await this.ctx.storage.put("pushedUntil", now);
+    await this.schedule();
+  }
+
+  async push(request) {
+    if (!["PUT", "DELETE"].includes(request.method)) return new Response("Method not allowed", { status: 405, headers: { allow: "PUT, DELETE" } });
+    let body;
+    try { body = await request.json(); } catch { /* checked below */ }
+    if (request.method === "DELETE") {
+      if (typeof body?.endpoint !== "string") return new Response("Expected { endpoint }", { status: 400 });
+      this.sql.exec("DELETE FROM pushes WHERE endpoint = ?", body.endpoint);
+    } else {
+      const { subscription, settings, open } = body ?? {};
+      const own = new URL("/", request.url).href;
+      const valid = typeof subscription?.endpoint === "string" && subscription.endpoint.startsWith("https://") && typeof subscription.keys?.p256dh === "string" && typeof subscription.keys?.auth === "string"
+        && typeof settings?.taskStarts === "boolean" && typeof settings?.events === "boolean" && (open === own || frames.includes(open));
+      if (!valid) return new Response("Expected { subscription, settings: { taskStarts, events }, open }", { status: 400 });
+      if (!(await this.ctx.storage.get("pushedUntil"))) await this.ctx.storage.put("pushedUntil", Date.now());
+      this.sql.exec("INSERT OR REPLACE INTO pushes (endpoint, subscription, settings, open) VALUES (?, ?, ?, ?)", subscription.endpoint,
+        JSON.stringify({ endpoint: subscription.endpoint, keys: { p256dh: subscription.keys.p256dh, auth: subscription.keys.auth } }), JSON.stringify({ taskStarts: settings.taskStarts, events: settings.events }), open);
+    }
+    await this.schedule();
+    return new Response(null, { status: 204 });
   }
 
   async devices(request) {
@@ -123,6 +202,7 @@ export class CalendarStore extends DurableObject {
     }
     const url = new URL(request.url);
     if (url.pathname === "/sync/devices") return this.devices(request);
+    if (url.pathname === "/sync/push") return this.push(request);
     if (url.pathname === "/sync/reminders") {
       if (request.method !== "GET") return new Response("Method not allowed", { status: 405, headers: { allow: "GET" } });
       const settings = { taskStarts: url.searchParams.get("taskStarts") === "1", events: url.searchParams.get("events") === "1" };
@@ -144,7 +224,6 @@ export class CalendarStore extends DurableObject {
 // itself (Capacitor, to add its bridge) and follows redirects without moving the address, which
 // would stay here. Signing in from guymichaely.com/calendar/, the page that shows the app in a
 // frame, comes back there (it adds return=); any other return goes to the app.
-const frames = ["https://guymichaely.com/calendar/"];
 const signedIn = back => {
   const to = back && frames.some(frame => back.startsWith(frame)) ? back : "/";
   return `<!doctype html><meta charset="utf-8"><title>Signed in</title><script>location.replace(${JSON.stringify(to).replaceAll("<", "\\u003c")})</script>`;

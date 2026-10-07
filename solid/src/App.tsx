@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import { clockText, dayKey as dateKey, deviceZone, partsOf, setCalendarZone, zonedDate } from "./zone";
 import { TimeControl } from "./TimeControl";
 import { WorkspaceShell, type SyncState } from "./WorkspaceShell";
@@ -7,7 +7,7 @@ import { DialogShell } from "./DialogShell";
 import { CalendarView } from "./CalendarView";
 import { ItemEditor, type EditorRequest } from "./ItemEditor";
 import { createCloudSync } from "./cloud-sync";
-import { inApp, onReminderOpened, registerDevice, scheduleReminders, type NotificationAccess } from "./notifications";
+import { disableWebPush, enableWebPush, inApp, onReminderOpened, registerDevice, scheduleReminders, updateWebPush, webPushSubscribed, webPushSupported, type NotificationAccess } from "./notifications";
 import { reminderChoices, upcomingReminders } from "./reminders";
 import { createCalendarStore } from "./calendar-store";
 import { createPreferences } from "./preferences";
@@ -190,6 +190,15 @@ export function App() {
   // calendar changes and it fetches them itself, so once synced, the phone registers for that.
   // Tapping one opens its item (once the calendar has loaded, if the tap opened the app).
   const [notifyAccess, setNotifyAccess] = createSignal<NotificationAccess | null>(null);
+  // In a browser, the server pushes reminders (notifications.ts); this browser's switch, and what went wrong turning it.
+  const [webPushOn, setWebPushOn] = createSignal(!!webPushSubscribed());
+  const [webPushError, setWebPushError] = createSignal("");
+  const reminderSettings = () => ({ taskStarts: prefs.notifyTaskStarts(), events: prefs.notifyEvents() });
+  const switchWebPush = (wanted: boolean) => {
+    setWebPushError("");
+    return (wanted ? enableWebPush(reminderSettings()) : disableWebPush()).then(() => setWebPushOn(wanted), error => { setWebPushError(error instanceof Error ? error.message : String(error)); setWebPushOn(!!webPushSubscribed()); });
+  };
+  if (webPushSupported) createEffect(on(() => [prefs.notifyTaskStarts(), prefs.notifyEvents()], () => { if (untrack(webPushOn)) updateWebPush(reminderSettings()).catch(error => setWebPushError(error.message)); }, { defer: true }));
   if (inApp) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const reschedule = () => {
@@ -403,6 +412,15 @@ export function App() {
             </Show>
             <Show when={settingsTab() === "notifications"}>
               <section class="appearance-settings" aria-label="Notifications">
+                <Show when={!inApp}>
+                  <Show when={webPushSupported} fallback={<p class="field-hint">This browser can't show notifications.</p>}>
+                    <label class="animation-setting"><span><strong>Notifications</strong><small>Whether this browser notifies you, even with no tab open (while the browser itself runs). Reminders come from the calendar's server, so this needs syncing on (Settings → Data).</small></span><input aria-label="Notifications" type="checkbox" role="switch" disabled={!webPushOn() && syncStatus().state === "local"} checked={webPushOn()} onChange={event => { const box = event.currentTarget; void switchWebPush(box.checked).then(() => { box.checked = webPushOn(); }); }} /></label>
+                    <Show when={webPushError()}><p class="solid-menu-error">{webPushError()}</p></Show>
+                    <label class="animation-setting"><span><strong>Tasks you can start</strong><small>When a task reaches its can-start time (in a window, when the window opens then).</small></span><input aria-label="Tasks you can start" type="checkbox" role="switch" disabled={!webPushOn()} checked={prefs.notifyTaskStarts()} onChange={event => prefs.setNotifyTaskStarts(event.currentTarget.checked)} /></label>
+                    <label class="animation-setting"><span><strong>Event reminders</strong><small>Each event's own reminder (its editor has it).</small></span><input aria-label="Event reminders" type="checkbox" role="switch" disabled={!webPushOn()} checked={prefs.notifyEvents()} onChange={event => prefs.setNotifyEvents(event.currentTarget.checked)} /></label>
+                    <p class="field-hint">For this browser.</p>
+                  </Show>
+                </Show>
                 <Show when={inApp}>
                   <Show when={prefs.notify() && notifyAccess() === "denied"}><p class="solid-menu-error">Notifications are off for this app in Android's settings, so none go off.</p></Show>
                   <label class="animation-setting"><span><strong>Notifications</strong><small>Whether this phone notifies you at all.</small></span><input aria-label="Notifications" type="checkbox" role="switch" checked={prefs.notify()} onChange={event => prefs.setNotify(event.currentTarget.checked)} /></label>

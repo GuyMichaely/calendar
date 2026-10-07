@@ -58,6 +58,12 @@ try {
   assert.deepEqual(reminders.map(reminder => [reminder.itemId, reminder.channel, reminder.title]), [["b", "starts", "Second device"]]);
   assert.deepEqual(await (await fetch(endpoint + "/sync/reminders?taskStarts=0&events=0")).json(), []);
   assert.equal((await fetch(endpoint + "/sync/devices", { method: "PUT", body: "{}" })).status, 400);
+  // A browser's push subscription, for a page the server will open (the app, or a page framing it).
+  const push = body => fetch(endpoint + "/sync/push", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const subscription = { endpoint: "https://push.example/abc", keys: { p256dh: "key", auth: "secret" } };
+  assert.equal((await push({ subscription, settings: { taskStarts: true, events: true }, open: "https://guymichaely.com/calendar/" })).status, 204);
+  assert.equal((await push({ subscription, settings: { taskStarts: true, events: true }, open: "https://elsewhere.example/" })).status, 400);
+  assert.equal((await fetch(endpoint + "/sync/push", { method: "DELETE", body: JSON.stringify({ endpoint: subscription.endpoint }) })).status, 204);
 
   const file = { "content-type": "text/plain" };
   assert.equal((await fetch(endpoint + "/sync/attachments/test", { method: "PUT", headers: file, body: "original" })).status, 204);
