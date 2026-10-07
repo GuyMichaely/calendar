@@ -1,11 +1,13 @@
 import { render } from "solid-js/web";
 import { App } from "./App";
+import { reportRoute } from "./framed";
 
 import "./workspace.css";
 
 const root = document.querySelector("#app");
 if (!root) throw new Error("Missing #app mount point");
 
+reportRoute();
 render(() => <App />, root);
 
 // The offline copy (solid/sw.js); built copies only.

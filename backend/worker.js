@@ -3,7 +3,7 @@
 // Cloudflare Access guards /sync (only its policy's account gets through), so nothing here checks
 // who's asking. The app and /sync share one origin: no CORS.
 //
-//   GET  /sync/signin             after Access signs you in, sends the browser back to the app
+//   GET  /sync/signin?return=     after Access signs you in, sends the browser back to the app
 //   POST /sync                    one round of Automerge's sync protocol (backend/sync/http.js)
 //   GET  /sync/live               a WebSocket that's sent { heads } whenever the calendar changes
 //   *    /sync/attachments/:id    attachment bytes, stored in R2 (backend/sync/attachments-http.js)
@@ -143,13 +143,18 @@ export class CalendarStore extends DurableObject {
 
 // Back to the app from signing in, by a page rather than a redirect: the Android app loads pages
 // itself (Capacitor, to add its bridge) and follows redirects without moving the address, which
-// would stay here.
-const signedIn = `<!doctype html><meta charset="utf-8"><title>Signed in</title><script>location.replace("/")</script>`;
+// would stay here. Signing in from guymichaely.com/calendar/, the page that shows the app in a
+// frame, comes back there (it adds return=); any other return goes to the app.
+const frames = ["https://guymichaely.com/calendar/"];
+const signedIn = back => {
+  const to = back && frames.some(frame => back.startsWith(frame)) ? back : "/";
+  return `<!doctype html><meta charset="utf-8"><title>Signed in</title><script>location.replace(${JSON.stringify(to).replaceAll("<", "\\u003c")})</script>`;
+};
 
 export default {
   fetch(request, env) {
-    const { pathname } = new URL(request.url);
-    if (pathname === "/sync/signin") return new Response(signedIn, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+    const { pathname, searchParams } = new URL(request.url);
+    if (pathname === "/sync/signin") return new Response(signedIn(searchParams.get("return")), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     if (pathname === "/sync" || pathname.startsWith("/sync/")) return env.CALENDAR.get(env.CALENDAR.idFromName("primary")).fetch(request);
     return env.ASSETS.fetch(request);
   },

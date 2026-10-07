@@ -31,6 +31,9 @@ try {
   const signin = await fetch(endpoint + "/sync/signin", { redirect: "manual" });
   assert.equal(signin.status, 200);
   assert.match(await signin.text(), /location\.replace\("\/"\)/u);
+  const framed = encodeURIComponent("https://guymichaely.com/calendar/#tasks");
+  assert.match(await (await fetch(endpoint + "/sync/signin?return=" + framed)).text(), /location\.replace\("https:\/\/guymichaely\.com\/calendar\/#tasks"\)/u);
+  assert.match(await (await fetch(endpoint + "/sync/signin?return=" + encodeURIComponent("https://elsewhere.example/</script>"))).text(), /location\.replace\("\/"\)/u);
 
   const live = new WebSocket(endpoint.replace("http", "ws") + "/sync/live");
   const heard = [];
