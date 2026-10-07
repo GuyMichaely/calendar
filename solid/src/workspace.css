@@ -58,10 +58,6 @@ h3 { font-size: 14px; font-weight: 650; }
 .rail-bottom { margin-top: auto; }
 .rail-settings { display: flex; align-items: center; gap: 12px; padding: 12px; width: 100%; border: 0; background: transparent; color: #bcc8be; font-size: 13px; }
 .rail-settings:hover { color: white; }
-.workspace-identity { border-top: 1px solid #3b463e; display: flex; gap: 10px; align-items: center; margin-top: 12px; padding: 22px 5px 0; }
-.identity-icon { width: 31px; height: 31px; flex: 0 0 auto; border-radius: 50%; display: grid; place-items: center; background: #3b4940; color: #c3d0c3; }
-.workspace-identity > span:last-child { min-width: 0; }
-.workspace-identity strong { display: block; font-size: 11px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .workspace-body { margin-left: 218px; }
 /* The search is centred, as wide as the Agenda (960px) when there's room; each side keeps --topbar-side for the
    clock and the utilities, so it doesn't shift when the sync label changes. */

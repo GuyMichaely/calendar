@@ -28,7 +28,6 @@ export function WorkspaceShell(props: {
       </nav>
       <div class="rail-bottom">
         <button class="rail-settings" onClick={props.onSettings}><Icon name="settings" /><span>Settings</span></button>
-        <div class="workspace-identity"><span class="identity-icon"><Icon name="user" size={17} /></span><span><strong>Personal workspace</strong></span></div>
       </div>
     </aside>
     <div class="workspace-body">

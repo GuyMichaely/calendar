@@ -447,15 +447,16 @@ export function App() {
                   <p class="field-hint">Signing in keeps this calendar the same on every device you sign in on. Until then, it stays in this browser.</p>
                   <button class="text-button" onClick={() => void sync.signIn()}>Sign in with Cloudflare</button>
                 </>}>
-                  <Show when={syncSnapshot().state.kind === "signed-out"}>
-                    <div class="solid-menu-error">Your sign-in has expired.</div>
+                  <Show when={syncSnapshot().state.kind !== "signed-out"} fallback={<>
+                    <p class="field-hint">Your sign-in has expired. Your edits are saved in this browser and sync once you sign in again.</p>
                     <button class="text-button" onClick={() => void sync.signIn()}>Sign in again</button>
+                  </>}>
+                    <label class="field"><span>When to sync</span><select value={syncSnapshot().settings!.mode} onChange={(event) => void sync.setMode(event.currentTarget.value as SyncMode)}>
+                      <option value="automatic">Automatically</option><option value="on-edit">When I edit</option><option value="manual">Manually</option>
+                    </select></label>
+                    <p class="field-hint">{{ automatic: "After your edits, on opening the app, and as soon as another device changes something.", "on-edit": "After your edits, on opening the app, and on coming back to it.", manual: "Only when you press Sync now." }[syncSnapshot().settings!.mode]}</p>
+                    <button class="text-button" disabled={syncSnapshot().running} onClick={() => void syncNow()}>{syncSnapshot().running ? "Syncing…" : "Sync now"}</button>
                   </Show>
-                  <label class="field"><span>When to sync</span><select value={syncSnapshot().settings!.mode} onChange={(event) => void sync.setMode(event.currentTarget.value as SyncMode)}>
-                    <option value="automatic">Automatically</option><option value="on-edit">When I edit</option><option value="manual">Manually</option>
-                  </select></label>
-                  <p class="field-hint">{{ automatic: "After your edits, on opening the app, and as soon as another device changes something.", "on-edit": "After your edits, on opening the app, and on coming back to it.", manual: "Only when you press Sync now." }[syncSnapshot().settings!.mode]}</p>
-                  <button class="text-button" disabled={syncSnapshot().running} onClick={() => void syncNow()}>{syncSnapshot().running ? "Syncing…" : "Sync now"}</button>
                   <button class="text-button" onClick={() => void signOut()}>Sign out</button>
                   <Show when={syncSnapshot().lastSyncedAt} keyed>{(syncedAt) => <div class="solid-menu-status">Last synced {clockText(new Date(syncedAt))}</div>}</Show>
                   <Show when={"message" in syncSnapshot().state && (syncSnapshot().state as { message: string }).message} keyed>{(message) => <div class="solid-menu-error">{message}</div>}</Show>
