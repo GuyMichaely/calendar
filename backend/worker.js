@@ -33,10 +33,14 @@ const DOCUMENT = "calendar:primary";
 const frames = ["https://guymichaely.com/calendar/"];
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
+const PUSH_TTL = 28 * 24 * 60 * 60;
 // Where each browser's reminders are up to: the ones due before it have gone (or were refused).
 const pushedKey = endpoint => `pushed:${endpoint}`;
 
 // One object holds the one calendar, so its updates are serialized.
+// A browser's reminders after `from`: all of those due by now (however many, however late), and the next 14 days'.
+const remindersSince = (items, from, now, settings, limit) => upcomingReminders(items, new Date(from), settings, Math.ceil((now - from) / DAY) + 14, limit);
+
 export class CalendarStore extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -112,10 +116,9 @@ export class CalendarStore extends DurableObject {
       .map(row => ({ endpoint: row.endpoint, subscription: JSON.parse(row.subscription), settings: JSON.parse(row.settings), open: row.open }));
   }
 
-  // A browser's reminders still to send: those after where it's up to, as far back as a day (late
-  // is better than never, but not by more than that).
+  // Where a browser's reminders are up to: everything due before then has gone (however late).
   async pushFrom(endpoint, now) {
-    return Math.max(await this.ctx.storage.get(pushedKey(endpoint)) ?? now, now - DAY);
+    return await this.ctx.storage.get(pushedKey(endpoint)) ?? now;
   }
 
   async schedule() {
@@ -125,7 +128,7 @@ export class CalendarStore extends DurableObject {
       const now = Date.now();
       const items = this.items();
       for (const { endpoint, settings } of pushes) {
-        const next = upcomingReminders(items, new Date(await this.pushFrom(endpoint, now)), settings, 14, 1)[0]?.at.getTime();
+        const next = remindersSince(items, await this.pushFrom(endpoint, now), now, settings, 1)[0]?.at.getTime();
         // One already due is waiting on a push service that couldn't take it: try again in a minute.
         times.push(next != null && next <= now ? now + MINUTE : next);
       }
@@ -152,12 +155,12 @@ export class CalendarStore extends DurableObject {
     for (const { endpoint, subscription, settings, open } of pushes) {
       // Each browser on its own: one whose push service is down keeps its place without holding up the rest.
       let upTo = now;
-      for (const reminder of upcomingReminders(items, new Date(await this.pushFrom(endpoint, now)), settings).filter(reminder => reminder.at.getTime() <= now)) {
+      for (const reminder of remindersSince(items, await this.pushFrom(endpoint, now), now, settings, Infinity).filter(reminder => reminder.at.getTime() <= now)) {
         const url = open + (reminder.channel === "starts" ? `#tasks/${encodeURIComponent(reminder.itemId)}` : "#calendar");
         let result;
         try {
-          // The push service holds it for a day while the browser is closed or offline.
-          result = await this.webPush.send(subscription, { title: reminder.title, body: reminder.body, tag: String(reminder.id), url }, { ttl: DAY / 1000 });
+          // The push service holds it while the browser is closed or offline, as long as it will (four weeks is the most push services take).
+          result = await this.webPush.send(subscription, { title: reminder.title, body: reminder.body, tag: String(reminder.id), url }, { ttl: PUSH_TTL });
         } catch (error) {
           console.error("A push service refused a reminder", error);
           continue;

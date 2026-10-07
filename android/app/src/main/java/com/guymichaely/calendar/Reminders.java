@@ -33,8 +33,6 @@ final class Reminders {
     static final String SITE = "https://calendar.guymichaely.com";
     private static final String TAG = "Reminders";
     private static final String PREFS = "calendar.reminders";
-    // A reminder missed while the phone was off still shows, up to a day late.
-    private static final long LATE = 24 * 60 * 60 * 1000L;
 
     private Reminders() {}
 
@@ -87,8 +85,8 @@ final class Reminders {
             String id = String.valueOf(reminder.optInt("id"));
             long at = reminder.optLong("at");
             if (shown.contains(id)) stillShown.append(id).append(',');
-            // One already past (missed while the phone was off) goes off now, unless it showed or is too late.
-            if (at <= now - LATE || (at <= now && shown.contains(id))) continue;
+            // One already past (missed while the phone was off) goes off now, unless it showed.
+            if (at <= now && shown.contains(id)) continue;
             PendingIntent intent = alarm(context, Integer.parseInt(id), reminder, PendingIntent.FLAG_UPDATE_CURRENT);
             if (exact) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, Math.max(at, now), intent);
             else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, Math.max(at, now), intent);
