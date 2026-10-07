@@ -19,7 +19,7 @@ Each device chooses when it syncs (Settings → Data): **Automatically**, **When
 
 Cloudflare Access guards `calendar.guymichaely.com/sync`: the Access application "Calendar sync", with the same login method and allow policy as Italian's (your account only). A request without that sign-in never reaches the Worker, so the Worker doesn't check who's asking. `workers.dev` and preview addresses are off, so there's no way around Access; keep it that way, and keep the policy to your account.
 
-- Settings → Data → **Sign in with Cloudflare** opens `/sync/signin`. Access signs you in and sets its cookie; the Worker's page there sends the browser back to the app with `#sync-signed-in` (by script, not a redirect: the Android app follows redirects natively and would lose the `#`).
+- Settings → Data → **Sign in with Cloudflare** opens `/sync/signin`. The app turns sync on first; Access signs you in and sets its cookie, and the Worker's page there sends the browser back to the app, which syncs as on any opening (by script, not a redirect: the Android app follows redirects natively, which would leave it at `/sync/signin`). If you back out of signing in, the sync is turned away and Settings offers Sign in again.
 - When a sign-in expires, requests are turned away and the app shows **Sign in again**. To sign every device out at once, revoke the sessions in Zero Trust.
 
 ## Deploying

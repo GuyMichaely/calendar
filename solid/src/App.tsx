@@ -1,7 +1,7 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { clockText, dayKey as dateKey, deviceZone, partsOf, setCalendarZone, zonedDate } from "./zone";
 import { TimeControl } from "./TimeControl";
-import { WorkspaceShell } from "./WorkspaceShell";
+import { WorkspaceShell, type SyncState } from "./WorkspaceShell";
 import { Icon } from "./Icon";
 import { DialogShell } from "./DialogShell";
 import { CalendarView } from "./CalendarView";
@@ -33,7 +33,6 @@ function errorMessage(error: unknown, fallback: string) { return error instanceo
 
 export function App() {
   // Changes sync once saved locally; other devices' changes reload the items once merged.
-  // (Created first: it takes the return from signing in off the address.)
   const store = createCalendarStore({ onChanged: () => sync.changed() });
   const { controller: sync, snapshot: syncSnapshot } = createCloudSync({ onSynced: store.refresh });
   if (!/^#(tasks|boards|calendar)$/.test(location.hash) && !readSelectedTask()) history.replaceState(null, "", "#tasks");
@@ -77,12 +76,12 @@ export function App() {
     return { items: items().map(item => projected.get(item.id) || item), ghostIds: new Set(projected.keys()) };
   });
   // What the top bar says about sync. Edits are always saved in this browser first.
-  const syncStatus = createMemo((): { state: "busy" | "error" | "synced" | "local"; label: string; detail: string } => {
+  const syncStatus = createMemo((): { state: SyncState; label: string; detail: string } => {
     const { settings, state, running, lastSyncedAt } = syncSnapshot();
     if (!settings?.enabled || state.kind === "off") return { state: "local", label: "Only in this browser", detail: "Your edits are saved in this browser only. Sign in (Settings → Data) to sync them with your other devices, or export a backup." };
     if (running) return { state: "busy", label: "Syncing", detail: "Sending your edits and fetching your other devices' edits." };
-    if (state.kind === "signed-out") return { state: "error", label: "Sign in again", detail: "Your sign-in has expired. Your edits are saved in this browser and sync once you sign in again (Settings → Data)." };
-    if (state.kind === "offline") return { state: "error", label: "Offline", detail: state.message };
+    if (state.kind === "signed-out") return { state: "signed-out", label: "Sign in again", detail: "Your sign-in has expired. Your edits are saved in this browser and sync once you sign in again (Settings → Data)." };
+    if (state.kind === "offline") return { state: "offline", label: "Offline", detail: state.message };
     if (state.kind === "error") return { state: "error", label: "Sync needs attention", detail: `${state.message} Your edits are still saved in this browser.` };
     return lastSyncedAt ? { state: "synced", label: "Synced", detail: `Synced with your other devices at ${clockText(new Date(lastSyncedAt))}.` } : { state: "busy", label: "Not synced yet", detail: "Signed in; the first sync hasn't finished." };
   });
@@ -419,11 +418,11 @@ export function App() {
                 <h3>Sync</h3>
                 <Show when={syncSnapshot().settings?.enabled} fallback={<>
                   <p class="field-hint">Signing in keeps this calendar the same on every device you sign in on. Until then, it stays in this browser.</p>
-                  <button class="text-button" onClick={() => sync.signIn()}>Sign in with Cloudflare</button>
+                  <button class="text-button" onClick={() => void sync.signIn()}>Sign in with Cloudflare</button>
                 </>}>
                   <Show when={syncSnapshot().state.kind === "signed-out"}>
                     <div class="solid-menu-error">Your sign-in has expired.</div>
-                    <button class="text-button" onClick={() => sync.signIn()}>Sign in again</button>
+                    <button class="text-button" onClick={() => void sync.signIn()}>Sign in again</button>
                   </Show>
                   <label class="field"><span>When to sync</span><select value={syncSnapshot().settings!.mode} onChange={(event) => void sync.setMode(event.currentTarget.value as SyncMode)}>
                     <option value="automatic">Automatically</option><option value="on-edit">When I edit</option><option value="manual">Manually</option>

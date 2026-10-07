@@ -30,7 +30,7 @@ try {
   assert.match(await (await fetch(endpoint + "/")).text(), /<div id="app">/u);
   const signin = await fetch(endpoint + "/sync/signin", { redirect: "manual" });
   assert.equal(signin.status, 200);
-  assert.match(await signin.text(), /location\.replace\("\/#sync-signed-in"\)/u);
+  assert.match(await signin.text(), /location\.replace\("\/"\)/u);
 
   const live = new WebSocket(endpoint.replace("http", "ws") + "/sync/live");
   const heard = [];

@@ -1,5 +1,5 @@
 import * as Automerge from "@automerge/automerge";
-import { SyncController, liveUrl, syncFetch, takeSignInCallback, type SyncSettings } from "@guymichaely/app-sync";
+import { SyncController, liveUrl, syncFetch, type SyncSettings } from "@guymichaely/app-sync";
 import { createSignal } from "solid-js";
 import { configureRemoteAttachments } from "../../site/attachment-remote.js";
 import { mergeSyncSnapshot, readSyncDocument, readSyncSnapshot, receiveSyncMessage } from "../../site/storage.js";
@@ -30,7 +30,7 @@ const SYNC = `${import.meta.env.BASE_URL}sync`;
  * Sync with the calendar's server at /sync, on this origin and behind Cloudflare Access.
  * @guymichaely/app-sync decides when (after edits, on opening and coming back, as the live
  * connection hears other devices' changes, and when asked); one sync is Automerge's sync protocol
- * (sync/client.js). Call it before anything reads the address: it takes the sign-in return off it.
+ * (sync/client.js). Signing in turns it on before going to Cloudflare; coming back, it just syncs.
  */
 export function createCloudSync({ onSynced }: { onSynced: () => Promise<void> }) {
   const attachmentUrl = (id: string) => `${SYNC}/attachments/${encodeURIComponent(id)}`;
@@ -88,11 +88,6 @@ export function createCloudSync({ onSynced }: { onSynced: () => Promise<void> })
     lock: "calendar-sync",
   });
 
-  // Back from signing in: sync is on, from a fresh first merge.
-  if (takeSignInCallback()) {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...readSettings(), enabled: true }));
-    localStorage.removeItem(SYNCED_AT_KEY);
-  }
   controller.configure(readSettings());
   // Another window changed them.
   window.addEventListener("storage", event => { if (event.key === SETTINGS_KEY) controller.configure(readSettings()); });

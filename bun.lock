@@ -7,7 +7,7 @@
       "dependencies": {
         "@automerge/automerge": "3.4.1",
         "@capacitor/core": "8.5.2",
-        "@guymichaely/app-sync": "0.1.2",
+        "@guymichaely/app-sync": "0.2.0",
         "@tiptap/core": "3.31.3",
         "@tiptap/extension-table": "3.31.3",
         "@tiptap/markdown": "3.31.3",
@@ -141,7 +141,7 @@
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.28.1", "", { "os": "win32", "cpu": "x64" }, "sha512-bm4Mowrv+GXMlpWX++EcXw/iLyd1o3+bJkC2DkWXYVvgZCqD/bSj9ctZeAMC3cIxgjRVR2Dufaiu4YPxr5gW1A=="],
 
-    "@guymichaely/app-sync": ["@guymichaely/app-sync@0.1.2", "", { "peerDependencies": { "react": "^19.0.0" } }, "sha512-nOcX+NPw+eNch3nZ5N3K0sqtH7Q0Io7LVAk15zlanb7jdZQ1Pyfx0gUbqzaieg6DV5CfS0o5Cywk+4bUrq/jLQ=="],
+    "@guymichaely/app-sync": ["@guymichaely/app-sync@0.2.0", "", { "peerDependencies": { "react": "^19.0.0" } }, "sha512-H9L8aVGSD4WBAEvsXklf2baqTEMZnbBDa1Po1Cifitnc8mYoE8PKvY7z4qqCgXO80xMYhcega0tDt+cg4PeKRA=="],
 
     "@img/colour": ["@img/colour@1.1.0", "", {}, "sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ=="],
 

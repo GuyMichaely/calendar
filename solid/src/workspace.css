@@ -76,7 +76,11 @@ h3 { font-size: 14px; font-weight: 650; }
 .workspace-new { white-space: nowrap; font-size: 12px; }
 .sync-indicator { display: flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--muted); white-space: nowrap; padding: 4px 0; font-size: 10px; }
 .sync-indicator:hover { color: var(--accent-strong); }
-.sync-indicator[data-state="error"] { color: var(--danger); }
+.sync-indicator[data-state="synced"] .ui-icon { color: var(--ready); }
+.sync-indicator[data-state="busy"] .ui-icon, .sync-indicator[data-state="offline"] .ui-icon { color: var(--waiting); }
+.sync-indicator[data-state="signed-out"], .sync-indicator[data-state="error"] { color: var(--danger); }
+[data-animations="on"] .sync-indicator[data-state="busy"] .ui-icon { animation: sync-turn 1.2s linear infinite; }
+@keyframes sync-turn { to { rotate: 360deg; } }
 .mobile-nav, .mobile-history, .mobile-word, .mobile-search-toggle { display: none; }
 main { padding: 37px 36px 80px; min-height: calc(100dvh - 56px); }
 main:focus { outline: none; }
