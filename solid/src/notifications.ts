@@ -30,11 +30,11 @@ export async function scheduleReminders(reminders: Reminder[], settings: Reminde
   return access;
 }
 
-/** Tells the calendar's server this phone's FCM token, so it can say when reminders change. Needs sync's sign-in. */
-export async function registerDevice() {
+/** Tells the calendar's server this phone's FCM token, so it can say when reminders change, or (`false`) to stop. Needs sync's sign-in. */
+export async function registerDevice(register: boolean) {
   const { token } = await Reminders.token();
-  const response = await syncFetch(`${import.meta.env.BASE_URL}sync/devices`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
-  if (!response.ok) throw new Error(`Could not register for reminder updates (${response.status}).`);
+  const response = await syncFetch(`${import.meta.env.BASE_URL}sync/devices`, { method: register ? "PUT" : "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
+  if (!response.ok) throw new Error(`Could not ${register ? "register for" : "stop"} reminder updates (${response.status}).`);
 }
 
 /** Calls `open` with the item a tapped notification is about. */

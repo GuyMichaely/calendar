@@ -195,19 +195,23 @@ export function App() {
     const reschedule = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        const settings = { taskStarts: prefs.notifyTaskStarts(), eventMinutes: prefs.eventReminderMinutes() };
+        // Off, the native side's own fetches (when FCM says the calendar changed) find nothing too.
+        const settings = prefs.notify() ? { taskStarts: prefs.notifyTaskStarts(), eventMinutes: prefs.eventReminderMinutes() } : { taskStarts: false, eventMinutes: null };
         void scheduleReminders(upcomingReminders(items(), new Date(), settings), settings).then(setNotifyAccess, error => console.error("Could not schedule notifications", error));
       }, 1000);
     };
-    createEffect(() => { items(); prefs.notifyTaskStarts(); prefs.eventReminderMinutes(); if (ready()) reschedule(); });
+    createEffect(() => { items(); prefs.notify(); prefs.notifyTaskStarts(); prefs.eventReminderMinutes(); if (ready()) reschedule(); });
     const onVisible = () => { if (document.visibilityState === "visible") reschedule(); };
     document.addEventListener("visibilitychange", onVisible);
     onCleanup(() => { clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); });
-    let registered = false;
+    // Registered while notifications are on, so the server doesn't wake a phone that has nothing to do.
+    let registered: boolean | null = null;
     createEffect(() => {
-      if (registered || syncSnapshot().state.kind !== "synced") return;
-      registered = true;
-      registerDevice().catch(error => { registered = false; console.error("Could not register for reminder updates", error); });
+      const want = prefs.notify();
+      if (registered === want || syncSnapshot().state.kind !== "synced") return;
+      const was = registered;
+      registered = want;
+      registerDevice(want).catch(error => { registered = was; console.error("Could not change reminder updates", error); });
     });
     const [openedId, setOpenedId] = createSignal<string | null>(null);
     onReminderOpened(setOpenedId);
@@ -399,12 +403,13 @@ export function App() {
             </Show>
             <Show when={settingsTab() === "notifications"}>
               <section class="appearance-settings" aria-label="Notifications">
-                <Show when={notifyAccess() === "denied"}><p class="solid-menu-error">Notifications are off for this app in Android's settings, so none go off.</p></Show>
-                <label class="animation-setting"><span><strong>Tasks you can start</strong><small>When a task reaches its can-start time (in a window, when the window opens then).</small></span><input aria-label="Tasks you can start" type="checkbox" role="switch" checked={prefs.notifyTaskStarts()} onChange={event => prefs.setNotifyTaskStarts(event.currentTarget.checked)} /></label>
-                <label class="field"><span>Event reminders</span><select value={prefs.eventReminderMinutes() ?? "off"} onChange={event => prefs.setEventReminderMinutes(event.currentTarget.value === "off" ? null : Number(event.currentTarget.value))}>
+                <Show when={prefs.notify() && notifyAccess() === "denied"}><p class="solid-menu-error">Notifications are off for this app in Android's settings, so none go off.</p></Show>
+                <label class="animation-setting"><span><strong>Notifications</strong><small>Whether this phone notifies you at all.</small></span><input aria-label="Notifications" type="checkbox" role="switch" checked={prefs.notify()} onChange={event => prefs.setNotify(event.currentTarget.checked)} /></label>
+                <label class="animation-setting"><span><strong>Tasks you can start</strong><small>When a task reaches its can-start time (in a window, when the window opens then).</small></span><input aria-label="Tasks you can start" type="checkbox" role="switch" disabled={!prefs.notify()} checked={prefs.notifyTaskStarts()} onChange={event => prefs.setNotifyTaskStarts(event.currentTarget.checked)} /></label>
+                <label class="field"><span>Event reminders</span><select disabled={!prefs.notify()} value={prefs.eventReminderMinutes() ?? "off"} onChange={event => prefs.setEventReminderMinutes(event.currentTarget.value === "off" ? null : Number(event.currentTarget.value))}>
                   <option value="off">Off</option><option value="0">When it starts</option><option value="5">5 minutes before</option><option value="10">10 minutes before</option><option value="15">15 minutes before</option><option value="30">30 minutes before</option><option value="60">1 hour before</option><option value="120">2 hours before</option><option value="1440">1 day before</option>
                 </select></label>
-                <p class="field-hint">For this phone. Each kind has its own channel in Android's notification settings.</p>
+                <p class="field-hint">For this phone. Event reminders go off this long before every event. Each kind has its own channel in Android's notification settings.</p>
               </section>
             </Show>
             <Show when={settingsTab() === "animations"}>

@@ -252,6 +252,7 @@ body.task-dragging { overflow-anchor: none; }
 .animation-setting { display: flex; justify-content: space-between; align-items: center; gap: 25px; margin: 18px 0; }
 .animation-setting > span { display: grid; gap: 7px; font-size: 14px; }.animation-setting small { color: var(--muted); font-size: 11px; }
 .animation-setting > input { width: 19px; height: 19px; flex: 0 0 auto; accent-color: var(--accent); }
+.animation-setting > input:disabled { opacity: .4; }
 .shortcut-grid { display: grid; margin-top: 22px; }.shortcut-row { display: grid; grid-template-columns: 1fr 100px; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 12px; }.shortcut-key-input { text-align: center; cursor: pointer; }.shortcut-help { font-size: 11px; color: var(--muted); }.shortcut-error { color: var(--danger); font-size: 11px; min-height: 1em; }
 .toast-stack { position: fixed; right: 25px; bottom: 24px; z-index: 200; display: grid; gap: 8px; width: min(350px, calc(100vw - 32px)); pointer-events: none; }
 .queued-toast { justify-self: end; border: 1px solid #424d41; border-radius: 7px; padding: 11px 15px; background: #303b30; color: #f3f5eb; font-size: 12px; text-align: left; box-shadow: var(--shadow); opacity: 0; translate: 0 8px; transition: opacity 140ms ease, translate 140ms ease; pointer-events: auto; }.queued-toast.show { opacity: 1; translate: 0 0; }.queued-toast.leaving { opacity: 0; translate: 0 6px; }

@@ -24,8 +24,10 @@ export function createPreferences() {
   const [showBoard, setShowBoard] = shown("calendar.rows.showBoard");
   const [showTags, setShowTags] = shown("calendar.rows.showTags");
   const [pullTimed, setPullTimed] = flag("calendar.boards.pullTimed");
-  // Settings → Notifications (the Android app): when tasks can start (on unless turned off), and
-  // this many minutes before events (30 unless set; null: no event reminders).
+  // Settings → Notifications (the Android app): whether this phone notifies at all (on unless turned
+  // off); when tasks can start (on unless turned off), and this many minutes before events (30
+  // unless set; null: no event reminders).
+  const [notify, setNotify] = shown("calendar.notify");
   const [notifyTaskStarts, setNotifyTaskStarts] = shown("calendar.notify.taskStarts");
   const [eventReminderMinutes, setEventReminderMinutes] = stored<number | null>("calendar.notify.eventMinutes",
     raw => raw === "off" ? null : raw !== null && Number.isFinite(Number(raw)) ? Number(raw) : 30, value => value === null ? "off" : String(value));
@@ -41,6 +43,7 @@ export function createPreferences() {
     showBoard, setShowBoard,
     showTags, setShowTags,
     pullTimed, setPullTimed,
+    notify, setNotify,
     notifyTaskStarts, setNotifyTaskStarts,
     eventReminderMinutes, setEventReminderMinutes,
     subtaskMode, setSubtaskMode,
