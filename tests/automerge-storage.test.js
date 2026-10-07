@@ -48,6 +48,9 @@ function task(overrides = {}) {
 }
 
 test("Solid persistence uploads attachment bytes before storing metadata-only Automerge state", async () => {
+  // It counts the calendar's items, and Bun runs every test file in one process, sharing the fake
+  // IndexedDB and this module: another file's items may already be here.
+  await storage.resetStoredDocument();
   const localBlob = new Blob(["local attachment"], { type: "text/plain" });
   const initial = task({ attachments: [{ id: "attachment-1", name: "plan.txt", type: "text/plain", size: 16, blob: localBlob }] });
   await storage.putItem(initial);
