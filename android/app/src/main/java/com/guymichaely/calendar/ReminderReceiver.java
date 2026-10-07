@@ -41,5 +41,6 @@ public class ReminderReceiver extends BroadcastReceiver {
             .setContentIntent(content)
             .setAutoCancel(true);
         NotificationManagerCompat.from(context).notify(id, notification.build());
+        Reminders.shown(context, id);
     }
 }

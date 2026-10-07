@@ -17,7 +17,10 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -30,6 +33,8 @@ final class Reminders {
     static final String SITE = "https://calendar.guymichaely.com";
     private static final String TAG = "Reminders";
     private static final String PREFS = "calendar.reminders";
+    // A reminder missed while the phone was off still shows, up to a day late.
+    private static final long LATE = 24 * 60 * 60 * 1000L;
 
     private Reminders() {}
 
@@ -72,18 +77,30 @@ final class Reminders {
             if (previous != null) alarms.cancel(previous);
         }
         boolean exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarms.canScheduleExactAlarms();
+        Set<String> shown = new HashSet<>(Arrays.asList(prefs.getString("shown", "").split(",")));
         StringBuilder ids = new StringBuilder();
+        StringBuilder stillShown = new StringBuilder();
         long now = System.currentTimeMillis();
         for (int index = 0; index < reminders.length(); index++) {
             JSONObject reminder = reminders.optJSONObject(index);
-            if (reminder == null || reminder.optLong("at") <= now) continue;
-            int id = reminder.optInt("id");
-            PendingIntent intent = alarm(context, id, reminder, PendingIntent.FLAG_UPDATE_CURRENT);
-            if (exact) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, reminder.optLong("at"), intent);
-            else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, reminder.optLong("at"), intent);
+            if (reminder == null) continue;
+            String id = String.valueOf(reminder.optInt("id"));
+            long at = reminder.optLong("at");
+            if (shown.contains(id)) stillShown.append(id).append(',');
+            // One already past (missed while the phone was off) goes off now, unless it showed or is too late.
+            if (at <= now - LATE || (at <= now && shown.contains(id))) continue;
+            PendingIntent intent = alarm(context, Integer.parseInt(id), reminder, PendingIntent.FLAG_UPDATE_CURRENT);
+            if (exact) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, Math.max(at, now), intent);
+            else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, Math.max(at, now), intent);
             ids.append(id).append(',');
         }
-        prefs.edit().putString("reminders", reminders.toString()).putString("ids", ids.toString()).apply();
+        prefs.edit().putString("reminders", reminders.toString()).putString("ids", ids.toString()).putString("shown", stillShown.toString()).apply();
+    }
+
+    /** Notes that a reminder showed, so scheduling the same list again (after a restart) doesn't repeat it. */
+    static synchronized void shown(Context context, int id) {
+        String shown = prefs(context).getString("shown", "");
+        prefs(context).edit().putString("shown", shown + id + ",").apply();
     }
 
     /** After a restart, which clears alarms. */

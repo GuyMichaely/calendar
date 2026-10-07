@@ -32,6 +32,9 @@ const DOCUMENT = "calendar:primary";
 // in and notifications go back to them.
 const frames = ["https://guymichaely.com/calendar/"];
 const MINUTE = 60_000;
+const DAY = 24 * 60 * MINUTE;
+// Where each browser's reminders are up to: the ones due before it have gone (or were refused).
+const pushedKey = endpoint => `pushed:${endpoint}`;
 
 // One object holds the one calendar, so its updates are serialized.
 export class CalendarStore extends DurableObject {
@@ -98,7 +101,7 @@ export class CalendarStore extends DurableObject {
   }
 
   // One alarm does both jobs: telling phones the calendar changed (fcmAt, once a burst of changes
-  // has settled) and pushing browsers' reminders as they come due (those after pushedUntil).
+  // has settled) and pushing each browser its reminders as they come due (those after its pushedKey).
   async remindLater() {
     if (this.fcm && await this.ctx.storage.get("fcmAt") == null && this.sql.exec("SELECT 1 FROM devices LIMIT 1").toArray().length) await this.ctx.storage.put("fcmAt", Date.now() + 30_000);
     await this.schedule();
@@ -109,13 +112,23 @@ export class CalendarStore extends DurableObject {
       .map(row => ({ endpoint: row.endpoint, subscription: JSON.parse(row.subscription), settings: JSON.parse(row.settings), open: row.open }));
   }
 
+  // A browser's reminders still to send: those after where it's up to, as far back as a day (late
+  // is better than never, but not by more than that).
+  async pushFrom(endpoint, now) {
+    return Math.max(await this.ctx.storage.get(pushedKey(endpoint)) ?? now, now - DAY);
+  }
+
   async schedule() {
     const times = [await this.ctx.storage.get("fcmAt")];
     const pushes = this.webPush ? this.pushes() : [];
     if (pushes.length) {
-      const from = new Date(Math.max(Date.now(), await this.ctx.storage.get("pushedUntil") ?? 0));
+      const now = Date.now();
       const items = this.items();
-      for (const { settings } of pushes) times.push(upcomingReminders(items, from, settings, 14, 1)[0]?.at.getTime());
+      for (const { endpoint, settings } of pushes) {
+        const next = upcomingReminders(items, new Date(await this.pushFrom(endpoint, now)), settings, 14, 1)[0]?.at.getTime();
+        // One already due is waiting on a push service that couldn't take it: try again in a minute.
+        times.push(next != null && next <= now ? now + MINUTE : next);
+      }
     }
     const next = Math.min(...times.filter(time => time != null));
     if (Number.isFinite(next)) await this.ctx.storage.setAlarm(next); else await this.ctx.storage.deleteAlarm();
@@ -135,22 +148,31 @@ export class CalendarStore extends DurableObject {
       }
     }
     const pushes = this.webPush ? this.pushes() : [];
-    if (pushes.length) {
-      // What came due since the last time, unless it's more than a few minutes late.
-      const from = Math.max(await this.ctx.storage.get("pushedUntil") ?? now, now - 5 * MINUTE);
-      const items = this.items();
-      for (const { endpoint, subscription, settings, open } of pushes) {
-        for (const reminder of upcomingReminders(items, new Date(from), settings).filter(reminder => reminder.at.getTime() <= now)) {
-          const url = open + (reminder.channel === "starts" ? `#tasks/${encodeURIComponent(reminder.itemId)}` : "#calendar");
-          try {
-            if (await this.webPush.send(subscription, { title: reminder.title, body: reminder.body, tag: String(reminder.id), url }) === "gone") { this.sql.exec("DELETE FROM pushes WHERE endpoint = ?", endpoint); break; }
-          } catch (error) {
-            console.error("Could not push a reminder", error);
-          }
+    const items = pushes.length ? this.items() : [];
+    for (const { endpoint, subscription, settings, open } of pushes) {
+      // Each browser on its own: one whose push service is down keeps its place without holding up the rest.
+      let upTo = now;
+      for (const reminder of upcomingReminders(items, new Date(await this.pushFrom(endpoint, now)), settings).filter(reminder => reminder.at.getTime() <= now)) {
+        const url = open + (reminder.channel === "starts" ? `#tasks/${encodeURIComponent(reminder.itemId)}` : "#calendar");
+        let result;
+        try {
+          // The push service holds it for a day while the browser is closed or offline.
+          result = await this.webPush.send(subscription, { title: reminder.title, body: reminder.body, tag: String(reminder.id), url }, { ttl: DAY / 1000 });
+        } catch (error) {
+          console.error("A push service refused a reminder", error);
+          continue;
         }
+        if (result === "gone") { upTo = null; break; }
+        // From just before this one, so it (and any due at the same moment) goes next time.
+        if (result === "retry") { upTo = reminder.at.getTime() - 1; break; }
+      }
+      if (upTo == null) {
+        this.sql.exec("DELETE FROM pushes WHERE endpoint = ?", endpoint);
+        await this.ctx.storage.delete(pushedKey(endpoint));
+      } else {
+        await this.ctx.storage.put(pushedKey(endpoint), upTo);
       }
     }
-    await this.ctx.storage.put("pushedUntil", now);
     await this.schedule();
   }
 
@@ -161,13 +183,15 @@ export class CalendarStore extends DurableObject {
     if (request.method === "DELETE") {
       if (typeof body?.endpoint !== "string") return new Response("Expected { endpoint }", { status: 400 });
       this.sql.exec("DELETE FROM pushes WHERE endpoint = ?", body.endpoint);
+      await this.ctx.storage.delete(pushedKey(body.endpoint));
     } else {
       const { subscription, settings, open } = body ?? {};
       const own = new URL("/", request.url).href;
       const valid = typeof subscription?.endpoint === "string" && subscription.endpoint.startsWith("https://") && typeof subscription.keys?.p256dh === "string" && typeof subscription.keys?.auth === "string"
         && typeof settings?.taskStarts === "boolean" && typeof settings?.events === "boolean" && (open === own || frames.includes(open));
       if (!valid) return new Response("Expected { subscription, settings: { taskStarts, events }, open }", { status: 400 });
-      if (!(await this.ctx.storage.get("pushedUntil"))) await this.ctx.storage.put("pushedUntil", Date.now());
+      // A new browser starts from now; one already here keeps its place.
+      if (await this.ctx.storage.get(pushedKey(subscription.endpoint)) == null) await this.ctx.storage.put(pushedKey(subscription.endpoint), Date.now());
       this.sql.exec("INSERT OR REPLACE INTO pushes (endpoint, subscription, settings, open) VALUES (?, ?, ?, ?)", subscription.endpoint,
         JSON.stringify({ endpoint: subscription.endpoint, keys: { p256dh: subscription.keys.p256dh, auth: subscription.keys.auth } }), JSON.stringify({ taskStarts: settings.taskStarts, events: settings.events }), open);
     }

@@ -68,6 +68,17 @@ h3 { font-size: 14px; font-weight: 650; }
 .workspace-search input { width: 100%; min-width: 0; background: transparent; border: 0; font-size: 12px; padding: 7px 0; outline-offset: 1px; }
 .workspace-search input::placeholder { color: var(--muted); }
 .workspace-search button { padding: 0 3px; background: none; border: 0; font-size: 19px; }
+.workspace-search { position: relative; }
+.search-results { position: absolute; top: calc(100% + 6px); left: -1px; right: -1px; z-index: 30; max-height: min(70vh, 520px); overflow-y: auto; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow); color: var(--text); }
+.search-results h3 { margin: 8px 8px 4px; font-size: 11px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); }
+.search-results ul { list-style: none; margin: 0; padding: 0; }
+.workspace-search .search-result { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: none; color: var(--text); font-size: 13px; text-align: left; }
+.search-result.active { background: var(--surface-2); }
+.search-result > .ui-icon { flex: 0 0 auto; color: var(--muted); }
+.search-result > span { display: grid; min-width: 0; }
+.search-result strong { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-result small { color: var(--muted); font-size: 11.5px; }
+.search-results-empty { margin: 8px; color: var(--muted); font-size: 12px; }
 .workspace-utilities { grid-column: 3; grid-row: 1; justify-self: end; display: flex; align-items: center; gap: 18px; }
 .workspace-new { white-space: nowrap; font-size: 12px; }
 .sync-indicator { display: flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--muted); white-space: nowrap; padding: 4px 0; font-size: 10px; }

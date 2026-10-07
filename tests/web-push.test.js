@@ -109,14 +109,14 @@ test('VAPID tokens are reused per audience', async () => {
   assert.notEqual(tokens[0], tokens[2]);
 });
 
-test('statuses: 201 sent, 404 and 410 gone, anything else throws with the status and body', async () => {
+test('statuses: 201 sent, 404 and 410 gone, 429 and 5xx retry, anything else throws with the status and body', async () => {
   const push = createWebPush({ ...await generateVapidKeys(), subject });
   const { subscription } = await browser();
-  for (const [status, expected] of [[201, 'sent'], [200, 'sent'], [404, 'gone'], [410, 'gone']]) {
+  for (const [status, expected] of [[201, 'sent'], [200, 'sent'], [404, 'gone'], [410, 'gone'], [429, 'retry'], [500, 'retry'], [503, 'retry']]) {
     pushService(status);
     assert.equal(await push.send(subscription, {}), expected, `status ${status}`);
   }
-  for (const status of [400, 413, 500]) {
+  for (const status of [400, 403, 413]) {
     pushService(status, `nope ${status} ${'x'.repeat(500)}`);
     await assert.rejects(push.send(subscription, {}), error => error.message.includes(`(${status})`) && error.message.includes(`nope ${status}`) && error.message.length < 300);
   }
@@ -148,4 +148,11 @@ test('RFC 8291 Appendix A: the example\'s keys and salt give its exact message',
   const uaPublic = unb64(keys.p256dh);
   const privateKey = await crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', d: 'q1dXpw3UpT5VOmu_cf_v6ih07Aems3njxI-JWgLcM94', x: b64(uaPublic.slice(1, 33)), y: b64(uaPublic.slice(33)) }, { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
   assert.equal(decoder.decode(await decrypt(body, { privateKey, subscription: { keys } })), 'When I grow up, I want to be a watermelon');
+});
+
+test('a push service that cannot be reached is retried', async () => {
+  const push = createWebPush({ ...await generateVapidKeys(), subject });
+  const { subscription } = await browser();
+  globalThis.fetch = async () => { throw new TypeError('Network connection lost.'); };
+  assert.equal(await push.send(subscription, {}), 'retry');
 });

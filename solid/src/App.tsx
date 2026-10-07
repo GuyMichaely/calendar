@@ -5,6 +5,7 @@ import { WorkspaceShell, type SyncState } from "./WorkspaceShell";
 import { Icon } from "./Icon";
 import { DialogShell } from "./DialogShell";
 import { CalendarView } from "./CalendarView";
+import { createFind } from "./SearchResults";
 import { ItemEditor, type EditorRequest } from "./ItemEditor";
 import { createCloudSync } from "./cloud-sync";
 import { disableWebPush, enableWebPush, inApp, onReminderOpened, registerDevice, scheduleReminders, updateWebPush, webPushSubscribed, webPushSupported, type NotificationAccess } from "./notifications";
@@ -183,6 +184,14 @@ export function App() {
     if (!selectedTaskId() && id) document.querySelector<HTMLElement>(`[data-task-card][data-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
   };
   const editTask = (task: Task) => { if (splitView()) void selectTask(task.id); else openEditor(task); };
+  // Search that finds (Settings → Display): a result opens where you are; the Calendar also goes to its month.
+  const find = createFind({ items, query, now: clock, onOpen: item => {
+    if (view() !== "calendar") { if (item.kind === "task") editTask(item); else openEditor(item); return; }
+    const at = item.kind === "event" ? item.start : item.availableFrom ?? item.deadline ?? item.completedAt;
+    const date = at ? new Date(at) : null;
+    if (date && !Number.isNaN(date.getTime())) setCalendarMonth(zonedDate(partsOf(date).year, partsOf(date).month, 1));
+    openEditor(item);
+  } });
   const openEditor = (item: Task | CalendarEvent | null = null, kind?: "task" | "event", date?: Date) => { editorParents.length = 0; setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() }); };
   // In the Android app: notifications for tasks reaching their can-start time and before events,
   // rescheduled (in real time, not pretend time) whenever the calendar or these settings change
@@ -360,6 +369,7 @@ export function App() {
         <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = ""; }} />
         <WorkspaceShell notice={prefs.showTimeControl() || prefs.timeOffset() ? <TimeControl now={clock()} pretending={!!prefs.timeOffset()} onSet={pretend} onStep={ms => pretend(new Date(appNow().getTime() + ms))} onReset={() => pretend(null)} /> : undefined}
           view={view()} openCount={openCount()} query={query()} onQuery={setQuery}
+          searchResults={prefs.findSearch() ? find.view : undefined} onSearchKeyDown={prefs.findSearch() ? find.onKeyDown : undefined} onSearchFocus={find.reopen} searchExpanded={find.open()}
           onNavigate={(next) => { navigate(next); window.scrollTo({top: 0, behavior: "instant"}); }}
           onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
           onSettings={() => { setSettingsTab("data"); openSettings(); }}
@@ -407,6 +417,7 @@ export function App() {
               <section class="appearance-settings" aria-label="Display">
                 <label class="animation-setting"><span><strong>Show board on rows</strong><small>A task's board name at the right of its row.</small></span><input aria-label="Show board on rows" type="checkbox" role="switch" checked={prefs.showBoard()} onChange={event => prefs.setShowBoard(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Show tags on rows</strong><small>A task's tags beside its other details.</small></span><input aria-label="Show tags on rows" type="checkbox" role="switch" checked={prefs.showTags()} onChange={event => prefs.setShowTags(event.currentTarget.checked)} /></label>
+                <label class="animation-setting"><span><strong>Search everything</strong><small>Searching lists every matching task and event, past ones and done ones included, under the search field; picking one opens it. Off, search only narrows what the view shows.</small></span><input aria-label="Search everything" type="checkbox" role="switch" checked={prefs.findSearch()} onChange={event => prefs.setFindSearch(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Pretend time</strong><small>A clock in the top bar that makes the app act as if it's another moment. Turning this off goes back to real time.</small></span><input aria-label="Pretend time" type="checkbox" role="switch" checked={prefs.showTimeControl()} onChange={event => { prefs.setShowTimeControl(event.currentTarget.checked); if (!event.currentTarget.checked) pretend(null); }} /></label>
               </section>
             </Show>

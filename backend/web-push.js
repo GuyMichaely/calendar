@@ -61,20 +61,28 @@ export function createWebPush(vapid) {
   }
   return {
     /** Sends `payload` (an object, sent as JSON) to a browser's push subscription ({ endpoint, keys: { p256dh, auth } }, as PushSubscription.toJSON() gives).
-     * Resolves to "sent", or "gone" when the subscription no longer exists. */
+     * Resolves to "sent", "gone" when the subscription no longer exists, or "retry" when the push
+     * service is busy, down, or can't be reached; throws when it refuses the message itself. */
     async send(subscription, payload, { ttl = 3600, urgency = "high", topic } = {}) {
       const body = await encrypt(subscription.keys, encoder.encode(JSON.stringify(payload)));
-      const response = await fetch(subscription.endpoint, {
-        method: "POST",
-        headers: {
-          authorization: `vapid t=${await token(new URL(subscription.endpoint).origin)}, k=${vapid.publicKey}`,
-          "content-encoding": "aes128gcm", "content-type": "application/octet-stream",
-          ttl: String(ttl), urgency, ...(topic ? { topic } : {}),
-        },
-        body,
-      });
+      const authorization = `vapid t=${await token(new URL(subscription.endpoint).origin)}, k=${vapid.publicKey}`;
+      let response;
+      try {
+        response = await fetch(subscription.endpoint, {
+          method: "POST",
+          headers: {
+            authorization,
+            "content-encoding": "aes128gcm", "content-type": "application/octet-stream",
+            ttl: String(ttl), urgency, ...(topic ? { topic } : {}),
+          },
+          body,
+        });
+      } catch {
+        return "retry";
+      }
       if (response.ok) return "sent";
       if (response.status === 404 || response.status === 410) return "gone";
+      if (response.status === 429 || response.status >= 500) return "retry";
       throw new Error(`The push service refused a message (${response.status}): ${(await response.text()).slice(0, 200)}`);
     },
   };

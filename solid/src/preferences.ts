@@ -33,6 +33,8 @@ export function createPreferences() {
   // Pretend time: milliseconds added to the real clock (0 = real time). Its clock in the top bar is
   // hidden unless Settings → Display turns it on (or time is being pretended).
   const [showTimeControl, setShowTimeControl] = flag("calendar.showTimeControl");
+  // Settings → Display: search lists every matching task and event under the field (off: it only filters the view).
+  const [findSearch, setFindSearch] = flag("calendar.search.find");
   const [timeOffset, setTimeOffset] = stored("calendar.timeOffset", raw => Number(raw) || 0, value => value ? String(value) : null);
   return {
     compact, setCompact,
@@ -47,5 +49,6 @@ export function createPreferences() {
     subtaskMode, setSubtaskMode,
     showTimeControl, setShowTimeControl,
     timeOffset, setTimeOffset,
+    findSearch, setFindSearch,
   };
 }
