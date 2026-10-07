@@ -70,6 +70,6 @@ test("only a dormant dependent task keeps its relative dates", () => {
 
 test("an event with one end lasts an hour and keeps its creation time", () => {
   const previous: CalendarEvent = { id: "e", kind: "event", title: "Old", createdAt: at, updatedAt: at };
-  const event = eventFromDraft({ title: "Trip", notes: "", tags: [], attachments: [], start: "2026-10-01T09:00:00.000Z", end: null }, { id: "e", previous, now });
+  const event = eventFromDraft({ title: "Trip", notes: "", tags: [], attachments: [], start: "2026-10-01T09:00:00.000Z", end: null, reminderMinutes: 30 }, { id: "e", previous, now });
   expect(event).toMatchObject({ title: "Trip", end: "2026-10-01T10:00:00.000Z", createdAt: at, updatedAt: now.toISOString() });
 });

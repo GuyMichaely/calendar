@@ -82,6 +82,7 @@ export type EventDraft = {
   attachments: Attachment[];
   start: string | null;
   end: string | null;
+  reminderMinutes: number | null;
 };
 
 type DraftContext = {
@@ -157,6 +158,7 @@ export function eventFromDraft(draft: EventDraft, { id, previous, now }: DraftCo
     attachments: draft.attachments,
     start,
     end,
+    reminderMinutes: draft.reminderMinutes,
     createdAt: previous?.createdAt || at,
     updatedAt: at,
   };

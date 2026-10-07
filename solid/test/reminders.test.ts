@@ -9,9 +9,9 @@ const at = "2026-09-01T00:00:00.000Z";
 const now = zonedDate(2026, 10, 6, 14, 20);
 const local = (day: number, hours: number, minutes = 0) => zonedDate(2026, 10, day, hours, minutes);
 const task = (id: string, extra: Partial<Task> = {}): Task => ({ id, kind: "task", title: id, state: "open", createdAt: at, updatedAt: at, ...extra });
-const event = (id: string, start: Date): CalendarEvent => ({ id, kind: "event", title: id, start: start.toISOString(), end: new Date(start.getTime() + 3_600_000).toISOString(), createdAt: at, updatedAt: at });
+const event = (id: string, start: Date, reminderMinutes: number | null = 30): CalendarEvent => ({ id, kind: "event", title: id, start: start.toISOString(), end: new Date(start.getTime() + 3_600_000).toISOString(), reminderMinutes, createdAt: at, updatedAt: at });
 const evening: TimeWindow = { id: "evening", kind: "window", title: "Evening", days: [0, 1, 2, 3, 4, 5, 6], start: "18:00", end: "22:00", createdAt: at, updatedAt: at };
-const on = { taskStarts: true, eventMinutes: 30 };
+const on = { taskStarts: true, events: true };
 const when = (items: Item[], settings = on) => upcomingReminders(items, now, settings).map(reminder => [reminder.itemId, partsOf(reminder.at).day, partsOf(reminder.at).hour, partsOf(reminder.at).minute]);
 
 test("a task reminds when it can start, at its window's first opening from then", () => {
@@ -25,11 +25,12 @@ test("a task that could already start doesn't remind as its window reopens, nor 
   expect(when([task("parent"), task("next", { dependentOf: "parent", availableFrom: local(8, 9).toISOString() })])).toEqual([]);
 });
 
-test("an event reminds the chosen time ahead, or not at all", () => {
-  expect(when([event("doctor", local(8, 13))])).toEqual([["doctor", 8, 12, 30]]);
+test("an event reminds as far ahead as its own reminder says, or not at all", () => {
+  expect(when([event("doctor", local(8, 13)), event("dentist", local(8, 15), 60)])).toEqual([["doctor", 8, 12, 30], ["dentist", 8, 14, 0]]);
   expect(when([event("soon", local(6, 14, 40))])).toEqual([]);
-  expect(when([event("doctor", local(8, 13))], { taskStarts: true, eventMinutes: null })).toEqual([]);
-  expect(upcomingReminders([event("doctor", local(8, 13))], now, { taskStarts: false, eventMinutes: 0 })[0]).toMatchObject({ body: "Starting now", channel: "events" });
+  expect(when([event("quiet", local(8, 13), null)])).toEqual([]);
+  expect(when([event("doctor", local(8, 13))], { taskStarts: true, events: false })).toEqual([]);
+  expect(upcomingReminders([event("doctor", local(8, 13), 0)], now, { taskStarts: false, events: true })[0]).toMatchObject({ body: "Starting now", channel: "events" });
 });
 
 test("reminders are soonest first, within the coming days, and keep their ids", () => {

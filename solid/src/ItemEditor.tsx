@@ -12,7 +12,8 @@ import { attachmentMarkdown } from "./markdown";
 import { DialogShell } from "./DialogShell";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
 import { eventFromDraft, taskFromDraft, type TaskDraft } from "./item-changes";
-import type { Attachment, CalendarEvent, Item, Repeat, Task, TimeWindow } from "./types";
+import { reminderChoices } from "./reminders";
+import type { Attachment, CalendarEvent, CalendarSettings, Item, Repeat, Task, TimeWindow } from "./types";
 
 export type EditorRequest = {
   item: Task | CalendarEvent | null;
@@ -37,13 +38,14 @@ function parseTags(value: FormDataEntryValue | null) {
 
 const HOUR = 60 * 60 * 1000;
 
-// A new event lasts an hour.
-function eventDefaults(request: EditorRequest) {
+// A new event lasts an hour, and reminds as the calendar's settings say new events do.
+function eventDefaults(request: EditorRequest, items: Item[]) {
   const existing = request.item?.kind === "event" ? request.item : null;
-  if (existing) return { start: isoToLocalInput(existing.start), end: isoToLocalInput(existing.end) };
+  if (existing) return { start: isoToLocalInput(existing.start), end: isoToLocalInput(existing.end), reminderMinutes: existing.reminderMinutes ?? null };
 
   const start = request.date ? atTime(request.date, "09:00") : new Date();
-  return { start: isoToLocalInput(start), end: isoToLocalInput(new Date(start.getTime() + HOUR)) };
+  const settings = items.find((item): item is CalendarSettings => item.kind === "settings");
+  return { start: isoToLocalInput(start), end: isoToLocalInput(new Date(start.getTime() + HOUR)), reminderMinutes: settings?.eventReminderMinutes ?? null };
 }
 
 function serializeForm(form: HTMLFormElement, files: File[], removed: Set<string>) {
@@ -113,7 +115,7 @@ export function ItemEditor(props: {
   const [dateModes, setDateModes] = createSignal(Object.fromEntries(RELATIVE_DATE_FIELDS.map(field => [field, task?.relativeDates?.[field] != null ? "after" : "date"])) as Record<RelativeDateField, "date" | "after">);
   const now = () => props.now ?? new Date();
   const initialPush = task ? pushedDownInfo(task, now()) : null;
-  const defaults = eventDefaults(props.request);
+  const defaults = eventDefaults(props.request, props.items);
   const [kind, setKind] = createSignal<"task" | "event">(props.request.kind);
   // A window's id, or "" for any time.
   const [windowChoice, setWindowChoice] = createSignal(task?.windowId || "");
@@ -308,7 +310,7 @@ export function ItemEditor(props: {
       }, { ...context, parentId: props.request.parentId, dormant: dormant() });
     } else {
       if (!eventStart() && !eventEnd()) { setSaveError("Choose when the event starts."); return false; }
-      item = eventFromDraft({ ...shared, start: localInputToIso(eventStart()), end: localInputToIso(eventEnd()) }, context);
+      item = eventFromDraft({ ...shared, start: localInputToIso(eventStart()), end: localInputToIso(eventEnd()), reminderMinutes: data.get("reminderMinutes") === "off" ? null : Number(data.get("reminderMinutes")) }, context);
     }
 
     try {
@@ -543,6 +545,9 @@ export function ItemEditor(props: {
           <div class="form-grid">
             <div class="field"><span>Starts</span><DateTimeField name="eventStart" label="Starts" value={eventStart()} onChange={value => { deriveEnd(value); syncDirty(); }} /></div>
             <div class="field"><span>Ends</span><DateTimeField name="eventEnd" label="Ends" value={eventEnd()} onChange={value => { deriveStart(value); syncDirty(); }} /></div>
+            <label class="field"><span>Reminder</span><select name="reminderMinutes" onChange={syncDirty}>
+              <option value="off">None</option><For each={reminderChoices}>{([minutes, label]) => <option value={minutes} selected={minutes === defaults.reminderMinutes}>{label}</option>}</For>
+            </select></label>
           </div>
         }>
           <div>

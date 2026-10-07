@@ -54,9 +54,9 @@ try {
 
   // A phone registers, and reads its reminders: the second device's task, when it can start tomorrow.
   assert.equal((await fetch(endpoint + "/sync/devices", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: "test-device" }) })).status, 204);
-  const reminders = await (await fetch(endpoint + "/sync/reminders?taskStarts=1&eventMinutes=30")).json();
+  const reminders = await (await fetch(endpoint + "/sync/reminders?taskStarts=1&events=1")).json();
   assert.deepEqual(reminders.map(reminder => [reminder.itemId, reminder.channel, reminder.title]), [["b", "starts", "Second device"]]);
-  assert.deepEqual(await (await fetch(endpoint + "/sync/reminders?taskStarts=0&eventMinutes=off")).json(), []);
+  assert.deepEqual(await (await fetch(endpoint + "/sync/reminders?taskStarts=0&events=0")).json(), []);
   assert.equal((await fetch(endpoint + "/sync/devices", { method: "PUT", body: "{}" })).status, 400);
 
   const file = { "content-type": "text/plain" };

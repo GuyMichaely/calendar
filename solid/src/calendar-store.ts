@@ -171,9 +171,13 @@ export function createCalendarStore(options: { onChanged: () => void }) {
     /** The calendar's settings, set up once (not an edit, so not undoable). */
     createSettings: (timeZone: string) => {
       const at = new Date().toISOString();
-      const settings: CalendarSettings = { id: SETTINGS_ID, kind: "settings", title: "Settings", timeZone, createdAt: at, updatedAt: at };
+      const settings: CalendarSettings = { id: SETTINGS_ID, kind: "settings", title: "Settings", timeZone, eventReminderMinutes: 30, createdAt: at, updatedAt: at };
       return change(() => putItemWithoutUndo(settings));
     },
+    /** What new events' reminders start as (minutes before; null: none). */
+    changeEventReminderDefault: (settings: CalendarSettings, minutes: number | null) => batch("Change new events' reminder", async () => {
+      await putItem(patchedItem(settings, { eventReminderMinutes: minutes }, new Date()), settings);
+    }),
     /**
      * A new calendar time zone. With `keepClock`, task and event dates move so they read the
      * same clock time in the new zone (9 AM stays 9 AM); otherwise they stay the same moments.

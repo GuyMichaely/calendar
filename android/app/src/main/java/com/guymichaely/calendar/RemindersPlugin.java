@@ -68,7 +68,7 @@ public class RemindersPlugin extends Plugin {
         call.resolve(access());
     }
 
-    /** { reminders: [{ id, at, title, body, itemId, channel }], settings: { taskStarts, eventMinutes } } */
+    /** { reminders: [{ id, at, title, body, itemId, channel }], settings: { taskStarts, events } } */
     @PluginMethod
     public void set(PluginCall call) {
         JSArray reminders = call.getArray("reminders", new JSArray());

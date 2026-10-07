@@ -24,13 +24,11 @@ export function createPreferences() {
   const [showBoard, setShowBoard] = shown("calendar.rows.showBoard");
   const [showTags, setShowTags] = shown("calendar.rows.showTags");
   const [pullTimed, setPullTimed] = flag("calendar.boards.pullTimed");
-  // Settings → Notifications (the Android app): whether this phone notifies at all (on unless turned
-  // off); when tasks can start (on unless turned off), and this many minutes before events (30
-  // unless set; null: no event reminders).
+  // Settings → Notifications (the Android app): whether this phone notifies at all, when tasks can
+  // start, and for events' reminders (each on unless turned off).
   const [notify, setNotify] = shown("calendar.notify");
   const [notifyTaskStarts, setNotifyTaskStarts] = shown("calendar.notify.taskStarts");
-  const [eventReminderMinutes, setEventReminderMinutes] = stored<number | null>("calendar.notify.eventMinutes",
-    raw => raw === "off" ? null : raw !== null && Number.isFinite(Number(raw)) ? Number(raw) : 30, value => value === null ? "off" : String(value));
+  const [notifyEvents, setNotifyEvents] = shown("calendar.notify.events");
   const [subtaskMode, setSubtaskMode] = choice("calendar.today.subtasks", ["context", "nested"] as const);
   // Pretend time: milliseconds added to the real clock (0 = real time). Its clock in the top bar is
   // hidden unless Settings → Display turns it on (or time is being pretended).
@@ -45,7 +43,7 @@ export function createPreferences() {
     pullTimed, setPullTimed,
     notify, setNotify,
     notifyTaskStarts, setNotifyTaskStarts,
-    eventReminderMinutes, setEventReminderMinutes,
+    notifyEvents, setNotifyEvents,
     subtaskMode, setSubtaskMode,
     showTimeControl, setShowTimeControl,
     timeOffset, setTimeOffset,

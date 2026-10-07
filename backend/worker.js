@@ -8,7 +8,7 @@
 //   GET  /sync/live               a WebSocket that's sent { heads } whenever the calendar changes
 //   *    /sync/attachments/:id    attachment bytes, stored in R2 (backend/sync/attachments-http.js)
 //   PUT/DELETE /sync/devices       { token }: a phone's FCM token, to tell it when reminders change
-//   GET  /sync/reminders?taskStarts=1&eventMinutes=30
+//   GET  /sync/reminders?taskStarts=1&events=1
 //                                  that phone's coming reminders, worked out here (solid/src/reminders.ts)
 //
 // After the calendar changes (30 seconds after, so a burst of edits sends one message), each phone is
@@ -125,8 +125,7 @@ export class CalendarStore extends DurableObject {
     if (url.pathname === "/sync/devices") return this.devices(request);
     if (url.pathname === "/sync/reminders") {
       if (request.method !== "GET") return new Response("Method not allowed", { status: 405, headers: { allow: "GET" } });
-      const minutes = url.searchParams.get("eventMinutes");
-      const settings = { taskStarts: url.searchParams.get("taskStarts") === "1", eventMinutes: minutes === null || minutes === "off" || !Number.isFinite(Number(minutes)) ? null : Number(minutes) };
+      const settings = { taskStarts: url.searchParams.get("taskStarts") === "1", events: url.searchParams.get("events") === "1" };
       return Response.json(this.reminders(settings), { headers: { "cache-control": "no-store" } });
     }
     // One request at a time: awaited R2 calls mustn't let another read-merge-write interleave.

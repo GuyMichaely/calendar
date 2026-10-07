@@ -39,9 +39,9 @@ const TASK_ITEM_FIELDS = new Set([
   "pushedDown", "windowId", "warnHours", "completedSubtasks", "repeat", "startWhen", "stopParent",
 ]);
 const GROUP_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "sortOrder", "builtin", "layoutColumn", "layoutRow"]);
-const EVENT_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end"]);
+const EVENT_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end", "reminderMinutes"]);
 const WINDOW_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "days", "start", "end"]);
-const SETTINGS_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "timeZone"]);
+const SETTINGS_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "timeZone", "eventReminderMinutes"]);
 const SPECIAL_DELTA_FIELDS = new Set([
   "id", "title", "notes", "tags", "attachments", "history", "deletedAt",
 ]);

@@ -15,7 +15,9 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -35,7 +37,7 @@ final class Reminders {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    /** What this phone reminds about ({ taskStarts, eventMinutes }), as Settings → Notifications has it. */
+    /** What this phone reminds about ({ taskStarts, events }), as Settings → Notifications has it. */
     static void saveSettings(Context context, String settings) {
         prefs(context).edit().putString("settings", settings).apply();
     }
@@ -109,10 +111,15 @@ final class Reminders {
     static void refresh(Context context) {
         try {
             JSONObject settings = new JSONObject(prefs(context).getString("settings", "{}"));
-            if (!settings.has("taskStarts")) return;
-            Object minutes = settings.opt("eventMinutes");
-            String query = "?taskStarts=" + (settings.optBoolean("taskStarts") ? "1" : "0")
-                + "&eventMinutes=" + (minutes instanceof Number ? String.valueOf(((Number) minutes).intValue()) : "off");
+            if (settings.length() == 0) return;
+            // The settings as they are (true/false as 1/0), so what they hold can change without the app.
+            StringBuilder query = new StringBuilder();
+            for (Iterator<String> keys = settings.keys(); keys.hasNext(); ) {
+                String key = keys.next();
+                Object value = settings.get(key);
+                query.append(query.length() == 0 ? "?" : "&").append(URLEncoder.encode(key, "UTF-8")).append('=')
+                    .append(value instanceof Boolean ? ((Boolean) value ? "1" : "0") : URLEncoder.encode(String.valueOf(value), "UTF-8"));
+            }
             HttpURLConnection connection = open("/sync/reminders" + query, "GET");
             if (connection.getResponseCode() != 200) {
                 Log.w(TAG, "Reminders request answered " + connection.getResponseCode());

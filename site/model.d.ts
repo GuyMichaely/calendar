@@ -65,6 +65,8 @@ export type CalendarEvent = BaseItem & {
   kind: "event";
   start?: string | null;
   end?: string | null;
+  // Notifies this many minutes before it starts (0: as it starts); unset or null: no reminder.
+  reminderMinutes?: number | null;
 };
 
 // A board. Built-in boards (Firm, Available, …) are stored as groups with a `builtin` key only to remember their place.
@@ -109,6 +111,8 @@ export type CalendarSettings = BaseItem & {
   kind: "settings";
   // The calendar's time zone (IANA name): clock times and days are read in it.
   timeZone: string;
+  // What a new event's reminder starts as (minutes before; unset or null: none).
+  eventReminderMinutes?: number | null;
 };
 
 export type Item = Task | CalendarEvent | Group | TimeWindow | CalendarSettings;
