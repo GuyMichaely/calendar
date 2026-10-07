@@ -19,7 +19,7 @@
   "dependencies": {
     "@automerge/automerge": "3.4.1",
     "@capacitor/core": "8.5.2",
-    "@guymichaely/app-sync": "0.2.0",
+    "@guymichaely/app-sync": "0.2.1",
     "@tiptap/core": "3.31.3",
     "@tiptap/extension-table": "3.31.3",
     "@tiptap/markdown": "3.31.3",
