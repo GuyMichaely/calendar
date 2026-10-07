@@ -141,10 +141,15 @@ export class CalendarStore extends DurableObject {
   }
 }
 
+// Back to the app from signing in, by a page rather than a redirect: the Android app loads pages
+// itself (Capacitor, to add its bridge) and follows redirects without telling the WebView, which
+// then stays here and never sees the #sync-signed-in that turns sync on.
+const signedIn = `<!doctype html><meta charset="utf-8"><title>Signed in</title><script>location.replace("/#sync-signed-in")</script>`;
+
 export default {
   fetch(request, env) {
     const { pathname } = new URL(request.url);
-    if (pathname === "/sync/signin") return new Response(null, { status: 302, headers: { location: "/#sync-signed-in" } });
+    if (pathname === "/sync/signin") return new Response(signedIn, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     if (pathname === "/sync" || pathname.startsWith("/sync/")) return env.CALENDAR.get(env.CALENDAR.idFromName("primary")).fetch(request);
     return env.ASSETS.fetch(request);
   },

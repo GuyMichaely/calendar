@@ -29,8 +29,8 @@ try {
   assert.ok(ready, "Worker did not start; see " + directory + "/runtime.log");
   assert.match(await (await fetch(endpoint + "/")).text(), /<div id="app">/u);
   const signin = await fetch(endpoint + "/sync/signin", { redirect: "manual" });
-  assert.equal(signin.status, 302);
-  assert.equal(signin.headers.get("location"), "/#sync-signed-in");
+  assert.equal(signin.status, 200);
+  assert.match(await signin.text(), /location\.replace\("\/#sync-signed-in"\)/u);
 
   const live = new WebSocket(endpoint.replace("http", "ws") + "/sync/live");
   const heard = [];
