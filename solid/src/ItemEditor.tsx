@@ -599,19 +599,19 @@ export function ItemEditor(props: {
 
         <div class="form-grid reminders-grid">
           <Show when={kind() !== "task"}>
-            <label class="field"><span>Remind before it starts</span><select name="reminderMinutes" onChange={event => { setBeforeChoice(event.currentTarget.value); syncDirty(); }}>
+            <label class="field"><span>Notify before it starts</span><select name="reminderMinutes" onChange={event => { setBeforeChoice(event.currentTarget.value); syncDirty(); }}>
               <option value="off" selected={beforeChoice() === "off"}>No</option>
               <For each={reminderChoices}>{([minutes, label]) => <option value={minutes} selected={beforeChoice() === String(minutes)}>{label}</option>}</For>
               <option value="custom" selected={beforeChoice() === "custom"}>Some minutes before…</option>
             </select></label>
             <Show when={beforeChoice() === "custom"}><label class="field"><span>Minutes before</span><input name="reminderCustom" type="number" min="0" step="1" value={defaults.reminderMinutes ?? 45} onInput={syncDirty} /></label></Show>
           </Show>
-          <div class="field full-span remind-at-field"><span>Remind me at</span>
+          <div class="field full-span remind-at-field"><span>Notify me at</span>
             <Index each={remindAts()}>{(value, index) => <div class="remind-at">
-              <DateTimeField name="remindAt" label={`Reminder ${index + 1}`} value={value()} onChange={next => { setRemindAts(list => list.map((entry, at) => at === index ? next : entry)); syncDirty(); }} />
-              <button type="button" class="icon-button" aria-label={`Remove reminder ${index + 1}`} onClick={() => { setRemindAts(list => list.filter((_, at) => at !== index)); queueMicrotask(syncDirty); }}>×</button>
+              <DateTimeField name="remindAt" label={`Notification ${index + 1}`} value={value()} onChange={next => { setRemindAts(list => list.map((entry, at) => at === index ? next : entry)); syncDirty(); }} />
+              <button type="button" class="icon-button" aria-label={`Remove notification ${index + 1}`} onClick={() => { setRemindAts(list => list.filter((_, at) => at !== index)); queueMicrotask(syncDirty); }}>×</button>
             </div>}</Index>
-            <button type="button" class="text-button remind-add" onClick={() => setRemindAts(list => [...list, ""])}>+ Add a reminder</button>
+            <button type="button" class="text-button remind-add" onClick={() => setRemindAts(list => [...list, ""])}>+ Add a notification</button>
           </div>
         </div>
 

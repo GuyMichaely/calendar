@@ -438,10 +438,10 @@ export function App() {
               <section class="appearance-settings" aria-label="Notifications">
                 <Show when={!inApp}>
                   <Show when={webPushSupported} fallback={<p class="field-hint">This browser can't show notifications.</p>}>
-                    <label class="animation-setting"><span><strong>Notifications</strong><small>Whether this browser notifies you, even with no tab open (while the browser itself runs). Reminders come from the calendar's server, so this needs syncing on (Settings → Data).</small></span><input aria-label="Notifications" type="checkbox" role="switch" disabled={!webPushOn() && syncStatus().state === "local"} checked={webPushOn()} onChange={event => { const box = event.currentTarget; void switchWebPush(box.checked).then(() => { box.checked = webPushOn(); }); }} /></label>
+                    <label class="animation-setting"><span><strong>Notifications</strong><small>Whether this browser notifies you, even with no tab open (while the browser itself runs). They come from the calendar's server, so this needs syncing on (Settings → Data).</small></span><input aria-label="Notifications" type="checkbox" role="switch" disabled={!webPushOn() && syncStatus().state === "local"} checked={webPushOn()} onChange={event => { const box = event.currentTarget; void switchWebPush(box.checked).then(() => { box.checked = webPushOn(); }); }} /></label>
                     <Show when={webPushError()}><p class="solid-menu-error">{webPushError()}</p></Show>
                     <label class="animation-setting"><span><strong>Tasks you can start</strong><small>When a task reaches its can-start time (in a window, when the window opens then).</small></span><input aria-label="Tasks you can start" type="checkbox" role="switch" disabled={!webPushOn()} checked={prefs.notifyTaskStarts()} onChange={event => prefs.setNotifyTaskStarts(event.currentTarget.checked)} /></label>
-                    <label class="animation-setting"><span><strong>Reminders</strong><small>The ones in each item's editor: before an event or record starts, and at the moments you set.</small></span><input aria-label="Reminders" type="checkbox" role="switch" disabled={!webPushOn()} checked={prefs.notifyEvents()} onChange={event => prefs.setNotifyEvents(event.currentTarget.checked)} /></label>
+                    <label class="animation-setting"><span><strong>Notifications you set</strong><small>The ones in each item's editor: before an event or record starts, and at the times you pick.</small></span><input aria-label="Notifications you set" type="checkbox" role="switch" disabled={!webPushOn()} checked={prefs.notifyEvents()} onChange={event => prefs.setNotifyEvents(event.currentTarget.checked)} /></label>
                     <p class="field-hint">For this browser.</p>
                   </Show>
                 </Show>
@@ -449,13 +449,13 @@ export function App() {
                   <Show when={prefs.notify() && notifyAccess() === "denied"}><p class="solid-menu-error">Notifications are off for this app in Android's settings, so none go off.</p></Show>
                   <label class="animation-setting"><span><strong>Notifications</strong><small>Whether this phone notifies you at all.</small></span><input aria-label="Notifications" type="checkbox" role="switch" checked={prefs.notify()} onChange={event => prefs.setNotify(event.currentTarget.checked)} /></label>
                   <label class="animation-setting"><span><strong>Tasks you can start</strong><small>When a task reaches its can-start time (in a window, when the window opens then).</small></span><input aria-label="Tasks you can start" type="checkbox" role="switch" disabled={!prefs.notify()} checked={prefs.notifyTaskStarts()} onChange={event => prefs.setNotifyTaskStarts(event.currentTarget.checked)} /></label>
-                  <label class="animation-setting"><span><strong>Reminders</strong><small>The ones in each item's editor: before an event or record starts, and at the moments you set.</small></span><input aria-label="Reminders" type="checkbox" role="switch" disabled={!prefs.notify()} checked={prefs.notifyEvents()} onChange={event => prefs.setNotifyEvents(event.currentTarget.checked)} /></label>
+                  <label class="animation-setting"><span><strong>Notifications you set</strong><small>The ones in each item's editor: before an event or record starts, and at the times you pick.</small></span><input aria-label="Notifications you set" type="checkbox" role="switch" disabled={!prefs.notify()} checked={prefs.notifyEvents()} onChange={event => prefs.setNotifyEvents(event.currentTarget.checked)} /></label>
                   <p class="field-hint">For this phone. Each kind has its own channel in Android's notification settings.</p>
                 </Show>
-                <label class="field"><span>New events remind you</span><select disabled={!settings()} onChange={event => { const minutes = event.currentTarget.value === "off" ? null : Number(event.currentTarget.value); void attempt(() => store.changeEventReminderDefault(settings()!, minutes), "Could not change new events' reminder."); }}>
+                <label class="field"><span>New events notify you</span><select disabled={!settings()} onChange={event => { const minutes = event.currentTarget.value === "off" ? null : Number(event.currentTarget.value); void attempt(() => store.changeEventReminderDefault(settings()!, minutes), "Could not change new events' reminder."); }}>
                   <option value="off">Not at all</option><For each={reminderChoices}>{([minutes, label]) => <option value={minutes} selected={minutes === settings()?.eventReminderMinutes}>{label}</option>}</For>
                 </select></label>
-                <p class="field-hint">What a new event's reminder starts as, on every device; each event can change its own.</p>
+                <p class="field-hint">How long before it starts a new event notifies you, on every device; each event can change its own.</p>
               </section>
             </Show>
             <Show when={settingsTab() === "animations"}>
@@ -491,7 +491,7 @@ export function App() {
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>
                 <div class="solid-menu-divider" />
                 <h3>Sample data</h3>
-                <p class="field-hint">Something of everything, to try things on: tasks in every section (subtasks, dependent tasks, repeats, windows, push-down), events, records, and reminders, on their own boards. Removing deletes every sample item; both can be undone.</p>
+                <p class="field-hint">Something of everything, to try things on: tasks in every section (subtasks, dependent tasks, repeats, windows, push-down), events, records, and notifications, on their own boards. Removing deletes every sample item; both can be undone.</p>
                 <button class="text-button" disabled={items().some(item => item.id.startsWith(SAMPLE_PREFIX))} onClick={() => void attempt(() => store.importBackup(JSON.stringify({ items: sampleItems() })), "Could not add the sample data.", "Added the sample data")}>Add sample data</button>
                 <button class="text-button" disabled={!items().some(item => item.id.startsWith(SAMPLE_PREFIX))} onClick={() => void attempt(() => store.removeByPrefix(SAMPLE_PREFIX, "Remove sample data"), "Could not remove the sample data.", "Removed the sample data")}>Remove sample data</button>
               </section>

@@ -8,7 +8,7 @@ export const SAMPLE_PREFIX = "sample-";
  * Sample data for trying the calendar: something in every List section and every Agenda
  * kind of row, on boards and off, with each kind of timing (can start, due, windows,
  * repeats, check-ins, push-down), subtasks a few ways (to compare Keep together with
- * Spread out), dependent tasks, events and records, and reminders. Times are relative to
+ * Spread out), dependent tasks, events and records, and notifications. Times are relative to
  * now, so it can be added whenever. Notes on some say what they show.
  */
 export function sampleItems(now = new Date()): Item[] {
@@ -42,7 +42,7 @@ export function sampleItems(now = new Date()): Item[] {
 
     // Deadline: overdue, due tonight, and due tonight through a container.
     task("registration", "Renew car registration", { groupId: id("home"), deadline: day(-1, "17:00"), tags: ["car"] }),
-    task("phone", "Pay phone bill", { groupId: id("finances"), deadline: day(0, "23:00"), remindAt: [hours(1)], notes: "Has a reminder of its own, an hour after the samples were added." }),
+    task("phone", "Pay phone bill", { groupId: id("finances"), deadline: day(0, "23:00"), remindAt: [hours(1)], notes: "Has a notification of its own, an hour after the samples were added." }),
     task("house", "Clean the house", { groupId: id("home"), deadline: day(0, "23:30"), notes: "Due tonight, so its rooms are too: both show under Deadline. Checking this off finishes both." }),
     task("room", "Clean my room", { parentId: id("house") }),
     task("kitchen", "Clean the kitchen", { parentId: id("house") }),
@@ -95,7 +95,7 @@ export function sampleItems(now = new Date()): Item[] {
 
     // Events: earlier today (past), later today (with its reminder), tomorrow, and later this week.
     event("standup", "Morning standup", day(0, "09:00"), day(0, "09:15"), { reminderMinutes: null, tags: ["work"] }),
-    event("doctor", "Doctor's appointment", hours(3), hours(4), { notes: "Reminds 30 minutes before it starts. Leaves List once it starts." }),
+    event("doctor", "Doctor's appointment", hours(3), hours(4), { notes: "Notifies you 30 minutes before it starts. Leaves List once it starts." }),
     event("lunch", "Lunch with Sam", day(1, "12:30"), day(1, "13:30"), { reminderMinutes: 60 }),
     event("concert", "Concert", day(4, "20:00"), day(4, "22:30"), { reminderMinutes: 120, remindAt: [day(3, "18:00")] }),
 

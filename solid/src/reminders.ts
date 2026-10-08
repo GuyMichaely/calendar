@@ -63,7 +63,7 @@ export function upcomingReminders(items: Item[], now: Date, settings: ReminderSe
         const at = new Date(time);
         if (Number.isNaN(at.getTime()) || !due(at)) continue;
         const deadline = item.kind === "task" && item.deadline ? new Date(item.deadline) : null;
-        const body = start ? `Starts ${dateTimeText(start, at)}` : deadline && !Number.isNaN(deadline.getTime()) ? `Due ${dateTimeText(deadline, at)}` : "Reminder";
+        const body = start ? `Starts ${dateTimeText(start, at)}` : deadline && !Number.isNaN(deadline.getTime()) ? `Due ${dateTimeText(deadline, at)}` : "";
         reminders.push({ id: reminderId(`at:${item.id}:${at.toISOString()}`), at, title: titleOf(item), body, itemId: item.id, kind: item.kind, channel: "events" });
       }
     }
