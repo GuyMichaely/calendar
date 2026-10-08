@@ -40,6 +40,7 @@ const TASK_ITEM_FIELDS = new Set([
 ]);
 const GROUP_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "sortOrder", "builtin", "layoutColumn", "layoutRow"]);
 const EVENT_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end", "reminderMinutes"]);
+const RECORD_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "start", "end"]);
 const WINDOW_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "days", "start", "end"]);
 const SETTINGS_ITEM_FIELDS = new Set([...COMMON_ITEM_FIELDS, "timeZone", "eventReminderMinutes", "deadlineDays"]);
 const SPECIAL_DELTA_FIELDS = new Set([
@@ -128,6 +129,7 @@ function isPlainObject(value) {
 export function allowedFieldsForKind(kind) {
   if (kind === "task") return TASK_ITEM_FIELDS;
   if (kind === "event") return EVENT_ITEM_FIELDS;
+  if (kind === "record") return RECORD_ITEM_FIELDS;
   if (kind === "group") return GROUP_ITEM_FIELDS;
   if (kind === "window") return WINDOW_ITEM_FIELDS;
   if (kind === "settings") return SETTINGS_ITEM_FIELDS;

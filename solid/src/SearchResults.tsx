@@ -1,11 +1,11 @@
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type JSX } from "solid-js";
 import { textMatches } from "../../site/domain.js";
 import { Icon } from "./Icon";
-import type { CalendarEvent, Item, Task } from "./types";
+import type { CalendarEvent, CalendarRecord, Item, Task } from "./types";
 import { placementOf } from "./today";
 import { when } from "./TodayView";
 
-type Found = Task | CalendarEvent;
+type Found = Task | CalendarEvent | CalendarRecord;
 type Result = { item: Found; at: Date | null; detail: string };
 
 const LIMIT = 30;
@@ -13,7 +13,7 @@ const time = (value?: string | null) => { const date = value ? new Date(value) :
 
 /** A task's or event's moment and what the results say about it, worded as List words it; `past` is whether it's behind you. */
 function describe(item: Found, items: Item[], now: Date): Result & { past: boolean } {
-  if (item.kind === "event") {
+  if (item.kind !== "task") {
     const start = time(item.start), end = time(item.end) ?? start;
     return { item, at: start, detail: start ? when(start, now) : "No date", past: !!end && end < now };
   }
@@ -47,7 +47,7 @@ export function createFind(props: { items: () => Item[]; query: () => string; no
     if (!query) return null;
     const now = props.now();
     const found = props.items()
-      .filter((item): item is Found => (item.kind === "task" || item.kind === "event") && textMatches(item, query))
+      .filter((item): item is Found => (item.kind === "task" || item.kind === "event" || item.kind === "record") && textMatches(item, query))
       .map(item => describe(item, props.items(), now));
     const ahead = found.filter(result => !result.past).sort((a, b) => (a.at?.getTime() ?? Infinity) - (b.at?.getTime() ?? Infinity));
     const behind = found.filter(result => result.past).sort((a, b) => (b.at?.getTime() ?? -Infinity) - (a.at?.getTime() ?? -Infinity));
@@ -76,8 +76,8 @@ export function createFind(props: { items: () => Item[]; query: () => string; no
 
   const row = (result: Result, index: number): JSX.Element => <li role="option" aria-selected={index === active()}>
     <button type="button" tabIndex={-1} class="search-result" classList={{ active: index === active() }} onPointerMove={() => setActive(index)} onClick={() => choose(result)}>
-      <Icon name={result.item.kind === "event" ? "calendar" : result.item.state === "completed" ? "done" : "check"} size={16} />
-      <span><strong>{result.item.title || (result.item.kind === "event" ? "Untitled event" : "Untitled task")}</strong><small>{result.detail}</small></span>
+      <Icon name={result.item.kind === "task" ? result.item.state === "completed" ? "done" : "check" : result.item.kind === "record" ? "list" : "calendar"} size={16} />
+      <span><strong>{result.item.title || (result.item.kind === "event" ? "Untitled event" : result.item.kind === "record" ? "Untitled record" : "Untitled task")}</strong><small>{result.detail}</small></span>
     </button>
   </li>;
 

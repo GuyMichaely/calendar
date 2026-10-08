@@ -54,7 +54,7 @@ export function TimeZoneSettings(props: {
   const zones = allTimeZones();
   const current = () => props.settings?.timeZone ?? calendarZone();
   const chosen = () => { const value = draft().trim(); return value && value !== current() && isTimeZone(value) ? value : null; };
-  const dated = createMemo(() => props.items.filter(item => item.kind === "task" ? !!(item.availableFrom || item.deadline || item.pushedDown?.until || item.repeat?.until) : item.kind === "event").length);
+  const dated = createMemo(() => props.items.filter(item => item.kind === "task" ? !!(item.availableFrom || item.deadline || item.pushedDown?.until || item.repeat?.until) : item.kind === "event" || item.kind === "record").length);
   const sample = () => zonedDate(partsOf(props.now).year, partsOf(props.now).month, partsOf(props.now).day, 9, 0);
   const apply = async (keepClock: boolean) => {
     const zone = chosen();

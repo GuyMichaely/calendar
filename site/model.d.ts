@@ -67,6 +67,14 @@ export type CalendarEvent = BaseItem & {
   reminderMinutes?: number | null;
 };
 
+// Something noted at a time, for the record (the bank asked for papers that day): on the
+// Calendar and found by search, but nothing to do, so not in the Agenda or List and no reminder.
+export type CalendarRecord = BaseItem & {
+  kind: "record";
+  start?: string | null;
+  end?: string | null;
+};
+
 // A board. Built-in boards (Firm, Available, …) are stored as groups with a `builtin` key only to remember their place.
 export type Group = BaseItem & {
   kind: "group";
@@ -115,4 +123,4 @@ export type CalendarSettings = BaseItem & {
   deadlineDays?: number | null;
 };
 
-export type Item = Task | CalendarEvent | Group | TimeWindow | CalendarSettings;
+export type Item = Task | CalendarEvent | CalendarRecord | Group | TimeWindow | CalendarSettings;

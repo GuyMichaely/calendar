@@ -199,7 +199,7 @@ export function createCalendarStore(options: { onChanged: () => void }) {
           if (item.repeat?.until) patch.repeat = { ...item.repeat, until: move(item.repeat.until)! };
           if (item.startWhen?.on === "not-yet" && item.startWhen.after) patch.startWhen = { on: "not-yet", after: move(item.startWhen.after)! };
           if (Object.keys(patch).length) await putItem(patchedItem(item, patch, now), item);
-        } else if (item.kind === "event" && (item.start || item.end)) {
+        } else if ((item.kind === "event" || item.kind === "record") && (item.start || item.end)) {
           await putItem(patchedItem(item, { start: move(item.start), end: move(item.end) } as Partial<CalendarEvent>, now), item);
         }
       }

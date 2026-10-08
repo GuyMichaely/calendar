@@ -1,6 +1,6 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Icon } from "./Icon";
-import { ancestors, buildSections, pushedDownInfo, SECTION_ORDER, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
+import { ancestors, buildSections, deadlineDaysOf, pushedDownInfo, SECTION_ORDER, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
 import { boardLayout, placeBoard, sameLayout, userBoards, type BoardLayout, type BoardTarget } from "./board-order";
 import { taskSchedule, windowsById } from "./windows";
 import { describeRepeat, lastCheckIn } from "./repeats";
@@ -8,7 +8,7 @@ import { describeRepeat, lastCheckIn } from "./repeats";
 import { textMatches } from "../../site/domain.js";
 import { addDays, clockText, daysBetween, formatIn, partsOf, sameDay, startOfDay } from "./zone";
 import { actionForKey, normalizeEventKey, type Shortcuts } from "./shortcut-config";
-import type { Group, Item, Task } from "./types";
+import type { CalendarEvent, Group, Item, Task } from "./types";
 import { BoardMenu } from "./BoardMenu";
 
 // List shows the urgency sections; Boards shows your boards and the built-in ones as columns.
@@ -35,6 +35,8 @@ export type TodayViewProps = {
   // Unsaved editor text shows on the row as it's typed.
   liveEdits: () => Map<string, Partial<Task>>;
   onEdit: (task: Task) => void;
+  // An event's row opens it (events show until they start: later today, and the next week's).
+  onEditEvent: (event: CalendarEvent) => void;
   onComplete: (task: Task) => Promise<void>;
   // A repeating task finished for good (not just this occurrence).
   onFinish: (task: Task) => Promise<void>;
@@ -64,7 +66,7 @@ export type TodayViewProps = {
 };
 
 export const SECTION_LABELS: Record<SectionId, { title: string; hint?: string }> = {
-  firm: { title: "Deadline", hint: "due soon or overdue" },
+  firm: { title: "Deadline" },
   closing: { title: "Closing today", hint: "window open now" },
   later: { title: "Opens later today" },
   available: { title: "Available" },
@@ -105,7 +107,7 @@ export function TodayView(props: TodayViewProps) {
   const boards = createMemo(() => userBoards(props.items));
   // "" is every group; "none" is tasks without one.
   const [groupFilter, setGroupFilter] = createSignal("");
-  const sections = createMemo(() => {
+  const taskSections = createMemo(() => {
     const filter = groupFilter();
     return buildSections(props.items, props.now, {
       mode: props.subtaskMode,
@@ -116,6 +118,43 @@ export function TodayView(props: TodayViewProps) {
       boardOf: props.view === "boards" ? (task, placement) => props.pullTimed && placement.section !== "available" ? null : taskGroupId(task, byId()) : undefined,
     });
   });
+  // Events on their way: later today in Opens later today, the next week's in Upcoming. Once one
+  // starts it's under way, nothing left to do, so it goes. They're on no board.
+  const events = createMemo(() => {
+    const later: CalendarEvent[] = [], upcoming: CalendarEvent[] = [];
+    const filter = groupFilter();
+    if (props.view === "today" && filter && filter !== "none") return { later, upcoming };
+    const week = addDays(props.now, 7);
+    for (const item of props.items) {
+      if (item.kind !== "event" || !textMatches(item, props.query)) continue;
+      const start = item.start ? new Date(item.start) : null;
+      if (!start || Number.isNaN(start.getTime()) || start <= props.now || start > week) continue;
+      (sameDay(start, props.now) ? later : upcoming).push(item);
+    }
+    const byStart = (a: CalendarEvent, b: CalendarEvent) => new Date(a.start!).getTime() - new Date(b.start!).getTime();
+    return { later: later.sort(byStart), upcoming: upcoming.sort(byStart) };
+  });
+  const eventsIn = (id: string) => id === "later" ? events().later : id === "upcoming" ? events().upcoming : [];
+  // The tasks' sections, and Opens later today and Upcoming when only events are in them.
+  const sections = createMemo(() => {
+    const built = taskSections();
+    const extra: Section[] = (["later", "upcoming"] as const).filter(id => eventsIn(id).length && !built.some(section => section.id === id)).map(id => ({ id, trees: [], count: 0 }));
+    if (!extra.length) return built;
+    const rank = (id: string, index: number) => { const at = SECTION_ORDER.indexOf(id as SectionId); return at < 0 ? SECTION_ORDER.length + index : at; };
+    return [...built, ...extra].map((section, index) => ({ section, key: rank(section.id, index) })).sort((a, b) => a.key - b.key).map(entry => entry.section);
+  });
+  const EventRow = (rowProps: { event: CalendarEvent }) => {
+    const start = () => new Date(rowProps.event.start!);
+    const end = () => rowProps.event.end ? new Date(rowProps.event.end) : null;
+    const time = () => sameDay(start(), props.now) ? [clock(start()), end() && sameDay(end()!, start()) ? clock(end()!) : ""].filter(Boolean).join("–") : when(start(), props.now);
+    return <div class="today-row event-row" title="An event: it leaves the list when it starts" onClick={() => props.onEditEvent(rowProps.event)}>
+      <span class="event-mark" aria-hidden="true"><Icon name="calendar" size={15} /></span>
+      <span class="today-copy">
+        <span class="today-title">{rowProps.event.title || "Untitled event"}</span>
+        <span class="today-chips"><span class="today-chip calm">{time()}</span><For each={tagChips(rowProps.event)}>{chip => <span class={`today-chip ${chip.kind || ""}`} title={chip.title}>{chip.label}</span>}</For></span>
+      </span>
+    </div>;
+  };
   const [collapsed, setCollapsed] = createSignal(new Set<string>(COLLAPSED_AT_FIRST));
   const isCollapsed = (id: string) => props.view === "today" && collapsed().has(id);
   const toggleSection = (id: string) => setCollapsed(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
@@ -230,7 +269,7 @@ export function TodayView(props: TodayViewProps) {
     if (checked) chips.push({ label: `Not yet as of ${when(checked, props.now)}` });
     return chips;
   };
-  const tagChips = (task: Task): Chip[] => props.showTags ? (task.tags || []).map(tag => ({ label: `#${tag}`, kind: "tag" as const })) : [];
+  const tagChips = (item: { tags?: string[] }): Chip[] => props.showTags ? (item.tags || []).map(tag => ({ label: `#${tag}`, kind: "tag" as const })) : [];
 
   const boardTitle = (id: string | null) => id ? boards().find(board => board.id === id)?.title || "" : "";
 
@@ -559,7 +598,12 @@ export function TodayView(props: TodayViewProps) {
   const shownLayout = createMemo(() => (pendingLayout() ?? boardLayout(props.items)).map(column => column.filter(key => found().has(key) || isBoard(key))).filter(column => column.length));
   const sectionOf = (key: string): Section => found().get(key) ?? { id: key, trees: [], count: 0 };
   const titleOf = (id: string) => SECTION_LABELS[id as SectionId]?.title ?? boardTitle(id);
-  const hintOf = (id: string) => SECTION_LABELS[id as SectionId]?.hint;
+  // Deadline's hint says what the calendar's Deadline setting lets in.
+  const hintOf = (id: string) => {
+    if (id !== "firm") return SECTION_LABELS[id as SectionId]?.hint;
+    const days = deadlineDaysOf(props.items);
+    return days === 0 ? "due today or overdue" : days === 1 ? "due by tomorrow, or overdue" : `due within ${days + 1} days, or overdue`;
+  };
 
   // Dragging a board by its heading. Over a column, where it would land in that column
   // opens up (above or below the board under the pointer); past a column's edge, between
@@ -821,12 +865,12 @@ export function TodayView(props: TodayViewProps) {
         <button class="today-section-heading" aria-expanded={!isCollapsed(id())} data-holds={isCollapsed(id()) ? idsIn(current().trees).join(" ") : undefined} onClick={() => toggleSection(id())}>
           <span class="section-chevron" aria-hidden="true">›</span>
           <strong>{titleOf(id())}</strong>
-          <span class="section-count">{current().count}</span>
+          <span class="section-count">{current().count + eventsIn(id()).length}</span>
           <Show when={hintOf(id())}><span class="today-hint">{hintOf(id())}</span></Show>
         </button>}>
         <div class="today-section-heading board-heading" title="Drag to move this board" onPointerDown={dragBoard(id())}>
           <Show when={boards().find(board => board.id === id())} fallback={<strong>{titleOf(id())}</strong>}>{board => <BoardName board={board()} />}</Show>
-          <span class="section-count">{current().count}</span>
+          <span class="section-count">{current().count + eventsIn(id()).length}</span>
           <Show when={hintOf(id())}><span class="today-hint">{hintOf(id())}</span></Show>
           <Show when={boards().find(board => board.id === id())}>{board =>
             <BoardMenu board={board()} items={props.items} onRename={() => setRenaming(board().id)} onDelete={props.onDeleteBoard} />}
@@ -835,7 +879,8 @@ export function TodayView(props: TodayViewProps) {
       </Show>
       <Show when={!isCollapsed(id())}>
         <div class="today-rows">
-          <Show when={current().trees.length} fallback={<p class="today-column-empty">No tasks on this board.</p>}>
+          <For each={eventsIn(id())}>{event => <EventRow event={event} />}</For>
+          <Show when={current().trees.length || eventsIn(id()).length} fallback={<p class="today-column-empty">No tasks on this board.</p>}>
             {/* A board's own rows don't repeat its name. */}
             <Rows nodes={current().trees} depth={0} label={!isBoard(id())} runKey={id()} />
           </Show>

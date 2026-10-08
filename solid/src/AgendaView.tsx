@@ -105,7 +105,8 @@ export function AgendaView(props: {
     };
     for (const entry of entries) {
       const block = byDay.get(dayKey(entry.at));
-      if (!block) continue;
+      // Records are for the Calendar and search: nothing to do.
+      if (!block || entry.item.kind === "record") continue;
       const listed = entry.item.kind === "task" ? leafTasks(items, entry.item) : [entry.item];
       for (const item of listed) {
         if (seen.has(item.id)) continue;

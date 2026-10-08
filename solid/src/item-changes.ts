@@ -1,6 +1,6 @@
 import { toDate } from "../../site/domain.js";
 import type { RelativeDateField } from "./dependencies";
-import type { Attachment, CalendarEvent, Group, HistoryEntry, Item, PushedDown, Task, TaskState, TimeWindow } from "./types";
+import type { Attachment, CalendarEvent, CalendarRecord, Group, HistoryEntry, Item, PushedDown, Task, TaskState, TimeWindow } from "./types";
 import type { RelativeDates } from "../../site/model";
 
 // Pure record changes: each takes the current record and a moment and returns the record to store.
@@ -138,6 +138,15 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
 }
 
 /** The event an editor draft describes. With only one end chosen, the event lasts an hour. */
+export type RecordDraft = Omit<EventDraft, "reminderMinutes">;
+
+/** A record: an event's times, with nothing to do (so no reminder). */
+export function recordFromDraft(draft: RecordDraft, context: DraftContext): CalendarRecord {
+  const { reminderMinutes: _, ...event } = eventFromDraft({ ...draft, reminderMinutes: null }, { ...context, previous: null });
+  const previous = context.previous?.kind === "record" ? context.previous : {};
+  return { ...previous, ...event, kind: "record", createdAt: context.previous?.createdAt || event.createdAt };
+}
+
 export function eventFromDraft(draft: EventDraft, { id, previous, now }: DraftContext): CalendarEvent {
   const at = now.toISOString();
   let { start, end } = draft;

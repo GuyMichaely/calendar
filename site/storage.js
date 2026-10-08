@@ -344,7 +344,7 @@ export function parseBackup(text) {
   if (!Array.isArray(items)) throw new Error("Import file does not contain an items array.");
   const ids = new Set();
   for (const item of items) {
-    if (!item || typeof item.id !== "string" || !item.id || !["task", "event", "group", "window", "settings"].includes(item.kind) || typeof item.title !== "string") throw new Error("Every imported item requires an id, task/event/group/window/settings kind, and title.");
+    if (!item || typeof item.id !== "string" || !item.id || !["task", "event", "record", "group", "window", "settings"].includes(item.kind) || typeof item.title !== "string") throw new Error("Every imported item requires an id, task/event/record/group/window/settings kind, and title.");
     if (item.kind === "task" && !["open", "completed"].includes(item.state)) throw new Error("Imported tasks must have an open or completed state.");
     if (ids.has(item.id)) throw new Error("The backup contains duplicate item IDs.");
     ids.add(item.id);

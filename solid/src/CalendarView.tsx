@@ -7,7 +7,8 @@ import { placementOf, type Placement, type SectionId } from "./today";
 import { SECTION_LABELS, when } from "./TodayView";
 import { shutsAt, windowsById } from "./windows";
 import { describeRepeat } from "./repeats";
-import type { CalendarEvent, Item, Task } from "./types";
+import type { Item, Task } from "./types";
+import type { Editable } from "./ItemEditor";
 
 type Shown = CalendarEntry & { className: string; label: string; title: string; kindLabel: string };
 // A row in the selected day's list: an entry, or one of today's tasks.
@@ -28,7 +29,7 @@ const sameMonth = (a: Date, b: Date) => { const x = partsOf(a), y = partsOf(b); 
 function displayTitle(item: Item) {
   const raw = String(item.title || "");
   if (raw.replace(/[\p{Cf}\p{Cc}\s]/gu, "")) return raw;
-  return item.kind === "event" ? "Untitled event" : "Untitled task";
+  return item.kind === "event" ? "Untitled event" : item.kind === "record" ? "Untitled record" : "Untitled task";
 }
 
 export function CalendarView(props: {
@@ -38,7 +39,7 @@ export function CalendarView(props: {
   month: Date;
   now: Date;
   onMonthChange: (date: Date) => void;
-  onEdit: (item: Task | CalendarEvent) => void;
+  onEdit: (item: Editable) => void;
   // Unstarted dependent tasks, projected as if started on their parent task's due date.
   ghostIds: Set<string>;
   showDependents: boolean;
@@ -69,7 +70,7 @@ export function CalendarView(props: {
       const title = displayTitle(entry.item);
       const ghost = props.ghostIds.has(entry.item.id);
       const task = entry.item.kind === "task" ? entry.item : null;
-      const shown: Shown = entry.kind === "event" ? { ...entry, className: "event", label: `${shortTime(entry.at)} ${title}`, title, kindLabel: shortTime(entry.at) }
+      const shown: Shown = entry.kind === "event" || entry.kind === "record" ? { ...entry, className: entry.kind, label: `${shortTime(entry.at)} ${title}`, title, kindLabel: shortTime(entry.at) }
         : entry.kind === "due" ? { ...entry, className: `task due${entry.overdue ? " overdue" : ""}`, label: ["Due", timeOf(entry.at), title].filter(Boolean).join(" "), title: `${title}: due ${shortTime(entry.at)}${entry.overdue ? " (overdue)" : ""}`, kindLabel: ["Due", timeOf(entry.at)].filter(Boolean).join(" · ") }
         : entry.kind === "repeat" ? { ...entry, className: "task repeat", label: `↻ ${title}`, title: `${title}: a later occurrence (${describeRepeat(task!.repeat!)})`, kindLabel: `Repeats${timeOf(entry.at) ? ` · ${timeOf(entry.at)}` : ""}` }
         : { ...entry, className: "task start", label: title, title: `${title}: can start`, kindLabel: `Can start${timeOf(entry.at) ? ` · ${timeOf(entry.at)}${entry.until ? `–${shortTime(entry.until)}` : ""}` : ""}` };
@@ -142,11 +143,11 @@ export function CalendarView(props: {
                 <For each={entries().slice(0, pendingForDay(day).length ? 2 : 3)}>{entry => <button class={`calendar-chip ${entry.className} ${props.query && !textMatches(entry.item, props.query) ? "search-dimmed" : ""}`} title={entry.title} onClick={event => { event.stopPropagation(); props.onEdit(entry.item); }}>{entry.label}</button>}</For>
                 <Show when={entries().length > (pendingForDay(day).length ? 2 : 3)}><button class="more-count" onClick={() => setSelectedDay(day)}>+{entries().length - (pendingForDay(day).length ? 2 : 3)} more</button></Show>
               </div>
-              <div class="calendar-day-dots" aria-hidden="true"><For each={matching().slice(0, 3)}>{entry => <i class={`legend-dot ${entry.kind === "event" ? "event" : entry.kind === "due" ? "due" : entry.kind === "repeat" ? "repeat" : "start"}`} />}</For><Show when={matchingPending(day).length}><i class="legend-dot start" /></Show></div>
+              <div class="calendar-day-dots" aria-hidden="true"><For each={matching().slice(0, 3)}>{entry => <i class={`legend-dot ${entry.kind === "event" || entry.kind === "record" ? entry.kind : entry.kind === "due" ? "due" : entry.kind === "repeat" ? "repeat" : "start"}`} />}</For><Show when={matchingPending(day).length}><i class="legend-dot start" /></Show></div>
             </div>;
           }}</For>
         </div>
-        <div class="calendar-footnotes"><div class="calendar-legend"><span><i class="legend-dot event" />Event</span><span><i class="legend-dot start" />Can start</span><span><i class="legend-dot due" />Due</span><span><i class="legend-dot repeat" />Repeats</span></div>
+        <div class="calendar-footnotes"><div class="calendar-legend"><span><i class="legend-dot event" />Event</span><span><i class="legend-dot record" />Record</span><span><i class="legend-dot start" />Can start</span><span><i class="legend-dot due" />Due</span><span><i class="legend-dot repeat" />Repeats</span></div>
         </div>
       </div>
       <aside class="day-agenda" aria-label="Selected day">

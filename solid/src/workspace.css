@@ -126,6 +126,7 @@ body.task-dragging { overflow-anchor: none; }
 .calendar-day.today .day-number { color: var(--accent-ink); background: var(--accent); }
 .calendar-chip { display: block; width: 100%; border: 0; text-align: left; border-radius: 3px; padding: 2px 4px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 9px; }
 .calendar-chip.event { background: var(--event-bg); color: var(--event); }
+.calendar-chip.record { background: var(--surface-2); color: var(--muted); }
 .calendar-chip.task.start { background: var(--ready-bg); color: var(--ready); }
 .calendar-chip.task.due { background: var(--due-bg); color: var(--due); }
 .calendar-chip.search-dimmed { opacity: .25; }
@@ -139,7 +140,7 @@ body.task-dragging { overflow-anchor: none; }
 .calendar-legend { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 9px; }
 .calendar-legend > span { display: flex; align-items: center; gap: 5px; }
 .legend-dot { display: inline-block; width: 6px; height: 6px; border-radius: 2px; background: #91a5b3; }
-.legend-dot.start { background: #8caa7c; }.legend-dot.due { background: #d39378; }
+.legend-dot.start { background: #8caa7c; }.legend-dot.due { background: #d39378; }.legend-dot.record { background: var(--control-border); }
 .calendar-day-dots { display: none; }
 .day-agenda { display: flex; flex-direction: column; background: var(--surface); border-radius: 10px; padding: 16px 14px; }
 .agenda-scroll { min-height: 0; overflow-y: auto; margin-right: -8px; padding-right: 8px; }
@@ -157,7 +158,7 @@ body.task-dragging { overflow-anchor: none; }
 .agenda-empty p { font-size: 10px; margin: 5px 0; }
 .agenda-entry { display: flex; width: 100%; gap: 10px; align-items: center; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 12px 0; text-align: left; }
 .agenda-entry-mark { width: 3px; align-self: stretch; background: #91a5b3; border-radius: 3px; flex: 0 0 auto; }
-.agenda-entry-mark.task { background: #8caa7c; }.agenda-entry-mark.due { background: #d39378; }.agenda-entry-mark.repeat { background: transparent; box-shadow: inset 0 0 0 1.5px #8caa7c; }
+.agenda-entry-mark.record { background: var(--control-border); }.agenda-entry-mark.task { background: #8caa7c; }.agenda-entry-mark.due { background: #d39378; }.agenda-entry-mark.repeat { background: transparent; box-shadow: inset 0 0 0 1.5px #8caa7c; }
 .agenda-entry > span:nth-child(2) { flex: 1; min-width: 0; }
 .agenda-entry small { display: block; font-size: 11.5px; font-weight: 500; color: color-mix(in srgb, var(--text) 70%, var(--muted)); margin-bottom: 4px; }
 .agenda-entry strong { display: block; font-size: 12px; font-weight: 550; overflow-wrap: anywhere; }
@@ -586,3 +587,5 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .agenda-fold small { color: var(--muted); font-size: 12px; font-weight: 500; }
 .agenda-fold .section-chevron { font-size: 17px; transition: transform .15s; }
 .agenda-fold[aria-expanded="true"] .section-chevron { transform: rotate(90deg); }
+/* An event in List and Boards, until it starts: a calendar mark where a task has its checkbox. */
+.event-mark { display: grid; place-items: center; width: 19px; height: 19px; flex: 0 0 19px; color: var(--event); }

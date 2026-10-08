@@ -3,7 +3,7 @@ import { currentOccurrence, nextStart, occurrenceTask } from "./repeats";
 import { nextOpening, shutsAt, taskSchedule, windowsById } from "./windows";
 import { isDormant } from "./dependencies";
 import { endOfDay } from "./zone";
-import type { CalendarEvent, Item, Task } from "./types";
+import type { CalendarEvent, CalendarRecord, Item, Task } from "./types";
 
 /*
  * What the month calendar shows for a task: when it can start, if it can't now (a task in a
@@ -12,8 +12,8 @@ import type { CalendarEvent, Item, Task } from "./types";
  * repeating task's later occurrences. A pushed-down task still shows, marked as such.
  */
 export type CalendarEntry = {
-  item: Task | CalendarEvent;
-  kind: "event" | "start" | "due" | "repeat";
+  item: Task | CalendarEvent | CalendarRecord;
+  kind: "event" | "record" | "start" | "due" | "repeat";
   at: Date;
   // A start at a window's opening: when the window shuts (null: it runs on into the next day).
   until?: Date | null;
@@ -34,7 +34,7 @@ export function calendarEntries(items: Item[], from: Date, to: Date, now: Date):
   const inRange = (date: Date | null): date is Date => !!date && date >= from && date <= last;
   const entries: CalendarEntry[] = [];
   for (const item of items) {
-    if (item.kind === "event") { const start = time(item.start); if (inRange(start)) entries.push({ item, kind: "event", at: start }); continue; }
+    if (item.kind === "event" || item.kind === "record") { const start = time(item.start); if (inRange(start)) entries.push({ item, kind: item.kind, at: start }); continue; }
     if (item.kind !== "task" || effectivelyDone(item, byId)) continue;
     const task = occurrenceTask(item, now);
     const pushed = pushedDownInfo(item, now).pushed;

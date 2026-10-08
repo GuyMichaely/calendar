@@ -7,7 +7,7 @@ import { DialogShell } from "./DialogShell";
 import { CalendarView } from "./CalendarView";
 import { AgendaView } from "./AgendaView";
 import { createFind } from "./SearchResults";
-import { ItemEditor, type EditorRequest } from "./ItemEditor";
+import { ItemEditor, type Editable, type EditorRequest } from "./ItemEditor";
 import { createCloudSync } from "./cloud-sync";
 import { disableWebPush, enableWebPush, inApp, onReminderOpened, registerDevice, scheduleReminders, updateWebPush, webPushSubscribed, webPushSupported, type NotificationAccess } from "./notifications";
 import { reminderChoices, upcomingReminders } from "./reminders";
@@ -141,7 +141,7 @@ export function App() {
   const closeEditor = async () => {
     while (editorParents.length) {
       const item = await store.getItem(editorParents.pop()!);
-      if (item && (item.kind === "task" || item.kind === "event")) { setEditor({item, kind: item.kind, nonce: Date.now()}); return; }
+      if (item && (item.kind === "task" || item.kind === "event" || item.kind === "record")) { setEditor({item, kind: item.kind, nonce: Date.now()}); return; }
     }
     setEditor(null);
   };
@@ -193,12 +193,12 @@ export function App() {
   // Search that finds (Settings → Display): a result opens where you are; the Calendar also goes to its month.
   const find = createFind({ items, query, now: clock, onOpen: item => {
     if (view() !== "calendar") { if (item.kind === "task") editTask(item); else openEditor(item); return; }
-    const at = item.kind === "event" ? item.start : item.availableFrom ?? item.deadline ?? item.completedAt;
+    const at = item.kind === "task" ? item.availableFrom ?? item.deadline ?? item.completedAt : item.start;
     const date = at ? new Date(at) : null;
     if (date && !Number.isNaN(date.getTime())) setCalendarMonth(zonedDate(partsOf(date).year, partsOf(date).month, 1));
     openEditor(item);
   } });
-  const openEditor = (item: Task | CalendarEvent | null = null, kind?: "task" | "event", date?: Date) => { editorParents.length = 0; setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() }); };
+  const openEditor = (item: Editable | null = null, kind?: Editable["kind"], date?: Date) => { editorParents.length = 0; setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() }); };
   // In the Android app: notifications for tasks reaching their can-start time and before events,
   // rescheduled (in real time, not pretend time) whenever the calendar or these settings change
   // and on coming back to the app. While the app's closed, the server tells the phone (FCM) when the
@@ -387,7 +387,7 @@ export function App() {
             <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
               view={view() === "boards" ? "boards" : "today"} showBoard={prefs.showBoard()} showTags={prefs.showTags()} pullTimed={prefs.pullTimed()} onPullTimedChange={prefs.setPullTimed} onLayoutBoards={layout => groupChange(() => store.layoutBoards(layout))} onCreateBoard={createGroup} onRenameBoard={renameGroup} onDeleteBoard={deleteGroup} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
-              liveEdits={store.liveEdits} onEdit={editTask} onComplete={completeTask} onFinish={finishTask} onNotYet={notYet} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} shortcuts={shortcuts()} onMoveTask={(task, to) => attempt(() => store.moveTask(task, to), "Could not move task.")} registerMotion={next => { motion = next; return () => { if (motion === next) motion = null; }; }} />
+              liveEdits={store.liveEdits} onEdit={editTask} onEditEvent={item => openEditor(item)} onComplete={completeTask} onFinish={finishTask} onNotYet={notYet} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} shortcuts={shortcuts()} onMoveTask={(task, to) => attempt(() => store.moveTask(task, to), "Could not move task.")} registerMotion={next => { motion = next; return () => { if (motion === next) motion = null; }; }} />
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
                 <Show when={detailRequest() || lastRequest} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>

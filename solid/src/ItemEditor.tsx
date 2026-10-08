@@ -11,13 +11,15 @@ import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
 import { attachmentMarkdown } from "./markdown";
 import { DialogShell } from "./DialogShell";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
-import { eventFromDraft, taskFromDraft, type TaskDraft } from "./item-changes";
+import { eventFromDraft, recordFromDraft, taskFromDraft, type TaskDraft } from "./item-changes";
 import { reminderChoices } from "./reminders";
-import type { Attachment, CalendarEvent, CalendarSettings, Item, Repeat, Task, TimeWindow } from "./types";
+import type { Attachment, CalendarEvent, CalendarRecord, CalendarSettings, Item, Repeat, Task, TimeWindow } from "./types";
 
+/** What the editor edits: a task, an event (a set time to be somewhere), or a record (noted at a time). */
+export type Editable = Task | CalendarEvent | CalendarRecord;
 export type EditorRequest = {
-  item: Task | CalendarEvent | null;
-  kind: "task" | "event";
+  item: Editable | null;
+  kind: Editable["kind"];
   date?: Date;
   parentId?: string;
   groupId?: string | null;
@@ -38,10 +40,10 @@ function parseTags(value: FormDataEntryValue | null) {
 
 const HOUR = 60 * 60 * 1000;
 
-// A new event lasts an hour, and reminds as the calendar's settings say new events do.
+// A new event (or record) lasts an hour, and an event reminds as the calendar's settings say new events do.
 function eventDefaults(request: EditorRequest, items: Item[]) {
-  const existing = request.item?.kind === "event" ? request.item : null;
-  if (existing) return { start: isoToLocalInput(existing.start), end: isoToLocalInput(existing.end), reminderMinutes: existing.reminderMinutes ?? null };
+  const existing = request.item?.kind === "event" || request.item?.kind === "record" ? request.item : null;
+  if (existing) return { start: isoToLocalInput(existing.start), end: isoToLocalInput(existing.end), reminderMinutes: existing.kind === "event" ? existing.reminderMinutes ?? null : null };
 
   const start = request.date ? atTime(request.date, "09:00") : new Date();
   const settings = items.find((item): item is CalendarSettings => item.kind === "settings");
@@ -116,7 +118,7 @@ export function ItemEditor(props: {
   const now = () => props.now ?? new Date();
   const initialPush = task ? pushedDownInfo(task, now()) : null;
   const defaults = eventDefaults(props.request, props.items);
-  const [kind, setKind] = createSignal<"task" | "event">(props.request.kind);
+  const [kind, setKind] = createSignal<Editable["kind"]>(props.request.kind);
   // A window's id, or "" for any time.
   const [windowChoice, setWindowChoice] = createSignal(task?.windowId || "");
   // Pushed down, until a date if one is set (otherwise until lifted).
@@ -307,14 +309,16 @@ export function ItemEditor(props: {
         ...(dormant() ? { startWhen: startWhen() === "parent-done" ? { on: "parent-done" as const } : startWhen() === "not-yet" ? { on: "not-yet" as const, after: localInputToIso(data.get("startAfter")) } : null, stopParent: data.get("stopParent") === "on" } : {}),
       }, { ...context, parentId: props.request.parentId, dormant: dormant() });
     } else {
-      if (!eventStart() && !eventEnd()) { setSaveError("Choose when the event starts."); return false; }
-      item = eventFromDraft({ ...shared, start: localInputToIso(eventStart()), end: localInputToIso(eventEnd()), reminderMinutes: data.get("reminderMinutes") === "off" ? null : Number(data.get("reminderMinutes")) }, context);
+      if (!eventStart() && !eventEnd()) { setSaveError(`Choose when the ${kind()} starts.`); return false; }
+      const times = { ...shared, start: localInputToIso(eventStart()), end: localInputToIso(eventEnd()) };
+      item = kind() === "record" ? recordFromDraft(times, context)
+        : eventFromDraft({ ...times, reminderMinutes: data.get("reminderMinutes") === "off" ? null : Number(data.get("reminderMinutes")) }, context);
     }
 
     try {
       const saved = await props.onSave(item, !currentItem, currentItem);
       if (!saved) throw new Error("This item was deleted on another device. Close and reopen the calendar to review it.");
-      currentItem = saved as Task | CalendarEvent;
+      currentItem = saved as Editable;
       setHasSavedItem(true);
       setSavedAttachments(currentItem.attachments || []);
       const unchanged = serializeForm(formRef, pendingFiles(), removedAttachments()) === submittedForm;
@@ -533,16 +537,17 @@ export function ItemEditor(props: {
         <Show when={dormant() && props.onStartDependent && task}>{own => <div class="dependent-start">{startButtons(own(), parentTask())}</div>}</Show>
         <div class="segmented kind-switch">
           <label><input type="radio" name="kind" value="task" checked={kind() === "task"} onChange={() => { setKind("task"); syncDirty(); }} /><span>Task</span></label>
-          <label><input type="radio" name="kind" value="event" checked={kind() === "event"} onChange={() => { setKind("event"); syncDirty(); }} /><span>Event</span></label>
+          <label title="A set time to be somewhere: in the Agenda, and in List until it starts"><input type="radio" name="kind" value="event" checked={kind() === "event"} onChange={() => { setKind("event"); syncDirty(); }} /><span>Event</span></label>
+          <label title="Noted at a time, nothing to do: on the Calendar and in search only"><input type="radio" name="kind" value="record" checked={kind() === "record"} onChange={() => { setKind("record"); syncDirty(); }} /><span>Record</span></label>
         </div>
 
         <Show when={kind() === "task"} fallback={
           <div class="form-grid">
             <div class="field"><span>Starts</span><DateTimeField name="eventStart" label="Starts" value={eventStart()} onChange={value => { deriveEnd(value); syncDirty(); }} /></div>
             <div class="field"><span>Ends</span><DateTimeField name="eventEnd" label="Ends" value={eventEnd()} onChange={value => { deriveStart(value); syncDirty(); }} /></div>
-            <label class="field"><span>Reminder</span><select name="reminderMinutes" onChange={syncDirty}>
+            <Show when={kind() === "event"}><label class="field"><span>Reminder</span><select name="reminderMinutes" onChange={syncDirty}>
               <option value="off">None</option><For each={reminderChoices}>{([minutes, label]) => <option value={minutes} selected={minutes === defaults.reminderMinutes}>{label}</option>}</For>
-            </select></label>
+            </select></label></Show>
           </div>
         }>
           <div>
