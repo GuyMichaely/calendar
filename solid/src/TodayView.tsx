@@ -127,6 +127,7 @@ export function TodayView(props: TodayViewProps) {
   // folded away (a collapsed section, "+N completed", a run of pushed tasks) flies into
   // whatever holds it, which names its tasks in data-holds.
   let boardRef!: HTMLDivElement;
+  const cardElements = () => new Map([...boardRef.querySelectorAll<HTMLElement>(".board-card[data-section]")].map(element => [element.dataset.section!, element]));
   const rowElements = () => {
     const found = new Map<string, HTMLElement>();
     for (const element of boardRef.querySelectorAll<HTMLElement>(".today-row[data-id]")) if (!found.has(element.dataset.id!)) found.set(element.dataset.id!, element);
@@ -134,18 +135,33 @@ export function TodayView(props: TodayViewProps) {
   };
   // `ids` are the rows that may fold away; "all" (for undo and redo) watches every row.
   // `from` gives rows that start somewhere else (a dragged row, where it was let go).
+  // Boards glide too (an undone board move, say), their rows riding along.
   const moving = async (ids: string[] | "all", run: () => Promise<unknown>, from?: Map<string, DOMRect>) => {
     if (!boardRef?.isConnected || !boardRef.closest('[data-animations="on"]')) { await run(); return; }
     const beforeRows = rowElements();
     const before = new Map([...beforeRows].map(([id, element]) => [id, from?.get(id) ?? element.getBoundingClientRect()]));
+    const beforeCards = new Map([...cardElements()].map(([key, element]) => [key, element.getBoundingClientRect()]));
     const ghosts = (ids === "all" ? [...beforeRows.keys()] : ids).flatMap(id => { const element = beforeRows.get(id); return element ? [{ id, clone: element.cloneNode(true) as HTMLElement, rect: before.get(id)! }] : []; });
     await run();
     const after = rowElements();
     const ease = "cubic-bezier(.2, .8, .2, 1)";
+    // Measured before any board starts gliding (which would carry its rows with it).
+    const boxes = new Map([...after].map(([id, element]) => [id, element.getBoundingClientRect()]));
+    const cardShift = new Map<Element, { dx: number; dy: number }>();
+    for (const [key, element] of cardElements()) {
+      const old = beforeCards.get(key);
+      if (!old) { if (beforeCards.size) element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MOTION_MS, easing: "ease-out" }); continue; }
+      const box = element.getBoundingClientRect(), dx = old.left - box.left, dy = old.top - box.top;
+      if (Math.abs(dx) + Math.abs(dy) <= 1) continue;
+      element.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: MOTION_MS, easing: ease });
+      cardShift.set(element, { dx, dy });
+    }
     for (const [id, element] of after) {
       const old = before.get(id);
       if (!old) { element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MOTION_MS, easing: "ease-out" }); continue; }
-      const box = element.getBoundingClientRect(), dx = old.left - box.left, dy = old.top - box.top;
+      // In a board that's gliding, only the row's own move within it.
+      const card = cardShift.get(element.closest(".board-card")!) ?? { dx: 0, dy: 0 };
+      const box = boxes.get(id)!, dx = old.left - box.left - card.dx, dy = old.top - box.top - card.dy;
       if (Math.abs(dx) + Math.abs(dy) > 1) element.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: MOTION_MS, easing: ease });
     }
     for (const ghost of ghosts) {
@@ -551,7 +567,7 @@ export function TodayView(props: TodayViewProps) {
   // move apart to make room. That space then stays open, unhighlighted, while
   // the pointer goes on over the next column, and moves only once the pointer is past
   // that column too, so nothing slides under the pointer as it goes. Back over the column
-  // the board started in, the space closes. Spots that change nothing don't open.
+  // the board started in, the space closes, the columns returning to where they were. Spots that change nothing don't open.
   const [dragKey, setDragKey] = createSignal<string | null>(null);
   const [dropKey, setDropKey] = createSignal("");
   const [spaceKey, setSpaceKey] = createSignal("");
@@ -592,12 +608,17 @@ export function TodayView(props: TodayViewProps) {
       return y < rect.top || y < rect.top + rect.height / 2 ? `slot:${column}:${row}` : `slot:${column}:${row + 1}`;
     };
     // What stays put while the space opens, moves, or closes (the new space's middle, under
-    // the pointer; or, as the space closes, the board's own column): the boards scroll to
+    // the pointer; or, as the space closes, where the columns were before it): the boards scroll to
     // hold it still, and where they can't scroll that far, the row of columns is shifted
     // sideways (`pan`, undone on drop) for the rest. Scrolling, yours or at an edge, moves
     // it along with everything else.
     const own = shown.findIndex(column => column.includes(key));
     let pan = 0, anchor: { element: HTMLElement; at: number; middle: boolean } | null = null, lastScroll = boardRef.scrollLeft;
+    // Where the row of columns starts with no space open (moving with scrolling, like the anchor):
+    // a space closing puts it back there, so opening and closing spaces leaves the columns where they were.
+    const first = boardRef.firstElementChild as HTMLElement;
+    let restAt = first.getBoundingClientRect().left;
+    const backToRest = () => { anchor = { element: first, at: restAt, middle: false }; };
     const stacks = () => [...boardRef.querySelectorAll<HTMLElement>(".board-stack")];
     const setPan = (value: number) => {
       pan = value;
@@ -606,8 +627,9 @@ export function TodayView(props: TodayViewProps) {
     const placeOf = (element: HTMLElement, middle: boolean) => { const rect = element.getBoundingClientRect(); return middle ? (rect.left + rect.right) / 2 : rect.left; };
     const keep = (element: HTMLElement | null | undefined, at?: number) => { anchor = element ? { element, at: at ?? placeOf(element, false), middle: at != null } : null; };
     const holdAnchor = () => {
-      // Scrolled since last time: the anchor went with it.
+      // Scrolled since last time: the anchor (and where the columns rest) went with it.
       if (anchor) anchor.at -= boardRef.scrollLeft - lastScroll;
+      restAt -= boardRef.scrollLeft - lastScroll;
       lastScroll = boardRef.scrollLeft;
       if (!anchor) return;
       const drift = anchor.at - placeOf(anchor.element, anchor.middle);
@@ -629,15 +651,15 @@ export function TodayView(props: TodayViewProps) {
         boardRef.scrollLeft -= push;
         const rest = push - (before - boardRef.scrollLeft);
         const back = rest < 0 ? Math.max(rest, -Math.max(pan, 0)) : Math.min(rest, Math.max(-pan, 0));
-        if (back) { setPan(pan + back); if (anchor) anchor.at += back; }
+        if (back) { setPan(pan + back); restAt += back; if (anchor) anchor.at += back; }
       }
       holdAnchor();
       if (ghost) ghost.style.transform = `translate(${x - x0}px, ${y - y0}px)`;
       const spot = spotAt();
       const useful = !!spot && changes(spot);
       if (lastColumn === own && spaceKey()) {
-        // Back over the board's own column: the space closes around it.
-        keep(stacks()[own]);
+        // Back over the board's own column: the space closes, the columns either side moving back.
+        backToRest();
         setSpaceKey("");
         holdAnchor();
       } else if (useful && spot.startsWith("column:") && spot !== spaceKey()) {
@@ -699,7 +721,8 @@ export function TodayView(props: TodayViewProps) {
       // The boards slide from where they show (shift, openings and all) to their new places,
       // or back, and the dragged board from where it was dropped.
       const from = ghost ? { key, rect: ghost.getBoundingClientRect() } : undefined;
-      if (!drop || !target) return void moveBoards(settle, from);
+      // Called off, the columns go back to where they were.
+      if (!drop || !target) return void moveBoards(() => { settle(); boardRef.scrollLeft += first.getBoundingClientRect().left - restAt; }, from);
       // The new layout shows at once (saving follows). A new column keeps its middle where
       // its space was; a board dropped into a column keeps that column where it was. Where
       // every column fits on screen, they simply start at the left.
@@ -727,7 +750,7 @@ export function TodayView(props: TodayViewProps) {
   };
   // Boards slide to their new places too (a dragged one from where it was dropped).
   const moveBoards = async (run: () => unknown, dropped?: { key: string; rect: DOMRect }) => {
-    const cards = () => new Map([...boardRef.querySelectorAll<HTMLElement>(".board-card[data-section]")].map(element => [element.dataset.section!, element]));
+    const cards = cardElements;
     const before = new Map([...cards()].map(([key, element]) => [key, element.getBoundingClientRect()]));
     if (dropped) before.set(dropped.key, dropped.rect);
     await run();
