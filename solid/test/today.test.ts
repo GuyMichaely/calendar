@@ -111,26 +111,30 @@ test("an open task's finished subtasks go with it, folded unless it says to show
   expect(buildSections(shown, now, { ...all, mode: "context" })[0].trees[0].showFinished).toBe(true);
 });
 
-test("the subtask samples differ between the two settings as their notes describe", async () => {
-  const { sampleSubtaskItems } = await import("../src/demo-data");
-  const items = sampleSubtaskItems(now);
-  const titles = (sections: Section[]) => Object.fromEntries(sections.map(entry => [entry.id, entry.trees.map(function flat(node): string[] {
-    const label = node.container ? `(${node.task.title})` : node.muted ? `~${node.task.title}` : node.task.title;
-    return [label, ...node.children.flatMap(flat)];
-  }).flat()]));
-  const firm = ["(Apartment move)", "(Sort out utilities)", "Cancel old internet plan", "(Clean the house)", "Clean my room", "Clean the kitchen", "Pay phone bill"];
-  expect(titles(buildSections(items, now, { ...all, mode: "context" }))).toEqual({
-    firm,
-    closing: ["(Renew passport)", "Get passport photos"],
-    available: ["(Plan birthday dinner)", "Pick a restaurant", "Send invites", "(Renew passport)", "Fill out form DS-82", "(File tax return)", "Gather W-2s", "Water the plants"],
-    upcoming: ["(Renew passport)", "Mail the application", "(File tax return)", "File the return"],
-  });
-  // Each family shows once, in its most urgent section.
-  expect(titles(buildSections(items, now, { ...all, mode: "nested" }))).toEqual({
-    firm,
-    closing: ["(Renew passport)", "~Fill out form DS-82", "Get passport photos", "~Mail the application"],
-    available: ["(Plan birthday dinner)", "Pick a restaurant", "Send invites", "(File tax return)", "Gather W-2s", "~File the return", "Water the plants"],
-  });
+test("the sample data's subtask families show as their notes describe, in either setting", async () => {
+  const { sampleItems } = await import("../src/demo-data");
+  const items = sampleItems(now);
+  // Where each named task shows: its section, dimmed (~) or as a container (()).
+  const where = (mode: "context" | "nested") => {
+    const found: Record<string, string[]> = {};
+    for (const section of buildSections(items, now, { ...all, mode })) for (const tree of section.trees) (function walk(node) {
+      const label = node.container ? `(${section.id})` : node.muted ? `~${section.id}` : section.id;
+      (found[node.task.title] ||= []).push(label);
+      node.children.forEach(walk);
+    })(tree);
+    return found;
+  };
+  const spread = where("context"), together = where("nested");
+  // Three timings: Spread out sends each subtask to its own section; Keep together, the family to the most urgent.
+  expect([spread["Fill out form DS-82"], spread["Get passport photos"], spread["Mail the application"]]).toEqual([["available"], ["closing"], ["upcoming"]]);
+  expect([together["Fill out form DS-82"], together["Get passport photos"], together["Mail the application"]]).toEqual([["~closing"], ["closing"], ["~closing"]]);
+  // A container due tonight takes its rooms to Deadline either way; the grandchild due tonight shows under two containers.
+  for (const found of [spread, together]) {
+    expect([found["Clean my room"], found["Clean the kitchen"]]).toEqual([["firm"], ["firm"]]);
+    expect(found["Cancel old internet plan"]).toEqual(["firm"]);
+    expect(found["Apartment move"]).toEqual(["(firm)"]);
+    expect([found["Pick a restaurant"], found["Send invites"]]).toEqual([["available"], ["available"]]);
+  }
 });
 
 test("subtasks with due dates come first, soonest first; the rest keep their manual order", () => {

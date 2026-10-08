@@ -17,7 +17,7 @@ import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./short
 import { TodayView, when } from "./TodayView";
 import { TimeZoneSettings, WindowSettings } from "./SettingsPanels";
 import { deadlineDaysOf, openWork } from "./today";
-import { SAMPLE_PREFIX, demoItems, sampleSubtaskItems } from "./demo-data";
+import { SAMPLE_PREFIX, sampleItems } from "./demo-data";
 import { isDormant, projectDependents } from "./dependencies";
 import { dependentTasks } from "../../site/task-tree.js";
 import { boardTasks } from "./boards";
@@ -328,7 +328,7 @@ export function App() {
     void (async () => {
       try { await store.refresh(); } catch (error) { console.error(error); setLoadingError(errorMessage(error, "Could not open local storage.")); return; }
       // A fresh local development copy that isn't syncing starts with sample tasks.
-      if (import.meta.env.DEV && !syncSnapshot().settings?.enabled && !items().length) await attempt(() => store.importBackup(JSON.stringify({ items: demoItems() })), "Could not add the sample tasks.");
+      if (import.meta.env.DEV && !syncSnapshot().settings?.enabled && !items().length) await attempt(() => store.importBackup(JSON.stringify({ items: sampleItems() })), "Could not add the sample tasks.");
       sync.start();
       setReady(true);
     })();
@@ -490,10 +490,10 @@ export function App() {
                 <button class="text-button" onClick={() => void exportBackup()}>Export backup</button>
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>
                 <div class="solid-menu-divider" />
-                <h3>Sample tasks</h3>
-                <p class="field-hint">Adds a “Sample: subtasks” group whose tasks show how the Subtasks setting (Keep together / Spread out) differs. Filter Today to that group to see only them. Removing deletes every sample item; both can be undone.</p>
-                <button class="text-button" onClick={() => void attempt(() => store.importBackup(JSON.stringify({ items: sampleSubtaskItems() })), "Could not add the samples.", "Added the sample tasks")}>Add sample subtasks</button>
-                <button class="text-button" disabled={!items().some(item => item.id.startsWith(SAMPLE_PREFIX))} onClick={() => void attempt(() => store.removeByPrefix(SAMPLE_PREFIX, "Remove samples"), "Could not remove the samples.", "Removed the sample tasks")}>Remove sample tasks</button>
+                <h3>Sample data</h3>
+                <p class="field-hint">Something of everything, to try things on: tasks in every section (subtasks, dependent tasks, repeats, windows, push-down), events, records, and reminders, on their own boards. Removing deletes every sample item; both can be undone.</p>
+                <button class="text-button" disabled={items().some(item => item.id.startsWith(SAMPLE_PREFIX))} onClick={() => void attempt(() => store.importBackup(JSON.stringify({ items: sampleItems() })), "Could not add the sample data.", "Added the sample data")}>Add sample data</button>
+                <button class="text-button" disabled={!items().some(item => item.id.startsWith(SAMPLE_PREFIX))} onClick={() => void attempt(() => store.removeByPrefix(SAMPLE_PREFIX, "Remove sample data"), "Could not remove the sample data.", "Removed the sample data")}>Remove sample data</button>
               </section>
             </Show>
           </div>
