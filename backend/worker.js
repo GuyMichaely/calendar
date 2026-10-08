@@ -46,6 +46,8 @@ export class CalendarStore extends DurableObject {
     super(ctx, env);
     // Answering pings doesn't wake the object, so idle live connections cost nothing.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+    // One-off, taken out again in the next deploy: the reminder bookmark browsers shared before each kept its own.
+    ctx.blockConcurrencyWhile(async () => { if (await ctx.storage.get("pushedUntil") !== undefined) { await ctx.storage.delete("pushedUntil"); console.log("Removed the old pushedUntil key"); } else console.log("No old pushedUntil key"); });
     const sql = ctx.storage.sql;
     sql.exec("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, bytes BLOB NOT NULL)");
     sql.exec("CREATE TABLE IF NOT EXISTS devices (token TEXT PRIMARY KEY, updated_at INTEGER NOT NULL)");
