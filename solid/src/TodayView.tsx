@@ -607,11 +607,10 @@ export function TodayView(props: TodayViewProps) {
 
   // Dragging a board by its heading. Over a column, where it would land in that column
   // opens up (above or below the board under the pointer); past a column's edge, between
-  // columns, a new column opens there, centred on the pointer: the columns either side
-  // move apart to make room. That space then stays open, unhighlighted, while
-  // the pointer goes on over the next column, and moves only once the pointer is past
-  // that column too, so nothing slides under the pointer as it goes. Back over the column
-  // the board started in, the space closes, the columns returning to where they were. Spots that change nothing don't open.
+  // columns, a new column opens there: the columns after it move along to make room. That
+  // space then stays open, unhighlighted, while the pointer goes on over the next column,
+  // and moves only once the pointer is past that column too. Back over the column the board
+  // started in, the space closes. Spots that change nothing don't open.
   const [dragKey, setDragKey] = createSignal<string | null>(null);
   const [dropKey, setDropKey] = createSignal("");
   const [spaceKey, setSpaceKey] = createSignal("");
@@ -651,68 +650,24 @@ export function TodayView(props: TodayViewProps) {
       const rect = cards[row].getBoundingClientRect();
       return y < rect.top || y < rect.top + rect.height / 2 ? `slot:${column}:${row}` : `slot:${column}:${row + 1}`;
     };
-    // What stays put while the space opens, moves, or closes (the new space's middle, under
-    // the pointer; or, as the space closes, where the columns were before it): the boards scroll to
-    // hold it still, and where they can't scroll that far, the row of columns is shifted
-    // sideways (`pan`, undone on drop) for the rest. Scrolling, yours or at an edge, moves
-    // it along with everything else.
+    // A space opening only pushes the columns after it along (and closing, lets them back): the
+    // columns before it, and the scroll, stay where they are, so nothing jumps and the first
+    // column never goes off screen for it. Near an edge the boards scroll.
     const own = shown.findIndex(column => column.includes(key));
-    let pan = 0, anchor: { element: HTMLElement; at: number; middle: boolean } | null = null, lastScroll = boardRef.scrollLeft;
-    // Where the row of columns starts with no space open (moving with scrolling, like the anchor):
-    // a space closing puts it back there, so opening and closing spaces leaves the columns where they were.
-    const first = boardRef.firstElementChild as HTMLElement;
-    let restAt = first.getBoundingClientRect().left;
-    const backToRest = () => { anchor = { element: first, at: restAt, middle: false }; };
+    const startScroll = boardRef.scrollLeft;
     const stacks = () => [...boardRef.querySelectorAll<HTMLElement>(".board-stack")];
-    const setPan = (value: number) => {
-      pan = value;
-      for (const child of boardRef.children) (child as HTMLElement).style.transform = pan ? `translateX(${pan}px)` : "";
-    };
     const placeOf = (element: HTMLElement, middle: boolean) => { const rect = element.getBoundingClientRect(); return middle ? (rect.left + rect.right) / 2 : rect.left; };
-    const keep = (element: HTMLElement | null | undefined, at?: number) => { anchor = element ? { element, at: at ?? placeOf(element, false), middle: at != null } : null; };
-    const holdAnchor = () => {
-      // Scrolled since last time: the anchor (and where the columns rest) went with it.
-      if (anchor) anchor.at -= boardRef.scrollLeft - lastScroll;
-      restAt -= boardRef.scrollLeft - lastScroll;
-      lastScroll = boardRef.scrollLeft;
-      if (!anchor) return;
-      const drift = anchor.at - placeOf(anchor.element, anchor.middle);
-      if (Math.abs(drift) > 0.5) setPan(pan + drift);
-      // Turn as much of the shift as possible into scrolling, which looks the same.
-      if (pan) {
-        const before = boardRef.scrollLeft;
-        boardRef.scrollLeft = before - pan;
-        setPan(pan + (boardRef.scrollLeft - before));
-        lastScroll = boardRef.scrollLeft;
-      }
-    };
     const aim = () => {
-      // Near an edge the boards scroll, and once they can't, any shift that hid columns past that edge goes.
       const box = boardRef.getBoundingClientRect();
-      const push = x > box.right - 48 ? -18 : x < box.left + 48 ? 18 : 0;
-      if (push) {
-        const before = boardRef.scrollLeft;
-        boardRef.scrollLeft -= push;
-        const rest = push - (before - boardRef.scrollLeft);
-        const back = rest < 0 ? Math.max(rest, -Math.max(pan, 0)) : Math.min(rest, Math.max(-pan, 0));
-        if (back) { setPan(pan + back); restAt += back; if (anchor) anchor.at += back; }
-      }
-      holdAnchor();
+      if (x > box.right - 48) boardRef.scrollLeft += 18;
+      else if (x < box.left + 48) boardRef.scrollLeft -= 18;
       if (ghost) ghost.style.transform = `translate(${x - x0}px, ${y - y0}px)`;
       const spot = spotAt();
       const useful = !!spot && changes(spot);
-      if (lastColumn === own && spaceKey()) {
-        // Back over the board's own column: the space closes, the columns either side moving back.
-        backToRest();
-        setSpaceKey("");
-        holdAnchor();
-      } else if (useful && spot.startsWith("column:") && spot !== spaceKey()) {
-        // A new column's space moves only to another new column that would change something,
-        // and opens with the pointer in its middle.
-        keep(boardRef.querySelector<HTMLElement>(`[data-drop="${spot}"]`), x);
-        setSpaceKey(spot);
-        holdAnchor();
-      }
+      // Back over the board's own column, the space closes; it moves only to another new
+      // column that would change something.
+      if (lastColumn === own && spaceKey()) setSpaceKey("");
+      else if (useful && spot.startsWith("column:") && spot !== spaceKey()) setSpaceKey(spot);
       setDropKey(useful ? spot : "");
       frame = requestAnimationFrame(aim);
     };
@@ -754,7 +709,6 @@ export function TodayView(props: TodayViewProps) {
         ghost?.remove();
         boardRef.classList.add("settling");
         setDragKey(null); setDropKey(""); setSpaceKey("");
-        setPan(0);
         boardRef.style.removeProperty("--drop-h");
         boardRef.style.removeProperty("--drop-w");
         requestAnimationFrame(() => boardRef.classList.remove("settling"));
@@ -765,8 +719,8 @@ export function TodayView(props: TodayViewProps) {
       // The boards slide from where they show (shift, openings and all) to their new places,
       // or back, and the dragged board from where it was dropped.
       const from = ghost ? { key, rect: ghost.getBoundingClientRect() } : undefined;
-      // Called off, the columns go back to where they were.
-      if (!drop || !target) return void moveBoards(() => { settle(); boardRef.scrollLeft += first.getBoundingClientRect().left - restAt; }, from);
+      // Called off, the boards scroll back to where they were.
+      if (!drop || !target) return void moveBoards(() => { settle(); boardRef.scrollLeft = startScroll; }, from);
       // The new layout shows at once (saving follows). A new column keeps its middle where
       // its space was; a board dropped into a column keeps that column where it was. Where
       // every column fits on screen, they simply start at the left.
