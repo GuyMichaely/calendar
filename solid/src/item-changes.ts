@@ -140,11 +140,22 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
 /** The event an editor draft describes. With only one end chosen, the event lasts an hour. */
 export type RecordDraft = Omit<EventDraft, "reminderMinutes">;
 
-/** A record: an event's times, with nothing to do (so no reminder). */
-export function recordFromDraft(draft: RecordDraft, context: DraftContext): CalendarRecord {
-  const { reminderMinutes: _, ...event } = eventFromDraft({ ...draft, reminderMinutes: null }, { ...context, previous: null });
-  const previous = context.previous?.kind === "record" ? context.previous : {};
-  return { ...previous, ...event, kind: "record", createdAt: context.previous?.createdAt || event.createdAt };
+/** A record: when something was (its end is optional). */
+export function recordFromDraft(draft: RecordDraft, { id, previous, now }: DraftContext): CalendarRecord {
+  const at = now.toISOString();
+  return {
+    ...(previous?.kind === "record" ? previous : {}),
+    id,
+    kind: "record",
+    title: draft.title,
+    notes: draft.notes,
+    tags: draft.tags,
+    attachments: draft.attachments,
+    start: draft.start,
+    end: draft.end,
+    createdAt: previous?.createdAt || at,
+    updatedAt: at,
+  };
 }
 
 export function eventFromDraft(draft: EventDraft, { id, previous, now }: DraftContext): CalendarEvent {

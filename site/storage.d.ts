@@ -2,6 +2,7 @@ import type { Item } from "./model";
 
 export function listItems(): Promise<Item[]>;
 export function listItemsSnapshot(): Promise<Item[]>;
+export function liveItemsSnapshot(): Item[] | null;
 export function putItem(item: Item, baseline?: Item | null): Promise<Item>;
 export function putItemWithoutUndo(item: Item): Promise<void>;
 export function deleteItem(id: string): Promise<void>;

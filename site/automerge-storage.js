@@ -91,6 +91,8 @@ function hydrateItems(items, heads = null) {
   return items.map((item) => hydrateItem(item, heads));
 }
 
+const headsKey = (heads) => [...heads].sort().join();
+
 function sameValue(left, right) {
   if (Object.is(left, right)) return true;
   if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
@@ -449,8 +451,15 @@ export function putLocalItem(item, baseline = null, { cascade = true } = {}) {
     const currentHeads = Automerge.getHeads(doc);
     const before = hydrateItem(materializeItem(doc, item.id), currentHeads);
     const current = materializeItem(doc, item.id, { includeDeleted: true });
-    if (item.kind === "task") { const items = materializeItems(doc); validateTaskParent(items, item.id, item.parentId); validateTaskGroup(items, item.groupId); validateDependentOf(items, item.id, item.dependentOf); }
-    const historicalEdit = baseline && baselineHeads ? applyItemIntentAtHeads(doc, baselineHeads, baseline, item) : null;
+    // Where a task sits is checked against the others only when it changes (reading every item costs).
+    const moved = (field) => (item[field] ?? null) !== (current?.[field] ?? null);
+    if (item.kind === "task" && (moved("parentId") || moved("groupId") || moved("dependentOf"))) { const items = materializeItems(doc); validateTaskParent(items, item.id, item.parentId); validateTaskGroup(items, item.groupId); validateDependentOf(items, item.id, item.dependentOf); }
+    // Text (title, notes) edited from an older reading is merged at that reading, so concurrent
+    // typing elsewhere survives; any other change applies to the document as it is, the same
+    // outcome without replaying history.
+    const textEdited = baseline && ["title", "notes"].some(field => !sameValue(baseline[field], item[field]));
+    const stale = baselineHeads && headsKey(baselineHeads) !== headsKey(currentHeads);
+    const historicalEdit = textEdited && stale ? applyItemIntentAtHeads(doc, baselineHeads, baseline, item) : null;
     let nextDoc = historicalEdit?.newDoc || applyItemIntent(doc, baseline || current, item, { restoreDeleted: baseline == null });
     if (baseline && baseline.kind !== item.kind) nextDoc = enforceMaterializedKindShape(nextDoc, item.id);
     const relatedChanges = [];
@@ -459,7 +468,7 @@ export function putLocalItem(item, baseline = null, { cascade = true } = {}) {
     // alone (they count as done through it); finishing its last open subtask finishes it,
     // and so on up. New work under a finished container reopens it: a subtask that is
     // created, reopened, or moved there (not ordinary edits to one). Imports don't cascade.
-    if (savedTask?.kind === "task" && cascade) {
+    if (savedTask?.kind === "task" && cascade && (savedTask.state !== before?.state || (savedTask.parentId || null) !== (before?.parentId || null) || !before)) {
       let tasks = materializeItems(nextDoc);
       const at = item.updatedAt || new Date().toISOString();
       const setState = (target, state) => {

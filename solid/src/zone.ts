@@ -28,8 +28,16 @@ export type Parts = { year: number; month: number; day: number; hour: number; mi
 const partFormatters = new Map<string, Intl.DateTimeFormat>();
 const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
+// Readings are asked for again and again as the lists are worked out (and Intl is slow), so the
+// latest are kept.
+const readings = new Map<string, Readonly<Parts>>();
+
 /** The wall-clock reading of a moment in a zone (month 1–12, weekday 0 = Sunday). */
-export function partsOf(date: Date, timeZone = zone()): Parts {
+export function partsOf(date: Date, timeZone = zone()): Readonly<Parts> {
+  const key = `${timeZone}|${date.getTime()}`;
+  const known = readings.get(key);
+  if (known) return known;
+  if (readings.size > 4000) readings.clear();
   let formatter = partFormatters.get(timeZone);
   if (!formatter) {
     formatter = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric", weekday: "short" });
@@ -37,7 +45,9 @@ export function partsOf(date: Date, timeZone = zone()): Parts {
   }
   const parts: Record<string, string> = {};
   for (const part of formatter.formatToParts(date)) parts[part.type] = part.value;
-  return { year: +parts.year, month: +parts.month, day: +parts.day, hour: +parts.hour % 24, minute: +parts.minute, second: +parts.second, weekday: WEEKDAY_INDEX[parts.weekday] };
+  const reading = Object.freeze({ year: +parts.year, month: +parts.month, day: +parts.day, hour: +parts.hour % 24, minute: +parts.minute, second: +parts.second, weekday: WEEKDAY_INDEX[parts.weekday] });
+  readings.set(key, reading);
+  return reading;
 }
 
 const offsetAt = (time: number, timeZone: string) => {

@@ -47,7 +47,7 @@ function eventDefaults(request: EditorRequest, items: Item[]) {
 
   const start = request.date ? atTime(request.date, "09:00") : new Date();
   const settings = items.find((item): item is CalendarSettings => item.kind === "settings");
-  return { start: isoToLocalInput(start), end: isoToLocalInput(new Date(start.getTime() + HOUR)), reminderMinutes: settings?.eventReminderMinutes ?? null };
+  return { start: isoToLocalInput(start), end: request.kind === "record" ? "" : isoToLocalInput(new Date(start.getTime() + HOUR)), reminderMinutes: settings?.eventReminderMinutes ?? null };
 }
 
 function serializeForm(form: HTMLFormElement, files: File[], removed: Set<string>) {
@@ -254,13 +254,13 @@ export function ItemEditor(props: {
   };
 
   // Setting one end of an event fills in a missing other end an hour away, and moves it there
-  // when it would come out on the wrong side.
+  // when it would come out on the wrong side. A record's end is optional: it's only moved.
   const deriveEnd = (value: string) => {
     setEventStart(value);
     const start = value ? fromInputValue(value) : null;
     if (!start) return;
     const end = eventEnd() ? fromInputValue(eventEnd()) : null;
-    if (!eventEnd() || (end && end < start)) setEventEnd(isoToLocalInput(new Date(start.getTime() + HOUR)));
+    if ((!eventEnd() && kind() === "event") || (end && end < start)) setEventEnd(isoToLocalInput(new Date(start.getTime() + HOUR)));
   };
 
   const deriveStart = (value: string) => {
@@ -309,7 +309,7 @@ export function ItemEditor(props: {
         ...(dormant() ? { startWhen: startWhen() === "parent-done" ? { on: "parent-done" as const } : startWhen() === "not-yet" ? { on: "not-yet" as const, after: localInputToIso(data.get("startAfter")) } : null, stopParent: data.get("stopParent") === "on" } : {}),
       }, { ...context, parentId: props.request.parentId, dormant: dormant() });
     } else {
-      if (!eventStart() && !eventEnd()) { setSaveError(`Choose when the ${kind()} starts.`); return false; }
+      if (kind() === "record" ? !eventStart() : !eventStart() && !eventEnd()) { setSaveError(`Choose when the ${kind()} starts.`); return false; }
       const times = { ...shared, start: localInputToIso(eventStart()), end: localInputToIso(eventEnd()) };
       item = kind() === "record" ? recordFromDraft(times, context)
         : eventFromDraft({ ...times, reminderMinutes: data.get("reminderMinutes") === "off" ? null : Number(data.get("reminderMinutes")) }, context);
@@ -544,7 +544,7 @@ export function ItemEditor(props: {
         <Show when={kind() === "task"} fallback={
           <div class="form-grid">
             <div class="field"><span>Starts</span><DateTimeField name="eventStart" label="Starts" value={eventStart()} onChange={value => { deriveEnd(value); syncDirty(); }} /></div>
-            <div class="field"><span>Ends</span><DateTimeField name="eventEnd" label="Ends" value={eventEnd()} onChange={value => { deriveStart(value); syncDirty(); }} /></div>
+            <div class="field"><span>{kind() === "record" ? "Ends (optional)" : "Ends"}</span><DateTimeField name="eventEnd" label="Ends" value={eventEnd()} onChange={value => { deriveStart(value); syncDirty(); }} /></div>
             <Show when={kind() === "event"}><label class="field"><span>Reminder</span><select name="reminderMinutes" onChange={syncDirty}>
               <option value="off">None</option><For each={reminderChoices}>{([minutes, label]) => <option value={minutes} selected={minutes === defaults.reminderMinutes}>{label}</option>}</For>
             </select></label></Show>

@@ -14,7 +14,7 @@ export const agendaDayChoices: [AgendaDays, string][] = [[1, "Today"], [3, "3 da
 
 type Row = {
   item: Task | CalendarEvent;
-  // Where it goes in its day (null: no time, for Anytime).
+  // Where it goes in its day (null: no time, for Open todos).
   at: Date | null;
   label: string;
   mark: string;
@@ -34,8 +34,9 @@ const title = (item: Item) => String(item.title || "").trim() || (item.kind === 
  * time order, today's overdue and open-now tasks first. Each task shows once in the days shown,
  * where it first comes up: a task whose window opens several times shows at the first opening, and
  * a repeating one at its first occurrence with how many there are. A task due on a later day
- * shows on that day. Tasks you can do now with nothing timed about them in these days go last,
- * in Anytime (folded unless `anytimeOpen`).
+ * shows on that day; a day with nothing in it doesn't show. Tasks you can do now with nothing
+ * timed about them in these days go last,
+ * in Open todos (folded unless `todosOpen`).
  */
 export function AgendaView(props: {
   items: Item[];
@@ -43,18 +44,18 @@ export function AgendaView(props: {
   now: Date;
   days: AgendaDays;
   onDaysChange: (days: AgendaDays) => void;
-  anytimeOpen: boolean;
+  todosOpen: boolean;
   onEdit: (item: Task | CalendarEvent) => void;
 }) {
-  const [anytimeOpen, setAnytimeOpen] = createSignal(props.anytimeOpen);
-  createEffect(on(() => props.anytimeOpen, open => setAnytimeOpen(open), { defer: true }));
+  const [todosOpen, setTodosOpen] = createSignal(props.todosOpen);
+  createEffect(on(() => props.todosOpen, open => setTodosOpen(open), { defer: true }));
 
-  const agenda = createMemo((): { days: Day[]; anytime: Row[] } => {
+  const agenda = createMemo((): { days: Day[]; todos: Row[] } => {
     const now = props.now, items = props.items, today = startOfDay(now);
     const shown = (item: Item) => !props.query || textMatches(item, props.query);
     const dates = Array.from({ length: props.days }, (_, index) => addDays(today, index));
     const byDay = new Map(dates.map(date => [dayKey(date), { date, rows: [] as Row[] }]));
-    const anytime: Row[] = [];
+    const todos: Row[] = [];
     const todayBlock = byDay.get(dayKey(today))!;
     const windows = windowsById(items);
     const entries = calendarEntries(items, today, dates.at(-1)!, now);
@@ -84,10 +85,10 @@ export function AgendaView(props: {
       if (!shown(task)) { seen.add(task.id); continue; }
       const placement = placementOf(task, items, now);
       const row = describe(task, placement);
-      // Overdue goes first today; due later than today goes on its day (if shown), else in Anytime.
+      // Overdue goes first today; due later than today goes on its day (if shown), else in Open todos.
       const day = row?.at && !placement.overdue ? byDay.get(dayKey(row.at)) : todayBlock;
       if (row && day) day.rows.push(day === todayBlock ? row : { ...row, label: `Due ${timeOf(row.at!) || ""}`.trim() });
-      else anytime.push({ item: task, at: null, mark: "task start", label: placement.due ? `Due ${when(placement.due, now)}` : "" });
+      else todos.push({ item: task, at: null, mark: "task start", label: placement.due ? `Due ${when(placement.due, now)}` : "" });
       seen.add(task.id);
     }
 
@@ -117,7 +118,7 @@ export function AgendaView(props: {
 
     const order = (a: Row, b: Row) => (a.at?.getTime() ?? 0) - (b.at?.getTime() ?? 0);
     const withRepeats = (row: Row) => { const found = repeats.get(row.item.id); return found && found.length > 1 ? { ...row, repeats: found } : row; };
-    return { days: dates.map(date => ({ date, rows: byDay.get(dayKey(date))!.rows.sort(order).map(withRepeats) })), anytime: anytime.map(withRepeats) };
+    return { days: dates.map(date => ({ date, rows: byDay.get(dayKey(date))!.rows.sort(order).map(withRepeats) })), todos: todos.map(withRepeats) };
   });
 
   const dayName = (date: Date) => {
@@ -147,20 +148,19 @@ export function AgendaView(props: {
         <For each={agendaDayChoices}>{([days, label]) => <button type="button" aria-pressed={props.days === days} onClick={() => props.onDaysChange(days)}>{label}</button>}</For>
       </div>
     </div>
-    <For each={agenda().days}>{(day, index) =>
+    {/* Days with nothing in them don't show. */}
+    <For each={agenda().days.filter(day => day.rows.length)} fallback={<p class="agenda-quiet">{props.query ? "No matches." : props.days === 1 ? "Nothing scheduled today." : `Nothing scheduled in the next ${props.days} days.`}</p>}>{day =>
       <section class="agenda-day" aria-label={dayName(day.date)}>
         <Show when={props.days > 1}><h2 class="agenda-day-heading"><span>{dayName(day.date)}</span><small>{formatIn(day.date, { month: "short", day: "numeric" })}</small></h2></Show>
-        <Show when={day.rows.length} fallback={<p class="agenda-quiet">{props.query ? "No matches." : "Nothing scheduled."}</p>}>
-          <div class="agenda-entries">{index() === 0 ? todayRows(day.rows) : <For each={day.rows}>{row}</For>}</div>
-        </Show>
+        <div class="agenda-entries">{dayKey(day.date) === dayKey(props.now) ? todayRows(day.rows) : <For each={day.rows}>{row}</For>}</div>
       </section>}
     </For>
-    <Show when={agenda().anytime.length}>
-      <section class="agenda-day agenda-anytime" aria-label="Anytime">
-        <h2 class="agenda-day-heading"><button type="button" class="agenda-fold" aria-expanded={anytimeOpen()} onClick={() => setAnytimeOpen(open => !open)}>
-          <span class="section-chevron" aria-hidden="true">›</span>Anytime<small>{agenda().anytime.length}</small>
+    <Show when={agenda().todos.length}>
+      <section class="agenda-day agenda-todos" aria-label="Open todos">
+        <h2 class="agenda-day-heading"><button type="button" class="agenda-fold" aria-expanded={todosOpen()} onClick={() => setTodosOpen(open => !open)}>
+          <span class="section-chevron" aria-hidden="true">›</span>Open todos<small>{agenda().todos.length}</small>
         </button></h2>
-        <Show when={anytimeOpen()}><div class="agenda-entries"><For each={agenda().anytime}>{row}</For></div></Show>
+        <Show when={todosOpen()}><div class="agenda-entries"><For each={agenda().todos}>{row}</For></div></Show>
       </section>
     </Show>
   </section>;

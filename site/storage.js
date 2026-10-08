@@ -110,6 +110,11 @@ function syncLiveItem(id, snapshot) {
   else liveItems.push(copy);
 }
 
+/** The items as the last changes left them, without reading the document again (null before the first list). */
+export function liveItemsSnapshot() {
+  return liveItems ? [...liveItems] : null;
+}
+
 function replaceLiveItems(items) {
   if (!liveItems) return;
   liveItems.splice(0, liveItems.length, ...items.map(withoutAttachmentBytes));

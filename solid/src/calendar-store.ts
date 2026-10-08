@@ -17,6 +17,7 @@ import {
   redoLabel,
   undo,
   undoLabel,
+  liveItemsSnapshot,
 } from "../../site/storage.js";
 import { startedTask } from "./dependencies";
 import { advancedTask } from "./repeats";
@@ -46,11 +47,18 @@ export function createCalendarStore(options: { onChanged: () => void }) {
   onCleanup(() => window.removeEventListener("calendar:history-state", onHistory));
 
   const refresh = async () => { const next = await listItems(); setItems([...next]); };
-  const changed = async () => { await refresh(); options.onChanged(); };
-  // Reload even after a failure: part of a batch may have been saved.
+  // A change shows from the items it updated in memory (reading the whole document again costs
+  // more the bigger it gets); after a failure the document is read again, since part of a
+  // batch may have been saved.
+  const changed = async (failed = false) => {
+    const live = failed ? null : liveItemsSnapshot();
+    if (live) setItems(live); else await refresh();
+    options.onChanged();
+  };
   const change = async <T>(run: () => Promise<T>): Promise<T> => {
-    try { return await run(); }
-    finally { await changed(); }
+    let failed = true;
+    try { const result = await run(); failed = false; return result; }
+    finally { await changed(failed); }
   };
   const batch = <T>(label: string, run: () => Promise<T>) => change(() => historyBatch(label, run));
   const patchGroup = (group: Group, patch: Partial<Group>) => putItem(patchedItem(group, patch, new Date()), group);
