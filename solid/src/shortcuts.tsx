@@ -54,7 +54,7 @@ export function KeyboardShortcutSettings(props: {
       <div class="dialog-header">
         <h2 id="shortcut-title">Keyboard shortcuts</h2>
       </div>
-      <p class="shortcut-help">In the Agenda and Boards, these apply to the focused task (Add a task works anywhere there). ↑/↓ moves between tasks, wrapping around at the ends; in Boards, ←/→ moves between columns. Home and End go to the first and last task; Tab moves through the focused task's buttons.</p>
+      <p class="shortcut-help">In List and Boards, these apply to the focused task (Add a task works anywhere there). ↑/↓ moves between tasks, wrapping around at the ends; in Boards, ←/→ moves between columns. Home and End go to the first and last task; Tab moves through the focused task's buttons.</p>
       <div class="shortcut-grid">
         <For each={actions}>{(action, index) => (
           <label class="shortcut-row">

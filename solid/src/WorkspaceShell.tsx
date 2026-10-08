@@ -17,14 +17,16 @@ export function WorkspaceShell(props: {
   searchResults?: JSX.Element; onSearchKeyDown?: (event: KeyboardEvent) => void; onSearchFocus?: () => void; searchExpanded?: boolean;
 }) {
   const [searchOpen, setSearchOpen] = createSignal(false);
+  const searchLabel = () => props.searchResults ? "Search everything" : props.view === "calendar" ? "Search calendar" : props.view === "agenda" ? "Search agenda" : "Search tasks";
   let searchInput!: HTMLInputElement;
   const toggleSearch = () => { const open = !searchOpen(); setSearchOpen(open); if (!open) props.onQuery(""); else requestAnimationFrame(() => searchInput.focus()); };
   return <div class="workspace-layout">
     <a class="skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById("workspace-content")?.focus(); }}>Skip to content</a>
     <aside class="workspace-rail">
-      <button class="workspace-brand" onClick={() => props.onNavigate("tasks")} aria-label="Calendar home"><span class="brand-mark"><Icon name="calendar" size={23} /></span>Calendar<span class="brand-period">.</span></button>
+      <button class="workspace-brand" onClick={() => props.onNavigate("agenda")} aria-label="Calendar home"><span class="brand-mark"><Icon name="calendar" size={23} /></span>Calendar<span class="brand-period">.</span></button>
       <nav class="rail-nav" aria-label="Workspace">
-        <button classList={{active: props.view === "tasks"}} aria-current={props.view === "tasks" ? "page" : undefined} onClick={() => props.onNavigate("tasks")}><Icon name="sun" /><span>Agenda</span><span class="nav-count">{props.openCount}</span></button>
+        <button classList={{active: props.view === "agenda"}} aria-current={props.view === "agenda" ? "page" : undefined} onClick={() => props.onNavigate("agenda")}><Icon name="sun" /><span>Agenda</span></button>
+        <button classList={{active: props.view === "list"}} aria-current={props.view === "list" ? "page" : undefined} onClick={() => props.onNavigate("list")}><Icon name="list" /><span>List</span><span class="nav-count">{props.openCount}</span></button>
         <button classList={{active: props.view === "boards"}} aria-current={props.view === "boards" ? "page" : undefined} onClick={() => props.onNavigate("boards")}><Icon name="compact" /><span>Boards</span></button>
         <button classList={{active: props.view === "calendar"}} aria-current={props.view === "calendar" ? "page" : undefined} onClick={() => props.onNavigate("calendar")}><Icon name="calendar" /><span>Calendar</span></button>
       </nav>
@@ -36,9 +38,10 @@ export function WorkspaceShell(props: {
       <header class="workspace-topbar">
         <strong class="mobile-word">Calendar<span class="mobile-brand-period">.</span></strong>
         <Show when={props.notice}>{props.notice}</Show>
-        <label class="workspace-search" data-open={searchOpen() || !!props.query}><Icon name="search" size={17} /><input ref={searchInput} type="search" aria-label={props.searchResults ? "Search everything" : props.view === "calendar" ? "Search calendar" : "Search tasks"} placeholder={props.searchResults ? "Search everything" : props.view === "calendar" ? "Search calendar" : "Search tasks"} value={props.query} onInput={event => props.onQuery(event.currentTarget.value)} onKeyDown={event => props.onSearchKeyDown?.(event)} onFocus={() => props.onSearchFocus?.()} aria-expanded={props.searchResults ? !!props.searchExpanded : undefined} aria-controls={props.searchResults ? "search-results" : undefined} autocomplete="off" /><Show when={props.query}><button type="button" aria-label="Clear search" onClick={() => props.onQuery("")}>×</button></Show>{props.searchResults}</label>
+        <label class="workspace-search" data-open={searchOpen() || !!props.query}><Icon name="search" size={17} /><input ref={searchInput} type="search" aria-label={searchLabel()} placeholder={searchLabel()} value={props.query} onInput={event => props.onQuery(event.currentTarget.value)} onKeyDown={event => props.onSearchKeyDown?.(event)} onFocus={() => props.onSearchFocus?.()} aria-expanded={props.searchResults ? !!props.searchExpanded : undefined} aria-controls={props.searchResults ? "search-results" : undefined} autocomplete="off" /><Show when={props.query}><button type="button" aria-label="Clear search" onClick={() => props.onQuery("")}>×</button></Show>{props.searchResults}</label>
         <div class="workspace-utilities"><button class="icon-button mobile-search-toggle" aria-label={searchOpen() ? "Close search" : "Search"} aria-expanded={searchOpen() || !!props.query} onClick={toggleSearch}><Icon name="search" size={17} /></button>
           <button class="sync-indicator" data-state={props.syncState} title={props.syncDetail} aria-label={`${props.syncLabel}. Open sync settings`} onClick={props.onSettings}><Icon name={syncIcons[props.syncState]} size={17} /><span role="status">{props.syncLabel}</span></button>
+          <button class="icon-button mobile-settings" aria-label="Settings" onClick={props.onSettings}><Icon name="settings" size={17} /></button>
           <div class="mobile-history" aria-label="History"><button class="icon-button" aria-label="Undo" title={props.undoLabel || "Undo"} disabled={!props.canUndo} onClick={props.onUndo}>↶</button><button class="icon-button" aria-label="Redo" title={props.redoLabel || "Redo"} disabled={!props.canRedo} onClick={props.onRedo}>↷</button></div>
           <button class="primary-button workspace-new" onClick={props.onNew}><Icon name="plus" size={17} />{props.view === "calendar" ? "New event" : "New task"}</button>
         </div>
@@ -46,11 +49,11 @@ export function WorkspaceShell(props: {
       <main id="workspace-content" tabIndex={-1}>{props.children}</main>
     </div>
     <nav class="mobile-nav" aria-label="Primary">
-      <button classList={{active: props.view === "tasks"}} aria-current={props.view === "tasks" ? "page" : undefined} onClick={() => props.onNavigate("tasks")}><Icon name="sun" /><span>Agenda</span></button>
-      <button classList={{active: props.view === "boards"}} aria-current={props.view === "boards" ? "page" : undefined} onClick={() => props.onNavigate("boards")}><Icon name="compact" /><span>Boards</span></button>
+      <button classList={{active: props.view === "agenda"}} aria-current={props.view === "agenda" ? "page" : undefined} onClick={() => props.onNavigate("agenda")}><Icon name="sun" /><span>Agenda</span></button>
+      <button classList={{active: props.view === "list"}} aria-current={props.view === "list" ? "page" : undefined} onClick={() => props.onNavigate("list")}><Icon name="list" /><span>List</span></button>
       <button class="mobile-create" aria-label={props.view === "calendar" ? "New event" : "New task"} onClick={props.onNew}><span><Icon name="plus" /></span></button>
+      <button classList={{active: props.view === "boards"}} aria-current={props.view === "boards" ? "page" : undefined} onClick={() => props.onNavigate("boards")}><Icon name="compact" /><span>Boards</span></button>
       <button classList={{active: props.view === "calendar"}} aria-current={props.view === "calendar" ? "page" : undefined} onClick={() => props.onNavigate("calendar")}><Icon name="calendar" /><span>Calendar</span></button>
-      <button onClick={props.onSettings}><Icon name="settings" /><span>Settings</span></button>
     </nav>
   </div>;
 }

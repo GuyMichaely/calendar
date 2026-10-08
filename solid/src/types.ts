@@ -12,4 +12,4 @@ export type {
   TimeWindow,
 } from "../../site/model";
 
-export type View = "tasks" | "boards" | "calendar";
+export type View = "agenda" | "list" | "boards" | "calendar";

@@ -11,7 +11,7 @@ type Result = { item: Found; at: Date | null; detail: string };
 const LIMIT = 30;
 const time = (value?: string | null) => { const date = value ? new Date(value) : null; return date && !Number.isNaN(date.getTime()) ? date : null; };
 
-/** A task's or event's moment and what the results say about it, worded as the Agenda words it; `past` is whether it's behind you. */
+/** A task's or event's moment and what the results say about it, worded as List words it; `past` is whether it's behind you. */
 function describe(item: Found, items: Item[], now: Date): Result & { past: boolean } {
   if (item.kind === "event") {
     const start = time(item.start), end = time(item.end) ?? start;

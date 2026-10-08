@@ -15,7 +15,7 @@ export function WindowSettings(props: {
   const windows = createMemo(() => props.items.filter((item): item is TimeWindow => item.kind === "window").sort((a, b) => a.title.localeCompare(b.title)));
   const users = (window: TimeWindow) => props.items.filter(item => item.kind === "task" && item.state !== "completed" && item.windowId === window.id).length;
   return <section class="window-settings" aria-label="Windows">
-    <p class="field-hint">A window is when tasks can be done, like business hours. Tasks pick one by name; the Agenda lists them as closing or opening today.</p>
+    <p class="field-hint">A window is when tasks can be done, like business hours. Tasks pick one by name; List shows them as closing or opening today.</p>
     <For each={windows().map(window => window.id)}>{id => {
       const window = () => windows().find(entry => entry.id === id)!;
       return <Show when={windows().some(entry => entry.id === id)}>

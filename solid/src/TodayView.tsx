@@ -11,7 +11,7 @@ import { actionForKey, normalizeEventKey, type Shortcuts } from "./shortcut-conf
 import type { Group, Item, Task } from "./types";
 import { BoardMenu } from "./BoardMenu";
 
-// Agenda lists the urgency sections; Boards shows your boards and the built-in ones as columns.
+// List shows the urgency sections; Boards shows your boards and the built-in ones as columns.
 export type TaskView = "today" | "boards";
 
 export type TodayViewProps = {
@@ -71,7 +71,7 @@ export const SECTION_LABELS: Record<SectionId, { title: string; hint?: string }>
   upcoming: { title: "Upcoming" },
   completed: { title: "Completed" },
 };
-// In the Agenda, these start collapsed.
+// In List, these start collapsed.
 const COLLAPSED_AT_FIRST = new Set<SectionId>(["upcoming", "completed"]);
 const MOTION_MS = 320;
 
@@ -109,7 +109,7 @@ export function TodayView(props: TodayViewProps) {
     const filter = groupFilter();
     return buildSections(props.items, props.now, {
       mode: props.subtaskMode,
-      // Completed tasks are always listed (in the Agenda, their section starts collapsed).
+      // Completed tasks are always listed (in List, their section starts collapsed).
       showCompleted: true,
       include: task => textMatches(task, props.query) && (props.view === "boards" || !filter || (taskGroupId(task, byId()) ?? "none") === filter),
       // In Boards, a task stays on its board whatever its urgency.
@@ -319,7 +319,7 @@ export function TodayView(props: TodayViewProps) {
   };
 
   // Dragging a task (not reordering): drop it on another task to make it a subtask there,
-  // on a board to move it to that board, or (in the Agenda) off any task to take it out of
+  // on a board to move it to that board, or (in List) off any task to take it out of
   // its parent. With touch, a long press starts the drag so a swipe still scrolls.
   const [draggingId, setDraggingId] = createSignal<string | null>(null);
   type TaskTarget = { to: { parent: Task } | { groupId: string | null }; hint: string; element: HTMLElement };
@@ -345,7 +345,7 @@ export function TodayView(props: TodayViewProps) {
       if (!own && !task.parentId) return null;
       return { to: { groupId: null }, hint: own ? "Take it off its board" : "Move out of its parent", element: section };
     }
-    // Agenda: out of its parent, keeping the board it had through it.
+    // List: out of its parent, keeping the board it had through it.
     if (props.view === "today" && task.parentId) return { to: { groupId: own }, hint: "Move out of its parent", element: section };
     return null;
   };
@@ -473,7 +473,7 @@ export function TodayView(props: TodayViewProps) {
 
 
   // Keyboard. The last focused row is the one Tab comes back to; arrows move focus between
-  // rows (and the rows that fold others away, and in the Agenda the section headings),
+  // rows (and the rows that fold others away, and in List the section headings),
   // wrapping around at the ends. In Boards, ↑/↓ stay in a column and ←/→ change column.
   const [focusId, setFocusId] = createSignal<string | null>(null);
   const editable = (target: EventTarget | null) => target instanceof Element && !!target.closest("input, textarea, select, [contenteditable]");
@@ -812,7 +812,7 @@ export function TodayView(props: TodayViewProps) {
     if (id) requestAnimationFrame(() => boardRef.querySelector(`[data-section="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: boardRef.closest('[data-animations="on"]') ? "smooth" : "auto" }));
   };
 
-  // One section: in the Agenda a collapsible list section; in Boards a board you can drag.
+  // One section: in List a collapsible list section; in Boards a board you can drag.
   const SectionBlock = (blockProps: { id: string; column?: number; row?: number }) => {
     const id = () => blockProps.id;
     const current = () => props.view === "boards" ? sectionOf(id()) : found().get(id()) ?? { id: id(), trees: [], count: 0 };
@@ -857,7 +857,7 @@ export function TodayView(props: TodayViewProps) {
       </div>}
     </Show>
     <div class="today-heading">
-      <h1>{props.view === "boards" ? "Boards" : "Agenda"}</h1>
+      <h1>{props.view === "boards" ? "Boards" : "List"}</h1>
       <span class="today-date">{formatIn(props.now, { weekday: "short", month: "short", day: "numeric" })} · {clock(props.now)}</span>
       <span class="spacer" />
       <label class="today-subtasks" title={"Keep together: each task with subtasks shows once, in the section of its most urgent subtask, with the rest dimmed.\nSpread out: every subtask shows in its own section, under a dimmed row for its parent."}>

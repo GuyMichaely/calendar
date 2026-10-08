@@ -156,7 +156,7 @@ export class CalendarStore extends DurableObject {
       // Each browser on its own: one whose push service is down keeps its place without holding up the rest.
       let upTo = now;
       for (const reminder of remindersSince(items, await this.pushFrom(endpoint, now), now, settings, Infinity).filter(reminder => reminder.at.getTime() <= now)) {
-        const url = open + (reminder.channel === "starts" ? `#tasks/${encodeURIComponent(reminder.itemId)}` : "#calendar");
+        const url = open + (reminder.channel === "starts" ? `#list/${encodeURIComponent(reminder.itemId)}` : "#calendar");
         let result;
         try {
           // The push service holds it while the browser is closed or offline, as long as it will (four weeks is the most push services take).

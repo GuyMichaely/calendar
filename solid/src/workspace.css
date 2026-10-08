@@ -87,8 +87,9 @@ h3 { font-size: 14px; font-weight: 650; }
 .sync-indicator[data-state="busy"] .ui-icon, .sync-indicator[data-state="offline"] .ui-icon { color: var(--waiting); }
 .sync-indicator[data-state="signed-out"], .sync-indicator[data-state="error"] { color: var(--danger); }
 [data-animations="on"] .sync-indicator[data-state="busy"] .ui-icon { animation: sync-turn 1.2s linear infinite; }
-@keyframes sync-turn { to { rotate: 360deg; } }
-.mobile-nav, .mobile-history, .mobile-word, .mobile-search-toggle { display: none; }
+/* The refresh icon's arrows point counterclockwise; it turns the way they point. */
+@keyframes sync-turn { to { rotate: -360deg; } }
+.mobile-nav, .mobile-history, .mobile-word, .mobile-search-toggle, .mobile-settings { display: none; }
 main { padding: 37px 36px 80px; min-height: calc(100dvh - 56px); }
 main:focus { outline: none; }
 .panel { width: 100%; max-width: 1260px; margin-inline: auto; min-width: 0; }
@@ -270,7 +271,7 @@ body.task-dragging { overflow-anchor: none; }
   h1 { font-size: 31px; letter-spacing: -.9px; }
   .workspace-rail { display: none; }.workspace-body { margin-left: 0; }
   .workspace-topbar { display: grid; grid-template-columns: 1fr auto; gap: 10px 12px; padding: 10px 17px; min-height: 0; }
-  .mobile-word { display: block; font-size: 17px; letter-spacing: -.5px; }.mobile-brand-period { color: var(--accent); }.mobile-search-toggle { display: inline-grid; border: 0; width: 25px; height: 28px; }.workspace-search[data-open="false"] { display: none; }
+  .mobile-word { display: block; font-size: 17px; letter-spacing: -.5px; }.mobile-brand-period { color: var(--accent); }.mobile-search-toggle, .mobile-settings { display: inline-grid; border: 0; width: 25px; height: 28px; }.workspace-search[data-open="false"] { display: none; }
   .workspace-search { grid-column: 1 / -1; grid-row: 2; width: 100%; border: 1px solid var(--line); background: var(--surface-2); border-radius: 6px; padding: 1px 10px; }
   .workspace-search input { font-size: 16px; padding-block: 6px; }
   .workspace-utilities { grid-column: 2; gap: 12px; }.workspace-topbar > .time-control { grid-column: 1 / -1; grid-row: 3; }.sync-indicator { padding: 5px; }.sync-indicator > span { display: none; }.workspace-new { display: none; }
@@ -561,3 +562,23 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .time-zone-choice p { margin: 0; font-size: 12px; }
 .time-zone-choice > button { display: grid; gap: 3px; justify-content: start; justify-items: start; width: 100%; text-align: left; padding: 10px 12px; }
 .time-zone-choice > button small { color: var(--muted); font-weight: 400; }
+
+/* Agenda: the days ahead in time order (AgendaView). */
+.agenda-panel { max-width: 760px; }
+.agenda-range { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.agenda-range button { border: 0; border-radius: 0; background: none; color: var(--muted); font-size: 12px; padding: 6px 11px; }
+.agenda-range button + button { border-left: 1px solid var(--line); }
+.agenda-range button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); }
+.agenda-day + .agenda-day { margin-top: 22px; }
+.agenda-day-heading { position: sticky; top: 56px; z-index: 2; display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 8px 0 6px; background: var(--bg); border-bottom: 1px solid var(--line); font-size: 15px; font-weight: 600; }
+.agenda-day-heading small { color: var(--muted); font-size: 12px; font-weight: 500; }
+.agenda-panel .agenda-entry { padding: 11px 0; }
+.agenda-panel .agenda-entry strong { font-size: 13.5px; }
+.agenda-panel .agenda-entry small { font-size: 12px; }
+.agenda-panel .day-section { margin: 4px 0 8px; }
+.agenda-past { opacity: .5; }
+.agenda-repeats { flex: none; padding: 2px 7px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 11.5px; font-weight: 600; }
+.agenda-now { display: flex; align-items: center; gap: 8px; margin: 2px 0; color: var(--accent); font-size: 11px; font-weight: 600; }
+.agenda-now::after { content: ""; flex: 1; height: 1px; background: var(--accent); opacity: .6; }
+.agenda-quiet { margin: 12px 0 0; color: var(--muted); font-size: 12.5px; }
+@media (max-width: 760px) { .agenda-day-heading { top: 48px; } }

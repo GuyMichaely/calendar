@@ -5,6 +5,7 @@ import { WorkspaceShell, type SyncState } from "./WorkspaceShell";
 import { Icon } from "./Icon";
 import { DialogShell } from "./DialogShell";
 import { CalendarView } from "./CalendarView";
+import { AgendaView } from "./AgendaView";
 import { createFind } from "./SearchResults";
 import { ItemEditor, type EditorRequest } from "./ItemEditor";
 import { createCloudSync } from "./cloud-sync";
@@ -25,10 +26,13 @@ import { animationsEnabled } from "./settings";
 import type { CalendarEvent, CalendarSettings, Group, Item, Task, View } from "./types";
 import type { SyncMode } from "@guymichaely/app-sync";
 
-function readView(): View { return location.hash === "#calendar" ? "calendar" : /^#boards(\/|$)/.test(location.hash) ? "boards" : "tasks"; }
-// Agenda lives at #tasks and Boards at #boards; a selected task follows a slash.
-function readSelectedTask() { const match = /^#(?:tasks|boards)\/(.+)$/.exec(location.hash); return match ? decodeURIComponent(match[1]) : null; }
-function tasksHash(id: string | null, view: View = readView()) { const base = view === "boards" ? "#boards" : "#tasks"; return id ? `${base}/${encodeURIComponent(id)}` : base; }
+function readView(): View { return location.hash === "#calendar" ? "calendar" : /^#boards(\/|$)/.test(location.hash) ? "boards" : /^#list(\/|$)/.test(location.hash) ? "list" : "agenda"; }
+// The Agenda lives at #agenda, the Calendar at #calendar, List at #list and Boards at #boards; in
+// those two a selected task (open in the side pane) follows a slash.
+function readSelectedTask() { const match = /^#(?:list|boards)\/(.+)$/.exec(location.hash); return match ? decodeURIComponent(match[1]) : null; }
+function tasksHash(id: string | null, view: View = readView()) { const base = view === "boards" ? "#boards" : "#list"; return id ? `${base}/${encodeURIComponent(id)}` : base; }
+// List and Boards are the task views (TodayView): a task opens in their side pane when there's room.
+const taskView = (view: View) => view === "list" || view === "boards";
 function editableTarget(target: EventTarget | null) { return target instanceof Element && !!target.closest("input, textarea, select, [contenteditable='true']"); }
 function errorMessage(error: unknown, fallback: string) { return error instanceof Error && error.message ? error.message : fallback; }
 
@@ -36,7 +40,7 @@ export function App() {
   // Changes sync once saved locally; other devices' changes reload the items once merged.
   const store = createCalendarStore({ onChanged: () => sync.changed() });
   const { controller: sync, snapshot: syncSnapshot } = createCloudSync({ onSynced: store.refresh });
-  if (!/^#(tasks|boards|calendar)$/.test(location.hash) && !readSelectedTask()) history.replaceState(null, "", "#tasks");
+  if (!/^#(agenda|list|boards|calendar)$/.test(location.hash) && !readSelectedTask()) history.replaceState(null, "", "#agenda");
   const prefs = createPreferences();
   const items = store.items;
   // The calendar's time zone, synced. A calendar that has none yet gets this device's, once
@@ -128,7 +132,7 @@ export function App() {
   const signOut = async () => { await sync.turnOff(true); showToast("Signed out; your edits stay in this browser"); };
   const navigate = (next: View) => {
     setView(next);
-    const hash = next === "calendar" ? "#calendar" : tasksHash(selectedTaskId(), next);
+    const hash = taskView(next) ? tasksHash(selectedTaskId(), next) : `#${next}`;
     if (location.hash !== hash) history.pushState(null, "", hash);
   };
   const editorParents: string[] = [];
@@ -154,7 +158,7 @@ export function App() {
   });
   // The detail pane animates in and out: it stays mounted (with its last request)
   // for a beat after closing while the board slides back to full width.
-  const paneOpen = () => splitView() && !!detailRequest();
+  const paneOpen = () => splitView() && taskView(view()) && !!detailRequest();
   const [paneMounted, setPaneMounted] = createSignal(false);
   const [paneClosing, setPaneClosing] = createSignal(false);
   let paneWasOpen = false, paneTimer: ReturnType<typeof setTimeout> | undefined, lastRequest: EditorRequest | null = null;
@@ -175,7 +179,7 @@ export function App() {
     if (id === selectedTaskId()) return;
     if (flushDetail && !(await flushDetail())) return;
     setSelectedTaskId(id);
-    const hash = view() === "calendar" ? location.hash : tasksHash(id, view());
+    const hash = taskView(view()) ? tasksHash(id, view()) : location.hash;
     if (location.hash !== hash) history[replace ? "replaceState" : "pushState"](null, "", hash);
   };
   const closeDetail = async () => {
@@ -183,7 +187,7 @@ export function App() {
     await selectTask(null);
     if (!selectedTaskId() && id) document.querySelector<HTMLElement>(`[data-task-card][data-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
   };
-  const editTask = (task: Task) => { if (splitView()) void selectTask(task.id); else openEditor(task); };
+  const editTask = (task: Task) => { if (splitView() && taskView(view())) void selectTask(task.id); else openEditor(task); };
   // Search that finds (Settings → Display): a result opens where you are; the Calendar also goes to its month.
   const find = createFind({ items, query, now: clock, onOpen: item => {
     if (view() !== "calendar") { if (item.kind === "task") editTask(item); else openEditor(item); return; }
@@ -238,7 +242,7 @@ export function App() {
       const item = id && ready() ? items().find(entry => entry.id === id) : undefined;
       if (!item) return;
       setOpenedId(null);
-      if (item.kind === "task") untrack(() => { if (view() === "calendar") navigate("tasks"); editTask(item); });
+      if (item.kind === "task") untrack(() => editTask(item));
       else if (item.kind === "event") untrack(() => openEditor(item));
     });
   }
@@ -292,7 +296,7 @@ export function App() {
   const renameGroup = (group: Group, title: string) => groupChange(() => store.renameGroup(group, title));
   // Undo and redo move rows the way the change itself did.
   let motion: ((run: () => Promise<unknown>) => Promise<void>) | null = null;
-  const withMotion = async (run: () => Promise<unknown>) => { if (motion && view() !== "calendar") await motion(run); else await run(); };
+  const withMotion = async (run: () => Promise<unknown>) => { if (motion && taskView(view())) await motion(run); else await run(); };
   const applyUndo = async () => { let label: string | null = null; await withMotion(async () => { label = await store.undo(); }); if (label !== null) showToast(`Undo${label ? ` ${label}` : ""}`); };
   const applyRedo = async () => { let label: string | null = null; await withMotion(async () => { label = await store.redo(); }); if (label !== null) showToast(`Redo${label ? ` ${label}` : ""}`); };
   const exportBackup = async () => {
@@ -330,7 +334,7 @@ export function App() {
     const syncLocation = () => {
       setView(readView());
       const id = readSelectedTask();
-      if (readView() === "calendar" || id === selectedTaskId()) return;
+      if (!taskView(readView()) || id === selectedTaskId()) return;
       const previous = selectedTaskId();
       void (async () => {
         if (flushDetail && !(await flushDetail())) { history.pushState(null, "", tasksHash(previous, view())); return; }
@@ -375,7 +379,8 @@ export function App() {
           onSettings={() => { setSettingsTab("data"); openSettings(); }}
           syncState={syncStatus().state} syncLabel={syncStatus().label} syncDetail={syncStatus().detail}
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
-          <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("tasks")} />}>
+          <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("agenda")} />}>
+            <Show when={view() !== "agenda"} fallback={<AgendaView items={items()} query={query()} now={clock()} days={prefs.agendaDays()} onDaysChange={prefs.setAgendaDays} anytimeAfter={prefs.anytimeAfter()} onEdit={item => openEditor(item)} />}>
             <div class="tasks-workspace" classList={{ split: paneOpen() }}>
             <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
@@ -392,6 +397,7 @@ export function App() {
               </aside>
             </Show>
             </div>
+            </Show>
           </Show>
         </WorkspaceShell>
         <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />}</Show>
@@ -417,6 +423,7 @@ export function App() {
               <section class="appearance-settings" aria-label="Display">
                 <label class="animation-setting"><span><strong>Show board on rows</strong><small>A task's board name at the right of its row.</small></span><input aria-label="Show board on rows" type="checkbox" role="switch" checked={prefs.showBoard()} onChange={event => prefs.setShowBoard(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Show tags on rows</strong><small>A task's tags beside its other details.</small></span><input aria-label="Show tags on rows" type="checkbox" role="switch" checked={prefs.showTags()} onChange={event => prefs.setShowTags(event.currentTarget.checked)} /></label>
+                <label class="animation-setting"><span><strong>Anytime tasks after the timed ones</strong><small>In the Agenda, today's tasks with nothing timed about them follow the day's timed things, open. Off, they're folded into Anytime at the top.</small></span><input aria-label="Anytime tasks after the timed ones" type="checkbox" role="switch" checked={prefs.anytimeAfter()} onChange={event => prefs.setAnytimeAfter(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Search everything</strong><small>Searching lists every matching task and event, past ones and done ones included, under the search field; picking one opens it. Off, search only narrows what the view shows.</small></span><input aria-label="Search everything" type="checkbox" role="switch" checked={prefs.findSearch()} onChange={event => prefs.setFindSearch(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Pretend time</strong><small>A clock in the top bar that makes the app act as if it's another moment. Turning this off goes back to real time.</small></span><input aria-label="Pretend time" type="checkbox" role="switch" checked={prefs.showTimeControl()} onChange={event => { prefs.setShowTimeControl(event.currentTarget.checked); if (!event.currentTarget.checked) pretend(null); }} /></label>
               </section>

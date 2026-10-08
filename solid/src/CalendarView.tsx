@@ -12,7 +12,7 @@ import type { CalendarEvent, Item, Task } from "./types";
 type Shown = CalendarEntry & { className: string; label: string; title: string; kindLabel: string };
 // A row in the selected day's list: an entry, or one of today's tasks.
 type Listed = Pick<Shown, "item" | "className" | "kindLabel">;
-// Today's tasks in the selected day's list go in the Agenda's sections, in its order.
+// Today's tasks in the selected day's list go in List's sections, in its order.
 const DAY_SECTIONS: SectionId[] = ["firm", "closing", "later", "available"];
 
 function shortTime(date: Date | null | undefined) {
@@ -85,7 +85,7 @@ export function CalendarView(props: {
   const work = createMemo(() => todaysWork(props.items, props.now));
   const pendingForDay = (day: Date) => dateKey(day) === today() ? work() : [];
   const matchingPending = (day: Date) => props.query ? pendingForDay(day).filter(item => textMatches(item, props.query)) : pendingForDay(day);
-  // The selected day's entries; on today, its tasks go in the Agenda's sections instead, each
+  // The selected day's entries; on today, its tasks go in List's sections instead, each
   // labelled with what it waits on, and the entries left (events, pushed-down tasks) come first.
   // Only work shows: a container's entry lists its open leaf tasks instead, once each.
   const dayList = createMemo(() => {

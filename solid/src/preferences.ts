@@ -33,6 +33,9 @@ export function createPreferences() {
   // Pretend time: milliseconds added to the real clock (0 = real time). Its clock in the top bar is
   // hidden unless Settings → Display turns it on (or time is being pretended).
   const [showTimeControl, setShowTimeControl] = flag("calendar.showTimeControl");
+  // The Agenda: how many days it shows (1, 3, or 7), and whether today's Anytime tasks follow the timed ones (off: folded at the top).
+  const [agendaDays, setAgendaDays] = stored<1 | 3 | 7>("calendar.agenda.days", raw => raw === "3" ? 3 : raw === "7" ? 7 : 1, value => value === 1 ? null : String(value));
+  const [anytimeAfter, setAnytimeAfter] = flag("calendar.agenda.anytimeAfter");
   // Settings → Display: search lists every matching task and event under the field (off: it only filters the view).
   const [findSearch, setFindSearch] = flag("calendar.search.find");
   const [timeOffset, setTimeOffset] = stored("calendar.timeOffset", raw => Number(raw) || 0, value => value ? String(value) : null);
@@ -50,5 +53,7 @@ export function createPreferences() {
     showTimeControl, setShowTimeControl,
     timeOffset, setTimeOffset,
     findSearch, setFindSearch,
+    agendaDays, setAgendaDays,
+    anytimeAfter, setAnytimeAfter,
   };
 }
