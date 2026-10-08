@@ -68,7 +68,7 @@ export const SECTION_LABELS: Record<SectionId, { title: string; hint?: string }>
   closing: { title: "Closing today", hint: "window open now" },
   later: { title: "Opens later today" },
   available: { title: "Available" },
-  upcoming: { title: "Upcoming", hint: "can't start yet, or window not open today" },
+  upcoming: { title: "Upcoming" },
   completed: { title: "Completed" },
 };
 // In the Agenda, these start collapsed.
