@@ -16,7 +16,7 @@ import { createPreferences } from "./preferences";
 import { KeyboardShortcutSettings, loadShortcuts, type Shortcuts } from "./shortcuts";
 import { TodayView, when } from "./TodayView";
 import { TimeZoneSettings, WindowSettings } from "./SettingsPanels";
-import { openWork } from "./today";
+import { deadlineDaysOf, openWork } from "./today";
 import { SAMPLE_PREFIX, demoItems, sampleSubtaskItems } from "./demo-data";
 import { isDormant, projectDependents } from "./dependencies";
 import { dependentTasks } from "../../site/task-tree.js";
@@ -33,6 +33,8 @@ function readSelectedTask() { const match = /^#(?:list|boards)\/(.+)$/.exec(loca
 function tasksHash(id: string | null, view: View = readView()) { const base = view === "boards" ? "#boards" : "#list"; return id ? `${base}/${encodeURIComponent(id)}` : base; }
 // List and Boards are the task views (TodayView): a task opens in their side pane when there's room.
 const taskView = (view: View) => view === "list" || view === "boards";
+// When tasks join Deadline: on their due day, or some days ahead of it.
+const deadlineChoices: [number, string][] = [[0, "Due today (or overdue)"], [1, "Due by tomorrow"], [2, "Due within 3 days"], [6, "Due within a week"]];
 function editableTarget(target: EventTarget | null) { return target instanceof Element && !!target.closest("input, textarea, select, [contenteditable='true']"); }
 function errorMessage(error: unknown, fallback: string) { return error instanceof Error && error.message ? error.message : fallback; }
 
@@ -380,7 +382,7 @@ export function App() {
           syncState={syncStatus().state} syncLabel={syncStatus().label} syncDetail={syncStatus().detail}
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
           <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("agenda")} />}>
-            <Show when={view() !== "agenda"} fallback={<AgendaView items={items()} query={query()} now={clock()} days={prefs.agendaDays()} onDaysChange={prefs.setAgendaDays} anytimeAfter={prefs.anytimeAfter()} onEdit={item => openEditor(item)} />}>
+            <Show when={view() !== "agenda"} fallback={<AgendaView items={items()} query={query()} now={clock()} days={prefs.agendaDays()} onDaysChange={prefs.setAgendaDays} anytimeOpen={prefs.anytimeOpen()} onEdit={item => openEditor(item)} />}>
             <div class="tasks-workspace" classList={{ split: paneOpen() }}>
             <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
@@ -423,7 +425,11 @@ export function App() {
               <section class="appearance-settings" aria-label="Display">
                 <label class="animation-setting"><span><strong>Show board on rows</strong><small>A task's board name at the right of its row.</small></span><input aria-label="Show board on rows" type="checkbox" role="switch" checked={prefs.showBoard()} onChange={event => prefs.setShowBoard(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Show tags on rows</strong><small>A task's tags beside its other details.</small></span><input aria-label="Show tags on rows" type="checkbox" role="switch" checked={prefs.showTags()} onChange={event => prefs.setShowTags(event.currentTarget.checked)} /></label>
-                <label class="animation-setting"><span><strong>Anytime tasks after the timed ones</strong><small>In the Agenda, today's tasks with nothing timed about them follow the day's timed things, open. Off, they're folded into Anytime at the top.</small></span><input aria-label="Anytime tasks after the timed ones" type="checkbox" role="switch" checked={prefs.anytimeAfter()} onChange={event => prefs.setAnytimeAfter(event.currentTarget.checked)} /></label>
+                <label class="animation-setting"><span><strong>Show Anytime open</strong><small>The Agenda ends with Anytime: tasks you can do now with nothing timed about them. On, it starts open; off, folded.</small></span><input aria-label="Show Anytime open" type="checkbox" role="switch" checked={prefs.anytimeOpen()} onChange={event => prefs.setAnytimeOpen(event.currentTarget.checked)} /></label>
+                <label class="field"><span>Deadline shows tasks</span><select disabled={!settings()} onChange={event => { const days = Number(event.currentTarget.value); void attempt(() => store.changeDeadlineDays(settings()!, days), "Could not change when tasks join Deadline."); }}>
+                  <For each={deadlineChoices}>{([days, label]) => <option value={days} selected={days === deadlineDaysOf(items())}>{label}</option>}</For>
+                </select></label>
+                <p class="field-hint">For the whole calendar, on every device. Days are calendar days: “due today” means by midnight.</p>
                 <label class="animation-setting"><span><strong>Search everything</strong><small>Searching lists every matching task and event, past ones and done ones included, under the search field; picking one opens it. Off, search only narrows what the view shows.</small></span><input aria-label="Search everything" type="checkbox" role="switch" checked={prefs.findSearch()} onChange={event => prefs.setFindSearch(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Pretend time</strong><small>A clock in the top bar that makes the app act as if it's another moment. Turning this off goes back to real time.</small></span><input aria-label="Pretend time" type="checkbox" role="switch" checked={prefs.showTimeControl()} onChange={event => { prefs.setShowTimeControl(event.currentTarget.checked); if (!event.currentTarget.checked) pretend(null); }} /></label>
               </section>

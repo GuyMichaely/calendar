@@ -35,8 +35,6 @@ export type Task = BaseItem & {
   // Kept in its section but moved to the bottom, dimmed; until null means until lifted.
   pushedDown?: PushedDown | null;
   windowId?: string | null;
-  // How many hours before it's due a task joins the Firm section (null: 24).
-  warnHours?: number | null;
   // How its finished subtasks show while it's open: dimmed ("show") or folded into "+N completed" (default).
   completedSubtasks?: "show" | null;
   // Repeats: its Can start and Due are the current occurrence's (see solid/src/repeats.ts).
@@ -113,6 +111,8 @@ export type CalendarSettings = BaseItem & {
   timeZone: string;
   // What a new event's reminder starts as (minutes before; unset or null: none).
   eventReminderMinutes?: number | null;
+  // How far ahead of its due day a task joins Deadline, in days (unset or 0: on the day it's due).
+  deadlineDays?: number | null;
 };
 
 export type Item = Task | CalendarEvent | Group | TimeWindow | CalendarSettings;

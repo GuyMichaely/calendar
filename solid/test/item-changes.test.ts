@@ -8,7 +8,7 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({ id, kind: "task
 const group = (id: string, extra: Partial<Group> = {}): Group => ({ id, kind: "group", title: id, createdAt: at, updatedAt: at, ...extra });
 const draft = (extra: Partial<TaskDraft> = {}): TaskDraft => ({
   title: "Write", notes: "", tags: [], attachments: [], state: "open", pushedDown: { mode: "normal" }, groupId: null,
-  availableFrom: null, deadline: null, warnHours: null, windowId: null, relativeDates: {}, ...extra,
+  availableFrom: null, deadline: null, windowId: null, relativeDates: {}, ...extra,
 });
 
 test("a new task is open, trimmed, and records its creation", () => {

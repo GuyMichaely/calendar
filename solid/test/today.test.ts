@@ -18,14 +18,17 @@ const evening = window("evening", [0, 1, 2, 3, 4, 5, 6], "18:00", "22:00");
 const windows = new Map([business, evening].map(entry => [entry.id, entry]));
 const section = (item: Task) => placeTask(item, now, windows).section;
 
-test("a due task is firm from its warning time, 24 hours before by default", () => {
-  expect(section(task("a", { deadline: local(7, 14, 0) }))).toBe("firm");
-  expect(section(task("b", { deadline: local(7, 15, 0) }))).toBe("available");
-  // A lead time of its own.
-  expect(section(task("c", { deadline: local(9, 12), warnHours: 72 }))).toBe("firm");
-  expect(section(task("c2", { deadline: local(9, 12), warnHours: 48 }))).toBe("available");
-  expect(warnTime(task("d", { deadline: local(9, 12) }))?.toISOString()).toBe(local(8, 12));
+test("a due task is in Deadline from the start of its due day, or the calendar's Deadline days before it", () => {
+  // Due later today, or overdue.
+  expect(section(task("a", { deadline: local(6, 23, 0) }))).toBe("firm");
   expect(placeTask(task("e", { deadline: local(5, 12) }), now, windows)).toMatchObject({ section: "firm", overdue: true });
+  // Due just after midnight: not today's yet.
+  expect(section(task("b", { deadline: local(7, 0, 30) }))).toBe("available");
+  // With Deadline two days ahead: due by the end of the day after tomorrow.
+  expect(placeTask(task("c", { deadline: local(8, 23) }), now, windows, 2).section).toBe("firm");
+  expect(placeTask(task("c2", { deadline: local(9, 0, 30) }), now, windows, 2).section).toBe("available");
+  expect(warnTime(task("d", { deadline: local(9, 12) }))?.toISOString()).toBe(local(9, 0));
+  expect(warnTime(task("d", { deadline: local(9, 12) }), 1)?.toISOString()).toBe(local(8, 0));
 });
 
 test("windows place tasks by today's opening", () => {
@@ -65,7 +68,7 @@ test("a task with open subtasks is a container: placed only through its subtasks
     task("parent", { sortOrder: 0 }),
     task("child-now", { parentId: "parent", sortOrder: 0 }),
     task("child-window", { parentId: "parent", windowId: "business" }),
-    task("grand-child", { parentId: "child-window", deadline: local(7, 9) }),
+    task("grand-child", { parentId: "child-window", deadline: local(6, 21) }),
     task("solo", { sortOrder: 1 }),
   ];
   const spread = buildSections(items, now, { ...all, mode: "context" });
@@ -79,7 +82,7 @@ test("a task with open subtasks is a container: placed only through its subtasks
 
 test("a container's due date, start, window, and push-down pass down to its subtasks", () => {
   const items: Item[] = [business,
-    task("house", { deadline: local(7, 9) }), task("room", { parentId: "house" }),
+    task("house", { deadline: local(6, 21) }), task("room", { parentId: "house" }),
     task("later", { availableFrom: local(9, 9) }), task("step", { parentId: "later" }),
     task("calls", { windowId: "business" }), task("call", { parentId: "calls" }),
     task("someday", { pushedDown: { until: null, at } }), task("idea", { parentId: "someday" }),

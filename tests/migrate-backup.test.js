@@ -32,14 +32,14 @@ test("working hours become one window per set of hours, reusing a matching windo
   for (const id of ["a", "b", "c"]) assert.equal("availabilitySchedule" in converted.get(id), false);
 });
 
-test("warn-at becomes a lead time and latest start a missing due date", () => {
+test("a task's own Deadline lead goes and latest start becomes a missing due date", () => {
   const converted = byId(convertItems([
-    task("warn", { deadline: "2026-10-10T12:00:00.000Z", warnAt: "2026-10-08T12:00:00.000Z" }),
+    task("warn", { deadline: "2026-10-10T12:00:00.000Z", warnAt: "2026-10-08T12:00:00.000Z", warnHours: 48 }),
     task("latest", { latestStart: "2026-10-12T09:00:00.000Z" }),
     task("both", { deadline: "2026-10-13T09:00:00.000Z", latestStart: "2026-10-12T09:00:00.000Z" }),
     task("relative", { dependentOf: "latest", relativeDates: { availableFrom: 1, latestStart: 3 } }),
   ], now).items);
-  assert.equal(converted.get("warn").warnHours, 48);
+  assert.equal("warnHours" in converted.get("warn"), false);
   assert.equal("warnAt" in converted.get("warn"), false);
   assert.equal(converted.get("latest").deadline, "2026-10-12T09:00:00.000Z");
   assert.equal(converted.get("both").deadline, "2026-10-13T09:00:00.000Z");

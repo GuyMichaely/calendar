@@ -582,3 +582,7 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .agenda-now::after { content: ""; flex: 1; height: 1px; background: var(--accent); opacity: .6; }
 .agenda-quiet { margin: 12px 0 0; color: var(--muted); font-size: 12.5px; }
 @media (max-width: 760px) { .agenda-day-heading { top: 48px; } }
+.agenda-fold { display: flex; align-items: baseline; gap: 8px; border: 0; background: none; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+.agenda-fold small { color: var(--muted); font-size: 12px; font-weight: 500; }
+.agenda-fold .section-chevron { font-size: 17px; transition: transform .15s; }
+.agenda-fold[aria-expanded="true"] .section-chevron { transform: rotate(90deg); }

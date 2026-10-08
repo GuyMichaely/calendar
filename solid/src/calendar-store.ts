@@ -178,6 +178,10 @@ export function createCalendarStore(options: { onChanged: () => void }) {
     changeEventReminderDefault: (settings: CalendarSettings, minutes: number | null) => batch("Change new events' reminder", async () => {
       await putItem(patchedItem(settings, { eventReminderMinutes: minutes }, new Date()), settings);
     }),
+    /** How far ahead of its due day a task joins Deadline, in days (0: on the day). */
+    changeDeadlineDays: (settings: CalendarSettings, days: number) => batch("Change when tasks join Deadline", async () => {
+      await putItem(patchedItem(settings, { deadlineDays: days }, new Date()), settings);
+    }),
     /**
      * A new calendar time zone. With `keepClock`, task and event dates move so they read the
      * same clock time in the new zone (9 AM stays 9 AM); otherwise they stay the same moments.

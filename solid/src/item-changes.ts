@@ -65,7 +65,6 @@ export type TaskDraft = {
   groupId: string | null;
   availableFrom: string | null;
   deadline: string | null;
-  warnHours: number | null;
   repeat?: Task["repeat"];
   // A dormant dependent task's automatic start, and whether it finishes its parent.
   startWhen?: Task["startWhen"];
@@ -130,7 +129,6 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
     ...(dormant && draft.startWhen !== undefined ? { startWhen: draft.startWhen, stopParent: draft.startWhen?.on === "not-yet" ? draft.stopParent ?? true : null } : {}),
     availableFrom: draft.availableFrom,
     deadline: draft.deadline,
-    warnHours: draft.deadline ? draft.warnHours : null,
     pushedDown,
     windowId: draft.windowId,
     createdAt: previous?.createdAt || at,

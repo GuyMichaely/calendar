@@ -10,6 +10,7 @@ export function demoItems(now = new Date()): Item[] {
   const created = new Date(now.getTime() - 7 * 86_400_000).toISOString();
   const hours = (count: number) => new Date(now.getTime() + count * 3_600_000).toISOString();
   const days = (count: number) => atTime(addDays(now, count), "09:00").toISOString();
+  const tonight = atTime(now, "23:00").toISOString();
   // "HH:MM" some hours from now, kept within today.
   const hhmm = (offset: number) => {
     const minutes = Math.max(0, Math.min(23 * 60 + 59, Math.round((partsOf(now).hour * 60 + partsOf(now).minute + offset * 60) / 30) * 30));
@@ -60,7 +61,7 @@ export function demoItems(now = new Date()): Item[] {
     // A deep chain: the grandchild is due soon, so it shows under Deadline with two context rows.
     task("demo-move", "Apartment move", { groupId: "demo-home" }),
     task("demo-utilities", "Sort out utilities", { parentId: "demo-move", availableFrom: days(4) }),
-    task("demo-cancel", "Cancel old internet plan", { parentId: "demo-utilities", deadline: hours(10) }),
+    task("demo-cancel", "Cancel old internet plan", { parentId: "demo-utilities", deadline: tonight }),
   ];
 }
 
@@ -75,8 +76,9 @@ export const SAMPLE_PREFIX = "sample-";
  */
 export function sampleSubtaskItems(now = new Date()): Item[] {
   const at = now.toISOString();
-  const hours = (count: number) => new Date(now.getTime() + count * 3_600_000).toISOString();
   const days = (count: number) => atTime(addDays(now, count), "09:00").toISOString();
+  // Due later today, so it's under Deadline.
+  const today = (time: string) => atTime(now, time).toISOString();
   let order = 0;
   const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
     id: SAMPLE_PREFIX + id, kind: "task", title, state: "open", notes: "", tags: [], attachments: [], sortOrder: order++,
@@ -98,17 +100,17 @@ export function sampleSubtaskItems(now = new Date()): Item[] {
     // Three levels: the grandchild is due soon.
     task("move", "Apartment move", { groupId: group, notes: "Spread out: the due grandchild shows under Deadline below its two containers. Keep together: the same, as one family." }),
     task("utilities", "Sort out utilities", { parentId: parent("move"), availableFrom: days(4) }),
-    task("internet", "Cancel old internet plan", { parentId: parent("utilities"), deadline: hours(10) }),
+    task("internet", "Cancel old internet plan", { parentId: parent("utilities"), deadline: today("23:00") }),
     // One step can be done now, the other can't start yet.
     task("taxes", "File tax return", { groupId: group, notes: "Spread out: gathering the W-2s shows under Available, filing under Upcoming. Keep together: both show under Available, filing dimmed." }),
     task("w2", "Gather W-2s", { parentId: parent("taxes") }),
     task("file", "File the return", { parentId: parent("taxes"), availableFrom: days(3) }),
     // A container's due date passes down to its subtasks.
-    task("house", "Clean the house", { groupId: group, deadline: hours(18), notes: "Due tomorrow, so both rooms are due then too: they show under Deadline in either setting. Checking this off takes both rooms off your list." }),
+    task("house", "Clean the house", { groupId: group, deadline: today("23:30"), notes: "Due tonight, so both rooms are due then too: they show under Deadline in either setting. Checking this off takes both rooms off your list." }),
     task("room", "Clean my room", { parentId: parent("house") }),
     task("kitchen", "Clean the kitchen", { parentId: parent("house") }),
     // Tasks without subtasks, for comparison.
     task("plants", "Water the plants", { groupId: group }),
-    task("phone", "Pay phone bill", { groupId: group, deadline: hours(20) }),
+    task("phone", "Pay phone bill", { groupId: group, deadline: today("23:45") }),
   ];
 }

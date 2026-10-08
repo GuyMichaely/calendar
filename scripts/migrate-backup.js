@@ -10,7 +10,7 @@
  *
  * - sleep becomes pushed down (a sleep that has already ended is just dropped);
  * - inline working hours become named windows, one per distinct set of hours;
- * - an exact "warn at" time becomes a lead time in hours before the due date;
+ * - a task's own Deadline lead ("warn at", or hours before it's due) goes: the calendar's settings say when tasks join Deadline;
  * - a latest start becomes the due date when there's none (else it's dropped), and a
  *   dependent task's "latest start N days after starting" likewise;
  * - boards lose nesting (parentId), and their old board-page columns (boardColumn,
@@ -35,7 +35,7 @@ const without = (item, fields) => Object.fromEntries(Object.entries(item).filter
 /** The converted items, and a count of each kind of change. */
 export function convertItems(items, now = new Date()) {
   const at = now.toISOString();
-  const counts = { pushedDown: 0, windows: 0, windowTasks: 0, warnHours: 0, latestStart: 0, boards: 0 };
+  const counts = { pushedDown: 0, windows: 0, windowTasks: 0, latestStart: 0, boards: 0 };
   const windows = items.filter(item => item.kind === "window");
   const created = [];
   const windowFor = (days, start, end) => {
@@ -64,7 +64,7 @@ export function convertItems(items, now = new Date()) {
       return { ...without(item, ["parentId", "boardColumn", "boardOrder"]), ...placement.get(item.id), ...(item.parentId || placement.has(item.id) ? { updatedAt: at } : {}) };
     }
     if (item.kind !== "task") return item;
-    const legacy = ["sleep", "availabilitySchedule", "warnAt", "latestStart"];
+    const legacy = ["sleep", "availabilitySchedule", "warnAt", "warnHours", "latestStart"];
     if (!legacy.some(field => field in item) && item.relativeDates?.latestStart === undefined) return item;
     const task = without(item, legacy);
     const until = item.sleep?.until ? new Date(item.sleep.until) : null;
@@ -76,10 +76,6 @@ export function convertItems(items, now = new Date()) {
     if (hours?.enabled && !item.windowId && hours.days?.length && hours.start && hours.end) {
       task.windowId = windowFor(hours.days, hours.start, hours.end);
       counts.windowTasks++;
-    }
-    if (item.warnAt && item.deadline && !item.warnHours) {
-      const lead = (new Date(item.deadline).getTime() - new Date(item.warnAt).getTime()) / 3_600_000;
-      if (Number.isFinite(lead)) { task.warnHours = Math.max(1, Math.round(lead)); counts.warnHours++; }
     }
     if (item.latestStart && !item.deadline) { task.deadline = item.latestStart; counts.latestStart++; }
     if (item.relativeDates && item.relativeDates.latestStart !== undefined) {
@@ -106,7 +102,6 @@ if (import.meta.main) {
   console.log(`Wrote ${output}: ${changed} of ${items.length} items changed.`);
   console.log(`  ${counts.pushedDown} sleeping tasks pushed down`);
   console.log(`  ${counts.windowTasks} tasks with working hours moved to ${counts.windows} new window(s)`);
-  console.log(`  ${counts.warnHours} warn-at times turned into lead times`);
   console.log(`  ${counts.latestStart} latest starts turned into due dates`);
   console.log(`  ${counts.boards} boards flattened or placed`);
 }

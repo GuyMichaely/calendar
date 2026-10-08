@@ -119,7 +119,6 @@ export function ItemEditor(props: {
   const [kind, setKind] = createSignal<"task" | "event">(props.request.kind);
   // A window's id, or "" for any time.
   const [windowChoice, setWindowChoice] = createSignal(task?.windowId || "");
-  const [deadlineInput, setDeadlineInput] = createSignal(isoToLocalInput(task?.deadline));
   // Pushed down, until a date if one is set (otherwise until lifted).
   const [pushed, setPushed] = createSignal(!!initialPush?.pushed);
   // Repeats ("" for not repeating), and a dependent task's automatic start.
@@ -302,7 +301,6 @@ export function ItemEditor(props: {
         groupId: String(data.get("groupId") || "") || null,
         availableFrom: localInputToIso(data.get("availableFrom")),
         deadline: localInputToIso(data.get("deadline")),
-        warnHours: data.get("warnHours") ? Number(data.get("warnHours")) : null,
         windowId: choice || null,
         relativeDates,
         repeat: repeatUnit() ? { unit: repeatUnit() as Repeat["unit"], every: Math.max(1, Math.round(Number(data.get("repeatEvery")) || 1)), until: localInputToIso(data.get("repeatUntil")), untilDone: data.get("repeatUntilDone") === "on", ifMissed: data.get("repeatMissed") === "keep" ? "keep" : "skip" } : null,
@@ -388,9 +386,6 @@ export function ItemEditor(props: {
 
   const pushUntil = isoToLocalInput(initialPush?.until);
   const windowList = createMemo(() => props.items.filter((item): item is TimeWindow => item.kind === "window").sort((a, b) => a.title.localeCompare(b.title)));
-  // How long before it's due a task joins Deadline.
-  const warnOptions: [number, string][] = [[1, "1 hour before"], [3, "3 hours before"], [12, "12 hours before"], [24, "1 day before"], [48, "2 days before"], [72, "3 days before"], [168, "1 week before"]];
-  if (task?.warnHours && !warnOptions.some(([hours]) => hours === task.warnHours)) warnOptions.push([task.warnHours, `${task.warnHours} hours before`]);
   const removeAttachment = (attachment: Attachment) => {
     setRemovedAttachments(current => new Set([...current, attachment.id]));
     syncDirty();
@@ -554,14 +549,8 @@ export function ItemEditor(props: {
             <div class="form-grid">
               <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><Show when={!props.embedded}>{completionButton(false)}</Show></div>
               {dateField("availableFrom", "Can start", <DateTimeField name="availableFrom" label="Can start" value={isoToLocalInput(task?.availableFrom)} onChange={syncDirty} />)}
-              {dateField("deadline", "Due", <DateTimeField name="deadline" label="Due" value={deadlineInput()} onChange={value => { setDeadlineInput(value); syncDirty(); }} />)}
+              {dateField("deadline", "Due", <DateTimeField name="deadline" label="Due" value={isoToLocalInput(task?.deadline)} onChange={syncDirty} />)}
               <label class="field"><span>Board</span><select name="groupId" value={task?.groupId || props.request.groupId || ""}><option value="">{isSubtask ? `Same as parent${inheritedBoard() ? ` (${inheritedBoard()})` : ""}` : "No board"}</option><For each={boardChoices().map(board => board.id)}>{id => <option value={id}>{boardLabel(id)}</option>}</For></select></label>
-              {/* Always shown (disabled without a due date) so setting one doesn't move the other fields. */}
-              <label class="field" title="When this joins the Deadline section, measured from its due date"><span>Deadline from</span>
-                <select name="warnHours" disabled={!deadlineInput()} value={String(task?.warnHours ?? 24)} onChange={syncDirty}>
-                  <For each={warnOptions}>{([hours, label]) => <option value={hours}>{label}</option>}</For>
-                </select>
-              </label>
               <div class="field"><span class="field-label-row"><span>Window</span><Show when={props.onManageWindows}><button type="button" class="inline-link" onClick={() => props.onManageWindows?.()}>Manage</button></Show></span>
                 <select name="windowId" aria-label="Window" value={windowChoice()} onChange={event => { setWindowChoice(event.currentTarget.value); syncDirty(); }}>
                   <option value="">Any time</option>

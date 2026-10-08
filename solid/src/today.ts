@@ -1,12 +1,12 @@
 import { isDormant } from "./dependencies";
 import { nextOpening, openingOn, taskSchedule } from "./windows";
 import { occurrenceTask } from "./repeats";
-import { sameDay } from "./zone";
-import type { Item, Task, TimeWindow } from "./types";
+import { addDays, sameDay, startOfDay } from "./zone";
+import type { CalendarSettings, Item, Task, TimeWindow } from "./types";
 
 /*
- * The Agenda puts every task in exactly one section, by the first rule that fits:
- * due and past its warning time (Deadline); a window open now (Closing today) or opening
+ * List puts every task in exactly one section, by the first rule that fits:
+ * due today or overdue, or within the calendar's Deadline days (Deadline); a window open now (Closing today) or opening
  * later today (Opens later today); can't start yet (Upcoming); else Available. Pushed-down tasks stay in their section, at the bottom.
  */
 export type SectionId = "firm" | "closing" | "later" | "available" | "upcoming" | "completed";
@@ -24,13 +24,18 @@ export type Placement = {
   pushed: boolean;
 };
 
-const HOUR = 3_600_000;
 const time = (value?: string | null) => { if (!value) return null; const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date; };
 
-/** When a due task joins Deadline: some hours before it's due (24 unless it says). */
-export function warnTime(task: Task) {
+/** How far ahead of its due day a task joins Deadline, for the whole calendar (its settings say; 0: on the day). */
+export function deadlineDaysOf(items: Item[]) {
+  const settings = items.find((item): item is CalendarSettings => item.kind === "settings");
+  return Math.max(0, settings?.deadlineDays ?? 0);
+}
+
+/** When a due task joins Deadline: the start of its due day, or of the day `days` before it. */
+export function warnTime(task: Task, days = 0) {
   const due = time(task.deadline);
-  return due ? new Date(due.getTime() - (task.warnHours ?? 24) * HOUR) : null;
+  return due ? startOfDay(addDays(due, -days)) : null;
 }
 
 /** Pushed down, and until when. */
@@ -41,11 +46,11 @@ export function pushedDownInfo(task: Task, now: Date) {
   return until && until <= now ? { pushed: false, until: null } : { pushed: true, until };
 }
 
-export function placeTask(task: Task, now: Date, windows: Map<string, TimeWindow>): Placement {
+export function placeTask(task: Task, now: Date, windows: Map<string, TimeWindow>, deadlineDays = 0): Placement {
   const pushed = pushedDownInfo(task, now).pushed;
   if (task.state === "completed") return { section: "completed", pushed: false };
   const due = time(task.deadline) ?? undefined;
-  const warn = warnTime(task);
+  const warn = warnTime(task, deadlineDays);
   if (due && warn && now >= warn) return { section: "firm", due, overdue: now > due, pushed };
   const schedule = taskSchedule(task, windows);
   const start = time(task.availableFrom);
@@ -134,7 +139,6 @@ export function inherited(task: Task, chain: Task[], now: Date): Task {
   return {
     ...task,
     deadline: dueSource?.deadline ?? null,
-    warnHours: dueSource?.warnHours ?? null,
     availableFrom: starts.length ? new Date(Math.max(...starts.map(date => date.getTime()))).toISOString() : null,
     windowId: windowSource?.windowId ?? null,
     pushedDown: pushedSource?.pushedDown ?? null,
@@ -146,7 +150,7 @@ export function placementOf(task: Task, items: Item[], now: Date): Placement {
   const byId = new Map(items.map(item => [item.id, item]));
   const windows = new Map(items.filter((item): item is TimeWindow => item.kind === "window").map(item => [item.id, item]));
   if (effectivelyDone(task, byId)) return { section: "completed", pushed: false };
-  return placeTask(inherited(occurrenceTask(task, now), ancestors(task, byId).map(ancestor => occurrenceTask(ancestor, now)), now), now, windows);
+  return placeTask(inherited(occurrenceTask(task, now), ancestors(task, byId).map(ancestor => occurrenceTask(ancestor, now)), now), now, windows, deadlineDaysOf(items));
 }
 
 /** Tasks that are actual work right now: open, started, not done through a container, and not containers themselves. */
@@ -164,6 +168,7 @@ export function openWork(items: Item[]) {
 export function buildSections(items: Item[], now: Date, options: { mode: SubtaskMode; showCompleted: boolean; include: (task: Task) => boolean; boardOf?: (task: Task, placement: Placement) => string | null }): Section[] {
   const byId = new Map(items.map(item => [item.id, item]));
   const windows = new Map(items.filter((item): item is TimeWindow => item.kind === "window").map(item => [item.id, item]));
+  const deadlineDays = deadlineDaysOf(items);
   // Dependent tasks that haven't started live in their parent's editor, not in the lists.
   const tasks = items.filter((item): item is Task => item.kind === "task" && !isDormant(item, byId));
   const chainOf = new Map(tasks.map(task => [task.id, ancestors(task, byId)]));
@@ -200,7 +205,7 @@ export function buildSections(items: Item[], now: Date, options: { mode: Subtask
   };
   const placementFor = (task: Task): Placement => done.get(task.id)
     ? { section: "completed", pushed: false }
-    : placeTask(inherited(occurrenceTask(task, now), chainOf.get(task.id)!.map(ancestor => occurrenceTask(ancestor, now)), now), now, windows);
+    : placeTask(inherited(occurrenceTask(task, now), chainOf.get(task.id)!.map(ancestor => occurrenceTask(ancestor, now)), now), now, windows, deadlineDays);
   // Placed tasks: everything except open containers. A search or group filter keeps a
   // task when it or one of its containers matches.
   const placed = tasks.filter(task => !openContainer(task) && !withOpenParent(task))
