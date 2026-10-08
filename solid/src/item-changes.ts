@@ -72,6 +72,8 @@ export type TaskDraft = {
   windowId: string | null;
   // Days after starting, for the fields a dormant dependent task measures that way.
   relativeDates: Partial<Record<RelativeDateField, number>>;
+  // Reminders at moments chosen in the editor (ISO times).
+  remindAt?: string[];
 };
 
 export type EventDraft = {
@@ -82,6 +84,7 @@ export type EventDraft = {
   start: string | null;
   end: string | null;
   reminderMinutes: number | null;
+  remindAt?: string[];
 };
 
 type DraftContext = {
@@ -131,6 +134,7 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
     deadline: draft.deadline,
     pushedDown,
     windowId: draft.windowId,
+    ...(draft.remindAt !== undefined ? { remindAt: remindAtOf(draft.remindAt) } : {}),
     createdAt: previous?.createdAt || at,
     updatedAt: at,
     history,
@@ -138,7 +142,10 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
 }
 
 /** The event an editor draft describes. With only one end chosen, the event lasts an hour. */
-export type RecordDraft = Omit<EventDraft, "reminderMinutes">;
+export type RecordDraft = EventDraft;
+
+// Chosen reminders, in order and once each; none is null.
+const remindAtOf = (times: string[] | undefined) => times?.length ? [...new Set(times)].sort() : null;
 
 /** A record: when something was (its end is optional). */
 export function recordFromDraft(draft: RecordDraft, { id, previous, now }: DraftContext): CalendarRecord {
@@ -153,6 +160,8 @@ export function recordFromDraft(draft: RecordDraft, { id, previous, now }: Draft
     attachments: draft.attachments,
     start: draft.start,
     end: draft.end,
+    reminderMinutes: draft.reminderMinutes,
+    remindAt: remindAtOf(draft.remindAt),
     createdAt: previous?.createdAt || at,
     updatedAt: at,
   };
@@ -177,6 +186,7 @@ export function eventFromDraft(draft: EventDraft, { id, previous, now }: DraftCo
     start,
     end,
     reminderMinutes: draft.reminderMinutes,
+    remindAt: remindAtOf(draft.remindAt),
     createdAt: previous?.createdAt || at,
     updatedAt: at,
   };

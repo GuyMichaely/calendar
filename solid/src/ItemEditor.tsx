@@ -1,6 +1,6 @@
 import { Icon } from "./Icon";
 import { taskDescendants } from "../../site/task-tree.js";
-import { For, Show, createEffect, createMemo, createSignal, onMount, onCleanup, type JSX } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, onMount, onCleanup, type JSX } from "solid-js";
 import { atTime, dateTimeText, fromInputValue, inputToIso as localInputToIso, toInputValue as isoToLocalInput } from "./zone";
 import { NotesEditor, type NotesEditorApi } from "./NotesEditor";
 import { DateTimeField } from "./DateTimeField";
@@ -43,11 +43,11 @@ const HOUR = 60 * 60 * 1000;
 // A new event (or record) lasts an hour, and an event reminds as the calendar's settings say new events do.
 function eventDefaults(request: EditorRequest, items: Item[]) {
   const existing = request.item?.kind === "event" || request.item?.kind === "record" ? request.item : null;
-  if (existing) return { start: isoToLocalInput(existing.start), end: isoToLocalInput(existing.end), reminderMinutes: existing.kind === "event" ? existing.reminderMinutes ?? null : null };
+  if (existing) return { start: isoToLocalInput(existing.start), end: isoToLocalInput(existing.end), reminderMinutes: existing.reminderMinutes ?? null };
 
   const start = request.date ? atTime(request.date, "09:00") : new Date();
   const settings = items.find((item): item is CalendarSettings => item.kind === "settings");
-  return { start: isoToLocalInput(start), end: request.kind === "record" ? "" : isoToLocalInput(new Date(start.getTime() + HOUR)), reminderMinutes: settings?.eventReminderMinutes ?? null };
+  return { start: isoToLocalInput(start), end: request.kind === "record" ? "" : isoToLocalInput(new Date(start.getTime() + HOUR)), reminderMinutes: request.kind === "record" ? null : settings?.eventReminderMinutes ?? null };
 }
 
 function serializeForm(form: HTMLFormElement, files: File[], removed: Set<string>) {
@@ -127,6 +127,11 @@ export function ItemEditor(props: {
   const [repeatUnit, setRepeatUnit] = createSignal<string>(task?.repeat?.unit || "");
   const [startWhen, setStartWhen] = createSignal<string>(task?.startWhen?.on || "");
   const [eventStart, setEventStart] = createSignal(defaults.start);
+  // Reminders: before it starts (an event's or record's, one of the usual lead times or any
+  // number of minutes), and at moments you choose (any item).
+  const [beforeChoice, setBeforeChoice] = createSignal(defaults.reminderMinutes == null ? "off" : reminderChoices.some(([minutes]) => minutes === defaults.reminderMinutes) ? String(defaults.reminderMinutes) : "custom");
+  const [remindAts, setRemindAts] = createSignal<string[]>((existing?.remindAt || []).map(time => isoToLocalInput(time)));
+  const chosenReminders = () => remindAts().map(value => localInputToIso(value)).filter((time): time is NonNullable<typeof time> => !!time);
   const [eventEnd, setEventEnd] = createSignal(defaults.end);
   const [pendingFiles, setPendingFiles] = createSignal<File[]>([]);
   const [draggingAttachments, setDraggingAttachments] = createSignal(false);
@@ -306,13 +311,14 @@ export function ItemEditor(props: {
         windowId: choice || null,
         relativeDates,
         repeat: repeatUnit() ? { unit: repeatUnit() as Repeat["unit"], every: Math.max(1, Math.round(Number(data.get("repeatEvery")) || 1)), until: localInputToIso(data.get("repeatUntil")), untilDone: data.get("repeatUntilDone") === "on", ifMissed: data.get("repeatMissed") === "keep" ? "keep" : "skip" } : null,
+        remindAt: chosenReminders(),
         ...(dormant() ? { startWhen: startWhen() === "parent-done" ? { on: "parent-done" as const } : startWhen() === "not-yet" ? { on: "not-yet" as const, after: localInputToIso(data.get("startAfter")) } : null, stopParent: data.get("stopParent") === "on" } : {}),
       }, { ...context, parentId: props.request.parentId, dormant: dormant() });
     } else {
       if (kind() === "record" ? !eventStart() : !eventStart() && !eventEnd()) { setSaveError(`Choose when the ${kind()} starts.`); return false; }
-      const times = { ...shared, start: localInputToIso(eventStart()), end: localInputToIso(eventEnd()) };
-      item = kind() === "record" ? recordFromDraft(times, context)
-        : eventFromDraft({ ...times, reminderMinutes: data.get("reminderMinutes") === "off" ? null : Number(data.get("reminderMinutes")) }, context);
+      const before = beforeChoice() === "off" ? null : beforeChoice() === "custom" ? Math.max(0, Math.round(Number(data.get("reminderCustom")) || 0)) : Number(beforeChoice());
+      const draft = { ...shared, start: localInputToIso(eventStart()), end: localInputToIso(eventEnd()), reminderMinutes: before, remindAt: chosenReminders() };
+      item = kind() === "record" ? recordFromDraft(draft, context) : eventFromDraft(draft, context);
     }
 
     try {
@@ -545,9 +551,6 @@ export function ItemEditor(props: {
           <div class="form-grid">
             <div class="field"><span>Starts</span><DateTimeField name="eventStart" label="Starts" value={eventStart()} onChange={value => { deriveEnd(value); syncDirty(); }} /></div>
             <div class="field"><span>{kind() === "record" ? "Ends (optional)" : "Ends"}</span><DateTimeField name="eventEnd" label="Ends" value={eventEnd()} onChange={value => { deriveStart(value); syncDirty(); }} /></div>
-            <Show when={kind() === "event"}><label class="field"><span>Reminder</span><select name="reminderMinutes" onChange={syncDirty}>
-              <option value="off">None</option><For each={reminderChoices}>{([minutes, label]) => <option value={minutes} selected={minutes === defaults.reminderMinutes}>{label}</option>}</For>
-            </select></label></Show>
           </div>
         }>
           <div>
@@ -593,6 +596,24 @@ export function ItemEditor(props: {
             </div>
           </div>
         </Show>
+
+        <div class="form-grid reminders-grid">
+          <Show when={kind() !== "task"}>
+            <label class="field"><span>Remind before it starts</span><select name="reminderMinutes" onChange={event => { setBeforeChoice(event.currentTarget.value); syncDirty(); }}>
+              <option value="off" selected={beforeChoice() === "off"}>No</option>
+              <For each={reminderChoices}>{([minutes, label]) => <option value={minutes} selected={beforeChoice() === String(minutes)}>{label}</option>}</For>
+              <option value="custom" selected={beforeChoice() === "custom"}>Some minutes before…</option>
+            </select></label>
+            <Show when={beforeChoice() === "custom"}><label class="field"><span>Minutes before</span><input name="reminderCustom" type="number" min="0" step="1" value={defaults.reminderMinutes ?? 45} onInput={syncDirty} /></label></Show>
+          </Show>
+          <div class="field full-span remind-at-field"><span>Remind me at</span>
+            <Index each={remindAts()}>{(value, index) => <div class="remind-at">
+              <DateTimeField name="remindAt" label={`Reminder ${index + 1}`} value={value()} onChange={next => { setRemindAts(list => list.map((entry, at) => at === index ? next : entry)); syncDirty(); }} />
+              <button type="button" class="icon-button" aria-label={`Remove reminder ${index + 1}`} onClick={() => { setRemindAts(list => list.filter((_, at) => at !== index)); queueMicrotask(syncDirty); }}>×</button>
+            </div>}</Index>
+            <button type="button" class="text-button remind-add" onClick={() => setRemindAts(list => [...list, ""])}>+ Add a reminder</button>
+          </div>
+        </div>
 
         <section class="notes-editor" aria-label="Notes">
           <div class="notes-toolbar"><span>Notes</span></div>

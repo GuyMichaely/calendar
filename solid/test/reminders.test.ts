@@ -38,3 +38,22 @@ test("reminders are soonest first, within the coming days, and keep their ids", 
   expect(when(items).map(([id]) => id)).toEqual(["a", "b"]);
   expect(upcomingReminders(items, now, on).map(reminder => reminder.id)).toEqual(upcomingReminders(items, now, on).map(reminder => reminder.id));
 });
+
+test("any task, event, or record reminds at the moments chosen for it, and a record before it starts too", () => {
+  const record: Item = { id: "bank", kind: "record", title: "Bank asked for statements", start: local(9, 10).toISOString(), end: null, reminderMinutes: 60, remindAt: [local(7, 8).toISOString()], createdAt: at, updatedAt: at };
+  const items: Item[] = [
+    task("call", { remindAt: [local(6, 16).toISOString(), local(5, 9).toISOString()], deadline: local(8, 17).toISOString() }),
+    { ...event("doctor", local(8, 13), null), remindAt: [local(7, 20).toISOString()] },
+    record,
+  ];
+  expect(when(items)).toEqual([["call", 6, 16, 0], ["bank", 7, 8, 0], ["doctor", 7, 20, 0], ["bank", 9, 9, 0]]);
+  const found = upcomingReminders(items, now, { taskStarts: false, events: true });
+  expect(found.map(reminder => [reminder.kind, reminder.channel])).toEqual([["task", "events"], ["record", "events"], ["event", "events"], ["record", "events"]]);
+  expect(found[0].body).toStartWith("Due ");
+  expect(when(items, { taskStarts: true, events: false })).toEqual([]);
+});
+
+test("a finished task, or one waiting to be started, doesn't remind at its chosen moments", () => {
+  expect(when([task("done", { state: "completed", remindAt: [local(7, 9).toISOString()] })])).toEqual([]);
+  expect(when([task("parent"), task("next", { dependentOf: "parent", remindAt: [local(7, 9).toISOString()] })])).toEqual([]);
+});

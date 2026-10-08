@@ -49,7 +49,7 @@ final class Reminders {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel("starts", "Tasks you can start", NotificationManager.IMPORTANCE_HIGH));
-        manager.createNotificationChannel(new NotificationChannel("events", "Event reminders", NotificationManager.IMPORTANCE_HIGH));
+        manager.createNotificationChannel(new NotificationChannel("events", "Reminders", NotificationManager.IMPORTANCE_HIGH));
     }
 
     private static PendingIntent alarm(Context context, int id, JSONObject reminder, int flags) {

@@ -45,6 +45,8 @@ export type Task = BaseItem & {
   // With a "not-yet" start: whether starting it also finishes the parent (default yes).
   stopParent?: boolean | null;
   completedAt?: string | null;
+  // Reminders at moments you choose (ISO times), besides any it gets from its dates.
+  remindAt?: string[] | null;
   history?: HistoryEntry[];
   // Only top-level tasks use this; subtasks appear wherever their parent task is.
   groupId?: string | null;
@@ -65,14 +67,19 @@ export type CalendarEvent = BaseItem & {
   end?: string | null;
   // Notifies this many minutes before it starts (0: as it starts); unset or null: no reminder.
   reminderMinutes?: number | null;
+  // Reminders at moments you choose (ISO times).
+  remindAt?: string[] | null;
 };
 
 // Something noted at a time, for the record (the bank asked for papers that day): on the
-// Calendar and found by search, but nothing to do, so not in the Agenda or List and no reminder.
+// Calendar and found by search, but nothing to do, so not in the Agenda or List. It can still
+// remind you, before it starts or at moments you choose. Its end is optional.
 export type CalendarRecord = BaseItem & {
   kind: "record";
   start?: string | null;
   end?: string | null;
+  reminderMinutes?: number | null;
+  remindAt?: string[] | null;
 };
 
 // A board. Built-in boards (Firm, Available, …) are stored as groups with a `builtin` key only to remember their place.
