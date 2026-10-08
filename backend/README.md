@@ -33,6 +33,10 @@ Cloudflare Workers Builds deploys on every push to `prototype2`, through Cloudfl
 
 By hand, `./scripts/worker deploy` does the same after `./scripts/bun run build:solid` (the wrapper keeps Wrangler's login under the checkout's `.local`).
 
+## Cleaning old data
+
+When a version stops using a field, items synced before keep it, unread. `scripts/clean-live-data.js` syncs like a device (signed in with `cloudflared access login https://calendar.guymichaely.com`), lists the fields this version doesn't use, and with `--apply` saves the calendar as it was under `.local/`, removes them, and syncs; every device gets the change. Old backups go through `scripts/migrate-backup.js` instead.
+
 ## Developing
 
 `./scripts/bun run dev:worker` runs the Worker locally on port 8787, serving `../dist` (build it first) and `/sync` with no Access in front, so Sign in goes straight through. The Vite dev server forwards `/sync` there. `scripts/smoke-worker.js` runs the built Worker and checks the app's files, sign-in's return, two devices merging, the live connection, and attachments.
