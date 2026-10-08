@@ -3,7 +3,7 @@
 // It syncs like a device (through Cloudflare Access), lists what it would remove, and with
 // --apply removes it and syncs that back; every device then gets the change as usual.
 //
-//   cloudflared access login https://calendar.guymichaely.com
+//   cloudflared access login https://calendar.guymichaely.com/sync
 //   ./scripts/bun scripts/clean-live-data.js            # list what would go
 //   ./scripts/bun scripts/clean-live-data.js --apply    # remove it
 //
@@ -24,7 +24,8 @@ const local = new URL(endpoint).hostname === "localhost";
 // Cloudflare Access lets the script in with the token `cloudflared access login` saved.
 let token = "";
 if (!local) {
-  const app = new URL(endpoint).origin;
+  // Access guards the sync path, so that's the application cloudflared signs in to.
+  const app = endpoint;
   const result = spawnSync("cloudflared", ["access", "token", `-app=${app}`], { encoding: "utf8" });
   token = (result.stdout || "").trim();
   if (result.status !== 0 || !token) {
