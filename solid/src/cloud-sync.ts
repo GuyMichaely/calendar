@@ -8,6 +8,8 @@ import { createCalendarSyncClient } from "../../sync/client.js";
 // This device's sync settings and when it last synced, kept in this browser.
 const SETTINGS_KEY = "calendar.sync";
 const SYNCED_AT_KEY = "calendar.syncedAt";
+// The calendar's heads as of the last sync, to tell whether there's anything here to send.
+const SYNCED_HEADS_KEY = "calendar.syncedHeads";
 
 type Attachment = { id: string; type?: string; blob?: Blob };
 
@@ -57,10 +59,14 @@ export function createCloudSync({ onSynced }: { onSynced: () => Promise<void> })
     { endpoint: SYNC, fetch: ((input, init) => syncFetch(input as string, init)) as typeof fetch, credentials: "same-origin" },
   );
   // The calendar's heads as of the last sync. The live connection's heads are news when they
-  // differ (at worst, one sync more than needed: one that finds nothing).
+  // differ (at worst, one sync more than needed: one that finds nothing), and this browser's
+  // are edits not yet sent (`pending`).
   const headsKey = (heads: readonly string[]) => [...heads].sort().join();
-  let syncedHeads = "";
-  const remember = async () => { syncedHeads = headsKey(Automerge.getHeads(await readSyncDocument() as Automerge.Doc<unknown>)); };
+  const currentHeads = async () => headsKey(Automerge.getHeads(await readSyncDocument() as Automerge.Doc<unknown>));
+  let syncedHeads = localStorage.getItem(SYNCED_HEADS_KEY) || "";
+  const [pending, setPending] = createSignal(false);
+  const check = async () => setPending(await currentHeads() !== syncedHeads);
+  const remember = async () => { syncedHeads = await currentHeads(); localStorage.setItem(SYNCED_HEADS_KEY, syncedHeads); setPending(false); };
 
   const controller = new SyncController({
     engine: {
@@ -74,7 +80,7 @@ export function createCloudSync({ onSynced }: { onSynced: () => Promise<void> })
     },
     save(settings) {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-      if (!settings.enabled) localStorage.removeItem(SYNCED_AT_KEY);
+      if (!settings.enabled) { localStorage.removeItem(SYNCED_AT_KEY); localStorage.removeItem(SYNCED_HEADS_KEY); syncedHeads = ""; }
     },
     signInUrl: `${SYNC}/signin`,
     live: {
@@ -94,5 +100,8 @@ export function createCloudSync({ onSynced }: { onSynced: () => Promise<void> })
 
   const [snapshot, setSnapshot] = createSignal(controller.getSnapshot());
   controller.subscribe(() => setSnapshot(controller.getSnapshot()));
-  return { controller, snapshot };
+  void check();
+  // An edit here: the controller syncs it when its mode says to; until then it's pending.
+  const changed = () => { controller.changed(); void check(); };
+  return { controller, snapshot, pending, changed };
 }

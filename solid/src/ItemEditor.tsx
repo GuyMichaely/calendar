@@ -1,10 +1,10 @@
 import { Icon } from "./Icon";
 import { taskDescendants } from "../../site/task-tree.js";
 import { For, Index, Show, createEffect, createMemo, createSignal, onMount, onCleanup, type JSX } from "solid-js";
-import { atTime, dateTimeText, fromInputValue, inputToIso as localInputToIso, toInputValue as isoToLocalInput } from "./zone";
+import { atTime, fromInputValue, inputToIso as localInputToIso, partsOf, startOfDay, toInputValue as isoToLocalInput } from "./zone";
 import { NotesEditor, type NotesEditorApi } from "./NotesEditor";
 import { DateTimeField } from "./DateTimeField";
-import { placementOf, pushedDownInfo, taskGroupId } from "./today";
+import { pushedDownInfo, taskGroupId } from "./today";
 import { userBoards } from "./board-order";
 import { describeSchedule } from "./windows";
 import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
@@ -38,6 +38,9 @@ function parseTags(value: FormDataEntryValue | null) {
 }
 
 const HOUR = 60 * 60 * 1000;
+// An event's or record's times left off: a start at midnight, an end at 11:59 PM (whole days).
+const dayStart = (date: Date) => !partsOf(date).hour && !partsOf(date).minute;
+const dayEnd = (date: Date) => partsOf(date).hour === 23 && partsOf(date).minute === 59;
 
 // A new event lasts an hour (a record has no end until you give it one), and an event notifies
 // as long before it starts as the calendar's settings say new events do.
@@ -85,6 +88,8 @@ export function ItemEditor(props: {
   registerClose?: (close: () => void) => () => void;
   // Rows drag between the Subtasks and Dependent tasks sections to switch relation.
   onConvertChild?: (child: Task, to: "subtask" | "dependent") => Promise<unknown>;
+  // Subtasks (or dependent tasks) in a new order.
+  onReorderChildren?: (ordered: Task[]) => Promise<unknown>;
   // Unsaved text mirrors to the board card as it's typed (no debounce), and inline
   // board edits flow back into this editor through the same map.
   liveEdits?: () => Map<string, Partial<Task>>;
@@ -129,7 +134,7 @@ export function ItemEditor(props: {
   const [eventStart, setEventStart] = createSignal(defaults.start);
   // Notifications: at the times in the list. A new event starts with the calendar's (some minutes
   // before it starts), which follows its start until you change the list yourself; a new task or
-  // record starts with none.
+  // record starts with none, as does an all-day event (its start is midnight).
   const [remindAts, setRemindAts] = createSignal<string[]>((existing?.remindAt || []).map(time => isoToLocalInput(time)));
   const chosenReminders = () => remindAts().map(value => localInputToIso(value)).filter((time): time is NonNullable<typeof time> => !!time);
   const [defaultNotice, setDefaultNotice] = createSignal(!existing && defaults.notifyBefore != null);
@@ -137,7 +142,7 @@ export function ItemEditor(props: {
   createEffect(() => {
     if (!defaultNotice()) return;
     const start = kind() === "event" && eventStart() ? fromInputValue(eventStart()) : null;
-    setRemindAts(start ? [isoToLocalInput(new Date(start.getTime() - defaults.notifyBefore! * 60_000))] : []);
+    setRemindAts(start && !dayStart(start) ? [isoToLocalInput(new Date(start.getTime() - defaults.notifyBefore! * 60_000))] : []);
   });
   const [eventEnd, setEventEnd] = createSignal(defaults.end);
   const [pendingFiles, setPendingFiles] = createSignal<File[]>([]);
@@ -267,12 +272,17 @@ export function ItemEditor(props: {
 
   // Setting one end of an event fills in a missing other end an hour away, and moves it there
   // when it would come out on the wrong side. A record's end is optional: it's only moved.
+  // Leaving the times off makes it all day: a start without one ends that day (11:59 PM), and
+  // giving the start a time again brings the end back to an hour after it.
   const deriveEnd = (value: string) => {
+    const before = eventStart() ? fromInputValue(eventStart()) : null;
     setEventStart(value);
     const start = value ? fromInputValue(value) : null;
     if (!start) return;
     const end = eventEnd() ? fromInputValue(eventEnd()) : null;
-    if ((!eventEnd() && kind() === "event") || (end && end < start)) setEventEnd(isoToLocalInput(new Date(start.getTime() + HOUR)));
+    const missing = !end && kind() === "event";
+    if (dayStart(start)) { if (missing || (end && (end < start || !dayEnd(end)))) setEventEnd(isoToLocalInput(atTime(start, "23:59"))); }
+    else if (missing || (end && end < start) || (end && dayEnd(end) && before && dayStart(before))) setEventEnd(isoToLocalInput(new Date(start.getTime() + HOUR)));
   };
 
   const deriveStart = (value: string) => {
@@ -280,7 +290,7 @@ export function ItemEditor(props: {
     const end = value ? fromInputValue(value) : null;
     if (!end) return;
     const start = eventStart() ? fromInputValue(eventStart()) : null;
-    if (!eventStart() || (start && start > end)) setEventStart(isoToLocalInput(new Date(end.getTime() - HOUR)));
+    if (!eventStart() || (start && start > end)) setEventStart(isoToLocalInput(dayEnd(end) ? startOfDay(end) : new Date(end.getTime() - HOUR)));
   };
 
   const saveOnce = async (): Promise<boolean> => {
@@ -364,7 +374,8 @@ export function ItemEditor(props: {
   };
 
   const descendants = () => taskDescendants(props.items, itemId);
-  const children = () => props.items.filter((item): item is Task => item.kind === "task" && item.parentId === itemId);
+  const bySortOrder = (a: Task, b: Task) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+  const children = () => props.items.filter((item): item is Task => item.kind === "task" && item.parentId === itemId).sort(bySortOrder);
   const navigateTask = async (task?: Task) => {
     if (!hasSavedItem() || !props.items.some(item => item.id === itemId)) return;
     closing = true; clearTimeout(saveTimer);
@@ -439,16 +450,8 @@ export function ItemEditor(props: {
     }
     return chain.reverse();
   };
-  const status = () => {
-    const stored = props.items.find(item => item.id === itemId);
-    if (stored?.kind !== "task") return "";
-    if (stored.state === "completed") return "Completed";
-    if (dormant()) return `Dependent task of “${parentTask()?.title || "Untitled task"}” · not started`;
-    const pushed = pushedDownInfo(stored, now());
-    if (pushed.pushed) return pushed.until ? `Pushed down until ${dateTimeText(pushed.until, now())}` : "Pushed down";
-    const placement = placementOf(stored, props.items, now());
-    return { firm: placement.overdue ? "Deadline · overdue" : "Deadline · due soon", closing: "Closing today · window open now", later: "Opens later today", available: "Available now", upcoming: "Upcoming · can't start yet", completed: "Completed" }[placement.section];
-  };
+  // Under the title: only that a dependent task hasn't started (where it sits in List shows there).
+  const status = () => dormant() && props.items.some(item => item.id === itemId) ? `Dependent task of “${parentTask()?.title || "Untitled task"}” · not started` : "";
   const [subtaskDraft, setSubtaskDraft] = createSignal("");
   const addSubtaskInline = async () => {
     const title = subtaskDraft().trim();
@@ -462,7 +465,7 @@ export function ItemEditor(props: {
       <span>{label}<Show when={dormant()}> <select class="date-mode" name={`${field}Mode`} aria-label={`${label} is set`} value={dateModes()[field]} onChange={event => { const mode = event.currentTarget.value as "date" | "after"; setDateModes(modes => ({ ...modes, [field]: mode })); syncDirty(); }}><option value="date">on a date</option><option value="after">days after starting</option></select></Show></span>
       <Show when={dormant() && dateModes()[field] === "after"} fallback={input}><input name={`${field}After`} aria-label={`${label}: days after starting`} type="number" min="0" step="0.5" value={task?.relativeDates?.[field] ?? 0} /></Show>
     </div>;
-  const dependents = () => props.items.filter((item): item is Task => item.kind === "task" && item.dependentOf === itemId);
+  const dependents = () => props.items.filter((item): item is Task => item.kind === "task" && item.dependentOf === itemId).sort(bySortOrder);
   const parentTask = () => props.items.find((item): item is Task => item.kind === "task" && item.id === task?.dependentOf);
   const [dependentDraft, setDependentDraft] = createSignal("");
   const addDependentInline = async () => {
@@ -477,42 +480,47 @@ export function ItemEditor(props: {
     await props.onStartDependent(own ? (currentItem as Task) : dependent, completeParent);
     if (own && !props.embedded) { closing = true; props.onClose(); }
   };
-  // A row's left-edge grip drags it between the Subtasks and Dependent tasks sections.
-  const startRowDrag = (child: Task, from: "subtask" | "dependent") => (event: PointerEvent) => {
-    if (event.button !== 0 || !props.onConvertChild) return;
+  // A row's left-edge grip drags it up or down its list to reorder it.
+  const startRowDrag = (child: Task) => (event: PointerEvent) => {
+    if (event.button !== 0 || !props.onReorderChildren) return;
     event.preventDefault();
     const handle = event.currentTarget as HTMLElement;
     handle.setPointerCapture(event.pointerId);
     const row = handle.closest<HTMLElement>(".subtask-row, .dependent-row");
-    const ghost = row ? (row.cloneNode(true) as HTMLElement) : null;
-    const startX = event.clientX, startY = event.clientY;
-    if (row && ghost) {
-      const rect = row.getBoundingClientRect();
-      ghost.classList.add("row-ghost");
-      Object.assign(ghost.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, margin: "0", zIndex: "70" });
-      document.body.appendChild(ghost);
-    }
-    row?.classList.add("dragging");
-    const wanted = from === "subtask" ? "dependents" : "subtasks";
-    let zone: HTMLElement | null = null, live = true;
+    const list = row?.parentElement;
+    if (!row || !list) return;
+    const rows = [...list.querySelectorAll<HTMLElement>(":scope > .subtask-row, :scope > .dependent-row")];
+    const ids = rows.map(element => element.dataset.id!);
+    const ghost = row.cloneNode(true) as HTMLElement;
+    const startY = event.clientY, rect = row.getBoundingClientRect();
+    ghost.classList.add("row-ghost");
+    Object.assign(ghost.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, margin: "0", zIndex: "70" });
+    document.body.appendChild(ghost);
+    row.classList.add("dragging");
+    // Where it would go: before the row at `slot` (rows.length: after the last).
+    let slot = rows.indexOf(row), live = true;
+    const mark = () => rows.forEach((element, index) => { element.classList.toggle("drop-before", index === slot && slot !== ids.indexOf(child.id) && slot !== ids.indexOf(child.id) + 1); element.classList.toggle("drop-after", index === rows.length - 1 && slot === rows.length && index !== ids.indexOf(child.id)); });
     const move = (next: PointerEvent) => {
-      if (ghost) ghost.style.transform = `translate(${next.clientX - startX}px, ${next.clientY - startY}px)`;
-      const over = document.elementFromPoint(next.clientX, next.clientY)?.closest<HTMLElement>("[data-task-drop-zone]");
-      const hit = over && over.dataset.taskDropZone === wanted && over.dataset.taskId === itemId ? over : null;
-      if (zone !== hit) { zone?.classList.remove("zone-target"); zone = hit; zone?.classList.add("zone-target"); }
+      ghost.style.transform = `translate(0, ${next.clientY - startY}px)`;
+      slot = rows.filter(element => { const box = element.getBoundingClientRect(); return box.top + box.height / 2 < next.clientY; }).length;
+      mark();
     };
-    const commit = props.onConvertChild;
+    const commit = props.onReorderChildren;
     const finish = (drop: boolean) => {
       if (!live) return;
       live = false;
-      ghost?.remove();
-      row?.classList.remove("dragging");
-      zone?.classList.remove("zone-target");
+      ghost.remove();
+      rows.forEach(element => element.classList.remove("dragging", "drop-before", "drop-after"));
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", up);
       handle.removeEventListener("pointercancel", cancel);
       document.removeEventListener("keydown", escape, true);
-      if (drop && zone) void commit(child, wanted === "dependents" ? "dependent" : "subtask");
+      if (!drop) return;
+      const from = ids.indexOf(child.id), order = ids.filter(id => id !== child.id);
+      order.splice(slot > from ? slot - 1 : slot, 0, child.id);
+      if (order.join() === ids.join()) return;
+      const byId = new Map(props.items.map(item => [item.id, item]));
+      void commit(order.map(id => byId.get(id)).filter((item): item is Task => item?.kind === "task"));
     };
     const up = () => finish(true);
     const cancel = () => finish(false);
@@ -537,7 +545,7 @@ export function ItemEditor(props: {
             <div><button type="button" class="danger-button" onClick={() => void revert()}>Revert</button></div>
           </div>
         </Show>
-        <Show when={props.embedded || ancestors().length > 0} fallback={<p class="editor-eyebrow">{existing ? "The details" : props.request.parentId ? "New subtask" : "Make a little space for it"}</p>}>
+        <Show when={(props.embedded && kind() === "task") || ancestors().length > 0} fallback={<p class="editor-eyebrow">{existing ? "The details" : props.request.parentId ? "New subtask" : "Make a little space for it"}</p>}>
           <nav class="detail-path" aria-label="Task path"><button type="button" class="text-button" onClick={close}>Tasks</button><For each={ancestors()}>{parent => <><span aria-hidden="true">›</span><button type="button" class="text-button" onClick={() => void navigateTask(parent)}>{parent.title || "Untitled task"}</button></>}</For></nav>
         </Show>
         <div class="dialog-header">
@@ -572,8 +580,8 @@ export function ItemEditor(props: {
                 </select>
               </div>
               {/* One option: pushed down until the date if one is set, else until lifted. */}
-              <div class="field"><label class="field-label-row field-check"><input type="checkbox" checked={pushed()} onChange={event => { setPushed(event.currentTarget.checked); syncDirty(); }} /><span>Push down</span></label>
-                <DateTimeField name="pushUntil" label="Pushed down until" placeholder="Until you lift it" value={pushUntil} disabled={!pushed()} onChange={syncDirty} /></div>
+              <div class="field"><label class="field-label-row field-check"><input type="checkbox" checked={pushed()} onChange={event => { setPushed(event.currentTarget.checked); syncDirty(); }} /><span>Suppress</span></label>
+                <DateTimeField name="pushUntil" label="Suppressed until" placeholder="Until you unsuppress it" value={pushUntil} disabled={!pushed()} onChange={syncDirty} /></div>
               {/* Repeats: all controls always shown (disabled until it repeats) so nothing shifts. */}
               <div class="field full-span repeat-field"><span>Repeat</span>
                 <div class="repeat-controls">
@@ -644,12 +652,12 @@ export function ItemEditor(props: {
             <small class="field-hint">Click a filename to download. Attachment changes can be undone.</small>
           </section>
           <Show when={kind() === "task"}>
-              <div class="subtask-editor full-span" data-task-drop-zone="subtasks" data-task-id={itemId}><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" hidden={props.embedded} disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <div class="subtask-row"><span class="subtask-grip" title="Drag to make this a dependent task" aria-hidden="true" onPointerDown={startRowDrag(child, "subtask")} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button></div>}</For>
+              <div class="subtask-editor full-span"><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" hidden={props.embedded} disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <div class="subtask-row" data-id={child.id}><span class="subtask-grip" title="Drag to reorder" aria-hidden="true" onPointerDown={startRowDrag(child)} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button><Show when={props.onConvertChild && hasSavedItem()}><button type="button" class="text-button convert-button" title="Make this a dependent task: one that starts after this task" onClick={() => void props.onConvertChild!(child, "dependent")}>Make dependent</button></Show></div>}</For>
                 <Show when={props.embedded && props.onQuickAddSubtask}><div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New subtask title" placeholder={hasSavedItem() ? "Add a next step…" : "Name this task first"} disabled={!hasSavedItem()} maxLength={240} value={subtaskDraft()} onInput={event => setSubtaskDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addSubtaskInline(); } }} /><button type="button" class="text-button" disabled={!subtaskDraft().trim()} onClick={() => void addSubtaskInline()}>Add</button></div></Show>
                 </div>
                 <Show when={hasSavedItem() && props.onAddDependent}>
-                   <div class="subtask-editor dependents-editor full-span" data-task-drop-zone="dependents" data-task-id={itemId}><div class="subtask-heading"><strong>Dependent tasks</strong></div>
-                     <For each={dependents()}>{dependent => <div class="dependent-row"><span class="subtask-grip" title="Drag to make this a subtask" aria-hidden="true" onPointerDown={startRowDrag(dependent, "dependent")} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(dependent)}><span aria-hidden="true">◌</span> {dependent.title || "Untitled task"}</button>{startButtons(dependent, currentItem?.kind === "task" ? currentItem : undefined)}</div>}</For>
+                   <div class="subtask-editor dependents-editor full-span"><div class="subtask-heading"><strong>Dependent tasks</strong></div>
+                     <For each={dependents()}>{dependent => <div class="dependent-row" data-id={dependent.id}><span class="subtask-grip" title="Drag to reorder" aria-hidden="true" onPointerDown={startRowDrag(dependent)} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(dependent)}><span aria-hidden="true">◌</span> {dependent.title || "Untitled task"}</button>{startButtons(dependent, currentItem?.kind === "task" ? currentItem : undefined)}<Show when={props.onConvertChild}><button type="button" class="text-button convert-button" title="Make this a subtask: part of this task" onClick={() => void props.onConvertChild!(dependent, "subtask")}>Make subtask</button></Show></div>}</For>
                     <div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New dependent task title" placeholder="Add a dependent task…" maxLength={240} value={dependentDraft()} onInput={event => setDependentDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addDependentInline(); } }} /><button type="button" class="text-button" disabled={!dependentDraft().trim()} onClick={() => void addDependentInline()}>Add</button></div>
                   </div>
                 </Show>

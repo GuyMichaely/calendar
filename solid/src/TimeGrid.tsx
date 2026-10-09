@@ -7,7 +7,7 @@ import { occurrenceTask } from "./repeats";
 import { effectivelyDone, pushedDownInfo } from "./today";
 import type { Item } from "./types";
 import { openingOn, taskSchedule, windowsById } from "./windows";
-import { addDays, clockText, dayKey, formatIn, partsOf, startOfDay } from "./zone";
+import { addDays, clockText, dayKey, formatIn, isAllDay, partsOf, startOfDay } from "./zone";
 
 /** How many days the time grid shows side by side. */
 export type GridDays = 1 | 3;
@@ -33,7 +33,6 @@ const MARK_MINUTES = 30;
 const FIRST_HOUR = 7, LAST_HOUR = 23;
 
 const time = (value?: string | null) => { const date = value ? new Date(value) : null; return date && !Number.isNaN(date.getTime()) ? date : null; };
-const midnight = (date: Date) => { const { hour, minute } = partsOf(date); return !hour && !minute; };
 // A date with no time: midnight, or (for a due date) 11:59 PM, as the date picker leaves them.
 const dateOnly = (date: Date, due: boolean) => { const { hour, minute } = partsOf(date); return due ? hour === 23 && minute === 59 : !hour && !minute; };
 const title = (item: Item) => String(item.title || "").trim() || `Untitled ${item.kind}`;
@@ -106,8 +105,8 @@ export function TimeGrid(props: {
       const end = time(item.end);
       const until = end && end > start ? end : null;
       if ((until ?? start) < first || start >= after) continue;
-      // A day or more, or midnight to midnight: all day, above the hours.
-      const allDay = !!until && (until.getTime() - start.getTime() >= DAY_MINUTES * MINUTE || (midnight(start) && midnight(until)));
+      // Whole days (its times left off), or a day or more: above the hours.
+      const allDay = isAllDay(start, until) || (!!until && until.getTime() - start.getTime() >= DAY_MINUTES * MINUTE);
       const range = until ? `${clockText(start)}–${clockText(until)}` : clockText(start);
       for (const date of dates) {
         const next = addDays(date, 1);
@@ -241,7 +240,8 @@ export function TimeGrid(props: {
   let wheelSave: ReturnType<typeof setTimeout> | undefined;
   onMount(() => { scroller.addEventListener("wheel", wheel, { passive: false }); onCleanup(() => scroller.removeEventListener("wheel", wheel)); });
 
-  const dimmed = (item: Item) => !!props.query && !textMatches(item, props.query);
+  // Searching highlights what matches; the rest stays as it is.
+  const matched = (item: Item) => !!props.query && textMatches(item, props.query);
   const isToday = (date: Date) => dayKey(date) === dayKey(props.now);
   const hasStrip = () => columns().some(column => column.strip.length);
 
@@ -251,7 +251,7 @@ export function TimeGrid(props: {
     // Kept within the day: one at 11:59 PM sits just above the end, not past it.
     const y = () => Math.min(top(placed.start), (hours().last - hours().first) * hourHeight() - height() - 1);
     // Too short for two lines: the name and its time on one.
-    return <button type="button" class={`grid-block ${placed.kind}`} classList={{ faded: !!placed.faded, "search-dimmed": dimmed(placed.item), short: height() < 34 }}
+    return <button type="button" class={`grid-block ${placed.kind}`} classList={{ faded: !!placed.faded, "search-match": matched(placed.item), short: height() < 34 }}
       style={{ top: `${y()}px`, height: `${height()}px`, left: `${placed.col! * width()}%`, width: `calc(${width()}% - 2px)` }}
       title={`${placed.label} · ${placed.detail}`} onClick={() => props.onEdit(placed.item)}>
       <strong>{placed.label}</strong><small>{placed.detail}</small>
@@ -269,7 +269,7 @@ export function TimeGrid(props: {
       <div class="timegrid-strip">
         <span class="timegrid-gutter" />
         <For each={columns()}>{column => <div class="timegrid-strip-day">
-          <For each={column.strip}>{entry => <button type="button" class={`grid-chip ${entry.kind}`} classList={{ "search-dimmed": dimmed(entry.item) }} title={entry.label} onClick={() => props.onEdit(entry.item)}>{entry.label}</button>}</For>
+          <For each={column.strip}>{entry => <button type="button" class={`grid-chip ${entry.kind}`} classList={{ "search-match": matched(entry.item) }} title={entry.label} onClick={() => props.onEdit(entry.item)}>{entry.label}</button>}</For>
         </div>}</For>
       </div>
     </Show>

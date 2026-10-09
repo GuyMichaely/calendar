@@ -2,12 +2,12 @@ import { Show, createSignal, onCleanup, type JSX } from "solid-js";
 import { Icon, type IconName } from "./Icon";
 import type { View } from "./types";
 
-export type SyncState = "local" | "busy" | "synced" | "offline" | "signed-out" | "error";
-const syncIcons: Record<SyncState, IconName> = { local: "cloud-off", busy: "refresh", synced: "cloud-check", offline: "wifi-off", "signed-out": "cloud-lock", error: "cloud-x" };
+export type SyncState = "local" | "busy" | "synced" | "pending" | "offline" | "signed-out" | "error";
+const syncIcons: Record<SyncState, IconName> = { local: "cloud-off", busy: "refresh", synced: "cloud-check", pending: "cloud-up", offline: "wifi-off", "signed-out": "cloud-lock", error: "cloud-x" };
 export function WorkspaceShell(props: {
   view: View; openCount: number; query: string;
   onQuery: (value: string) => void; onNavigate: (view: View) => void;
-  onNew: () => void; onSettings: () => void; children: JSX.Element;
+  onNew: () => void; onSettings: () => void; onSyncNow: () => void; children: JSX.Element;
   syncLabel: string; syncDetail: string; syncState: SyncState;
   canUndo: boolean; canRedo: boolean; undoLabel: string; redoLabel: string;
   onUndo: () => void; onRedo: () => void;
@@ -46,7 +46,7 @@ export function WorkspaceShell(props: {
         <Show when={props.notice}>{props.notice}</Show>
         <label class="workspace-search" data-open={searchOpen() || !!props.query}><Icon name="search" size={17} /><input ref={searchInput} type="search" aria-label={searchLabel()} placeholder={searchLabel()} value={props.query} onInput={event => props.onQuery(event.currentTarget.value)} onKeyDown={event => props.onSearchKeyDown?.(event)} onFocus={() => props.onSearchFocus?.()} aria-expanded={props.searchResults ? !!props.searchExpanded : undefined} aria-controls={props.searchResults ? "search-results" : undefined} autocomplete="off" /><Show when={props.query}><button type="button" aria-label="Clear search" onClick={() => props.onQuery("")}>×</button></Show>{props.searchResults}</label>
         <div class="workspace-utilities"><button class="icon-button mobile-search-toggle" aria-label={searchOpen() ? "Close search" : "Search"} aria-expanded={searchOpen() || !!props.query} onClick={toggleSearch}><Icon name="search" size={17} /></button>
-          <button class="sync-indicator" data-state={props.syncState} title={props.syncDetail} aria-label={`${props.syncLabel}. Open sync settings`} onClick={props.onSettings}><Icon name={syncIcons[props.syncState]} size={17} /><span role="status">{props.syncLabel}</span></button>
+          <button class="sync-indicator" data-state={props.syncState} title={props.syncDetail} aria-label={props.syncState === "pending" ? `${props.syncLabel}. Sync now` : `${props.syncLabel}. Open sync settings`} onClick={() => props.syncState === "pending" ? props.onSyncNow() : props.onSettings()}><Icon name={syncIcons[props.syncState]} size={17} /><span role="status">{props.syncLabel}</span></button>
           <button class="icon-button mobile-settings" aria-label="Settings" onClick={props.onSettings}><Icon name="settings" size={17} /></button>
           <div class="mobile-history" aria-label="History"><button class="icon-button" aria-label="Undo" title={props.undoLabel || "Undo"} disabled={!props.canUndo} onClick={props.onUndo}>↶</button><button class="icon-button" aria-label="Redo" title={props.redoLabel || "Redo"} disabled={!props.canRedo} onClick={props.onRedo}>↷</button></div>
           <button class="primary-button workspace-new" onClick={props.onNew}><Icon name="plus" size={17} />{props.view === "calendar" ? "New event" : "New task"}</button>

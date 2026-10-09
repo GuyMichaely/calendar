@@ -2,7 +2,7 @@ import { effectivelyDone, openWork, placementOf, pushedDownInfo, type SectionId 
 import { currentOccurrence, nextStart, occurrenceTask } from "./repeats";
 import { nextOpening, shutsAt, taskSchedule, windowsById } from "./windows";
 import { isDormant } from "./dependencies";
-import { endOfDay } from "./zone";
+import { addDays, allDayText, endOfDay, isAllDay, startOfDay } from "./zone";
 import type { CalendarEvent, CalendarRecord, Item, Task } from "./types";
 
 /*
@@ -21,7 +21,15 @@ export type CalendarEntry = {
   reopens?: boolean;
   pushed?: boolean;
   overdue?: boolean;
+  // An all-day event's or record's later days (it's listed on each).
+  continued?: boolean;
 };
+
+/** An all-day event's or record's days ("All day", "Oct 8 – 10"), else null (it has times). */
+export function wholeDays(item: CalendarEvent | CalendarRecord) {
+  const start = time(item.start), end = time(item.end);
+  return start && isAllDay(start, end) ? allDayText(start, end) : null;
+}
 
 const time = (value?: string | null) => { if (!value) return null; const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date; };
 const MAX_REPEATS = 62;
@@ -30,11 +38,19 @@ const MAX_REPEATS = 62;
 export function calendarEntries(items: Item[], from: Date, to: Date, now: Date): CalendarEntry[] {
   const byId = new Map(items.map(item => [item.id, item]));
   const windows = windowsById(items);
-  const last = endOfDay(to);
-  const inRange = (date: Date | null): date is Date => !!date && date >= from && date <= last;
+  const first = from, last = endOfDay(to);
+  const inRange = (date: Date | null): date is Date => !!date && date >= first && date <= last;
+
   const entries: CalendarEntry[] = [];
   for (const item of items) {
-    if (item.kind === "event" || item.kind === "record") { const start = time(item.start); if (inRange(start)) entries.push({ item, kind: item.kind, at: start }); continue; }
+    if (item.kind === "event" || item.kind === "record") {
+      const start = time(item.start), end = time(item.end);
+      if (!start) continue;
+      if (inRange(start)) entries.push({ item, kind: item.kind, at: start });
+      // Lasting whole days, it's on each of them.
+      if (end && isAllDay(start, end)) for (let day = addDays(startOfDay(start), 1); day < end && day <= last; day = addDays(day, 1)) if (day >= first) entries.push({ item, kind: item.kind, at: day, continued: true });
+      continue;
+    }
     if (item.kind !== "task" || effectivelyDone(item, byId)) continue;
     const task = occurrenceTask(item, now);
     const pushed = pushedDownInfo(item, now).pushed;

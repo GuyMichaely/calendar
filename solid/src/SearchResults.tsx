@@ -2,7 +2,9 @@ import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type 
 import { textMatches } from "../../site/domain.js";
 import { Icon } from "./Icon";
 import type { CalendarEvent, CalendarRecord, Item, Task } from "./types";
+import { wholeDays } from "./calendar-entries";
 import { placementOf } from "./today";
+import { sameDay } from "./zone";
 import { when } from "./TodayView";
 
 type Found = Task | CalendarEvent | CalendarRecord;
@@ -15,7 +17,8 @@ const time = (value?: string | null) => { const date = value ? new Date(value) :
 function describe(item: Found, items: Item[], now: Date): Result & { past: boolean } {
   if (item.kind !== "task") {
     const start = time(item.start), end = time(item.end) ?? start;
-    return { item, at: start, detail: start ? when(start, now) : "No date", past: !!end && end < now };
+    const days = wholeDays(item);
+    return { item, at: start, detail: !start ? "No date" : days && days !== "All day" ? days : days && sameDay(start, now) ? "Today" : when(start, now), past: !!end && end < now };
   }
   const placement = placementOf(item, items, now);
   if (placement.section === "completed") {

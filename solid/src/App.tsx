@@ -40,8 +40,8 @@ function errorMessage(error: unknown, fallback: string) { return error instanceo
 
 export function App() {
   // Changes sync once saved locally; other devices' changes reload the items once merged.
-  const store = createCalendarStore({ onChanged: () => sync.changed() });
-  const { controller: sync, snapshot: syncSnapshot } = createCloudSync({ onSynced: store.refresh });
+  const store = createCalendarStore({ onChanged: () => syncChanged() });
+  const { controller: sync, snapshot: syncSnapshot, pending: syncPending, changed: syncChanged } = createCloudSync({ onSynced: store.refresh });
   if (!/^#(agenda|list|boards|calendar)$/.test(location.hash) && !readSelectedTask()) history.replaceState(null, "", "#agenda");
   const prefs = createPreferences();
   const items = store.items;
@@ -90,6 +90,8 @@ export function App() {
     if (state.kind === "signed-out") return { state: "signed-out", label: "Sign in again", detail: "Your sign-in has expired. Your edits are saved in this browser and sync once you sign in again (Settings → Data)." };
     if (state.kind === "offline") return { state: "offline", label: "Offline", detail: state.message };
     if (state.kind === "error") return { state: "error", label: "Sync needs attention", detail: `${state.message} Your edits are still saved in this browser.` };
+    // Syncing only when asked: edits here not sent yet show, and the indicator sends them.
+    if (settings.mode === "manual" && syncPending()) return { state: "pending", label: "Not synced", detail: "This browser has edits your other devices don't yet. Tap to sync now." };
     return lastSyncedAt ? { state: "synced", label: "Synced", detail: `Synced with your other devices at ${clockText(new Date(lastSyncedAt))}.` } : { state: "busy", label: "Not synced yet", detail: "Signed in; the first sync hasn't finished." };
   });
   const openCount = createMemo(() => openWork(items()).length);
@@ -160,24 +162,43 @@ export function App() {
     const item = untrack(items).find(item => item.id === selectedTaskId());
     return item?.kind === "task" ? { item, kind: item.kind, nonce: Date.now() } : null;
   });
-  // The detail pane animates in and out: it stays mounted (with its last request)
-  // for a beat after closing while the board slides back to full width.
+  // A pane beside the page animates in and out: it stays mounted (with its last request) for a
+  // beat after closing while the page slides back to full width.
+  const closingPane = (open: () => boolean) => {
+    const [mounted, setMounted] = createSignal(false);
+    const [closing, setClosing] = createSignal(false);
+    let wasOpen = false, timer: ReturnType<typeof setTimeout> | undefined;
+    createEffect(() => {
+      const now = open();
+      if (now === wasOpen) return;
+      wasOpen = now;
+      clearTimeout(timer);
+      if (now) { setMounted(true); setClosing(false); return; }
+      if (!animations()) { setMounted(false); setClosing(false); return; }
+      setClosing(true);
+      timer = setTimeout(() => { if (!open()) setMounted(false); setClosing(false); }, 260);
+    });
+    onCleanup(() => clearTimeout(timer));
+    return { mounted, closing };
+  };
+  // List and Boards: the selected task, beside the list.
   const paneOpen = () => splitView() && taskView(view()) && !!detailRequest();
-  const [paneMounted, setPaneMounted] = createSignal(false);
-  const [paneClosing, setPaneClosing] = createSignal(false);
-  let paneWasOpen = false, paneTimer: ReturnType<typeof setTimeout> | undefined, lastRequest: EditorRequest | null = null;
+  const { mounted: paneMounted, closing: paneClosing } = closingPane(paneOpen);
+  let lastRequest: EditorRequest | null = null;
+  createEffect(() => { if (detailRequest()) lastRequest = detailRequest(); });
+  // Settings → Display → Editors beside the page: on a wide screen every other editor (events,
+  // records, new items, and everything outside List and Boards) opens beside the page too, the
+  // same way, instead of over it; the page narrows to make room.
+  const sideEditors = () => prefs.sideEditor() && splitView();
+  const besideOpen = () => sideEditors() && !!editor();
+  const { mounted: besideMounted, closing: besideClosing } = closingPane(besideOpen);
+  let lastBeside: EditorRequest | null = null, flushBeside: (() => Promise<boolean>) | null = null, closeBesideEditor: (() => void) | null = null;
+  createEffect(() => { if (editor()) lastBeside = editor(); });
   createEffect(() => {
-    if (detailRequest()) lastRequest = detailRequest();
-    const open = paneOpen();
-    if (open === paneWasOpen) return;
-    paneWasOpen = open;
-    clearTimeout(paneTimer);
-    if (open) { setPaneMounted(true); setPaneClosing(false); return; }
-    if (!animations()) { setPaneMounted(false); setPaneClosing(false); return; }
-    setPaneClosing(true);
-    paneTimer = setTimeout(() => { if (!paneOpen()) setPaneMounted(false); setPaneClosing(false); }, 260);
+    const root = document.documentElement;
+    root.toggleAttribute("data-side-editors", sideEditors());
+    root.toggleAttribute("data-side-open", sideEditors() && (paneOpen() || besideOpen()));
   });
-  onCleanup(() => clearTimeout(paneTimer));
   // Save the open task before showing another; a failed save keeps it open with its error.
   const selectTask = async (id: string | null, replace = false) => {
     if (id === selectedTaskId()) return;
@@ -191,7 +212,13 @@ export function App() {
     await selectTask(null);
     if (!selectedTaskId() && id) document.querySelector<HTMLElement>(`[data-task-card][data-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
   };
-  const editTask = (task: Task) => { if (splitView() && taskView(view())) void selectTask(task.id); else openEditor(task); };
+  const editTask = async (task: Task) => {
+    if (!splitView() || !taskView(view())) { void openEditor(task); return; }
+    // One pane at a time: another editor beside the page saves and gives way.
+    if (besideOpen() && flushBeside && !(await flushBeside())) return;
+    if (besideOpen()) setEditor(null);
+    void selectTask(task.id);
+  };
   // Search that finds (Settings → Display): a result opens where you are; the Calendar also goes to its month.
   const find = createFind({ items, query, now: clock, onOpen: item => {
     if (view() !== "calendar") { if (item.kind === "task") editTask(item); else openEditor(item); return; }
@@ -200,7 +227,19 @@ export function App() {
     if (date && !Number.isNaN(date.getTime())) { setCalendarMonth(zonedDate(partsOf(date).year, partsOf(date).month, 1)); setCalendarDay(startOfDay(date)); }
     openEditor(item);
   } });
-  const openEditor = (item: Editable | null = null, kind?: Editable["kind"], date?: Date) => { editorParents.length = 0; setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() }); };
+  const openEditor = async (item: Editable | null = null, kind?: Editable["kind"], date?: Date) => {
+    // Beside the page, the editor already open saves first (and the selected task's gives way).
+    if (besideOpen() && flushBeside && !(await flushBeside())) return;
+    if (sideEditors() && selectedTaskId()) { await selectTask(null); if (selectedTaskId()) return; }
+    editorParents.length = 0;
+    setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() });
+    if (sideEditors() && !item) requestAnimationFrame(() => document.querySelector<HTMLElement>(".side-editor-pane [data-dialog-autofocus]")?.focus());
+  };
+  // The editor for a request; `beside` (Editors beside the page) is the pane's, the same as List's.
+  const editorFor = (request: EditorRequest, beside: boolean) => <ItemEditor embedded={beside} onQuickAddSubtask={beside ? quickAddSubtask : undefined}
+    registerFlush={beside ? flush => { flushBeside = flush; return () => { if (flushBeside === flush) flushBeside = null; }; } : undefined}
+    registerClose={beside ? close => { closeBesideEditor = close; return () => { if (closeBesideEditor === close) closeBesideEditor = null; }; } : undefined}
+    items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />;
   // In the Android app: notifications for tasks reaching their can-start time and before events,
   // rescheduled (in real time, not pretend time) whenever the calendar or these settings change
   // and on coming back to the app. While the app's closed, the server tells the phone (FCM) when the
@@ -264,6 +303,7 @@ export function App() {
   const finishTask = async (task: Task) => { await attempt(() => store.completeTask(task), "Could not finish the task.", "Finished for good"); };
   const notYet = async (task: Task) => { await attempt(() => store.advanceTask(task, "not-yet"), "Could not record the check-in.", "Checked: not yet"); };
   // The task editor turns a subtask into a dependent task, or back.
+  const reorderTasks = (ordered: Task[]) => attempt(() => store.orderTasks(ordered), "Could not reorder the tasks.");
   const convertChild = (child: Task, to: "subtask" | "dependent", owner: Task) => attempt(() => to === "dependent" ? store.makeDependent(child, owner) : store.moveTask(child, { parent: owner }), "Could not move task.");
   const startDependent = async (task: Task, completeParent: boolean) => {
     try {
@@ -280,8 +320,8 @@ export function App() {
     if (selected && [task.id, ...attached.map(item => item.id)].includes(selected)) { await selectTask(null, true); if (selectedTaskId()) return; }
     await attempt(() => store.deleteItem(task.id), "Could not delete task.", `Deleted “${title}” (Ctrl+Z to undo)`);
   };
-  const pushDown = async (task: Task, until: Date | null) => { await attempt(() => store.pushDown(task, until), "Could not push the task down.", until ? `Pushed down until ${when(until, new Date())}` : "Pushed down"); };
-  const lift = async (task: Task) => { await attempt(() => store.lift(task), "Could not lift the task.", "Lifted back up"); };
+  const pushDown = async (task: Task, until: Date | null) => { await attempt(() => store.pushDown(task, until), "Could not suppress the task.", until ? `Suppressed until ${when(until, new Date())}` : "Suppressed"); };
+  const lift = async (task: Task) => { await attempt(() => store.lift(task), "Could not unsuppress the task.", "Unsuppressed"); };
   const windowChange = async (run: () => Promise<unknown>) => { await attempt(run, "Could not update windows."); };
   const groupChange = async (run: () => Promise<unknown>) => { await attempt(run, "Could not update boards."); };
   const createGroup = async (title: string) => {
@@ -346,9 +386,10 @@ export function App() {
       })();
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      // Escape closes the task pane even when focus is on the board (the pane handles it when focused inside).
-      if (event.key === "Escape" && !event.defaultPrevented && closeDetailEditor && !document.querySelector(".solid-dialog-backdrop") && !editableTarget(event.target) && !(event.target instanceof Element && event.target.closest(".item-detail"))) {
-        event.preventDefault(); closeDetailEditor(); return;
+      // Escape closes the pane beside the page even when focus is elsewhere (the pane handles it when focused inside).
+      const closePane = closeBesideEditor || closeDetailEditor;
+      if (event.key === "Escape" && !event.defaultPrevented && closePane && !document.querySelector(".solid-dialog-backdrop") && !editableTarget(event.target) && !(event.target instanceof Element && event.target.closest(".item-detail"))) {
+        event.preventDefault(); closePane(); return;
       }
       if (!document.querySelector(".solid-dialog-backdrop") && !editableTarget(event.target)) {
         const modifier = event.ctrlKey || event.metaKey;
@@ -381,7 +422,7 @@ export function App() {
           onNavigate={(next) => { navigate(next); window.scrollTo({top: 0, behavior: "instant"}); }}
           onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
           onSettings={() => { setSettingsTab("data"); openSettings(); }}
-          syncState={syncStatus().state} syncLabel={syncStatus().label} syncDetail={syncStatus().detail}
+          onSyncNow={() => void syncNow()} syncState={syncStatus().state} syncLabel={syncStatus().label} syncDetail={syncStatus().detail}
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
           <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("agenda")} mode={prefs.calendarMode()} onModeChange={prefs.setCalendarMode} day={calendarDay()} onDayChange={setCalendarDay} hourHeight={prefs.hourHeight()} onHourHeight={prefs.setHourHeight} showTasks={prefs.calendarTasks()} onShowTasksChange={prefs.setCalendarTasks} />}>
             <Show when={view() !== "agenda"} fallback={<AgendaView items={items()} query={query()} now={clock()} days={prefs.agendaDays()} onDaysChange={prefs.setAgendaDays} todosOpen={prefs.todosOpen()} onEdit={item => openEditor(item)} />}>
@@ -393,7 +434,7 @@ export function App() {
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
                 <Show when={detailRequest() || lastRequest} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
-                  <ItemEditor embedded request={request} items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} registerClose={close => { closeDetailEditor = close; return () => { if (closeDetailEditor === close) closeDetailEditor = null; }; }} onStale={() => setDetailVersion(version => version + 1)} onRevert={() => setDetailVersion(version => version + 1)}
+                  <ItemEditor embedded request={request} items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} registerClose={close => { closeDetailEditor = close; return () => { if (closeDetailEditor === close) closeDetailEditor = null; }; }} onStale={() => setDetailVersion(version => version + 1)} onRevert={() => setDetailVersion(version => version + 1)}
                     onQuickAddSubtask={quickAddSubtask} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => void selectTask(task.id)} onAddSubtask={() => {}} onClose={() => void closeDetail()}
                     onDelete={async (item) => { await store.deleteItem(item.id); flushDetail = null; await selectTask(null, true); showToast("Deleted"); }}
                     onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />}
@@ -404,7 +445,14 @@ export function App() {
             </Show>
           </Show>
         </WorkspaceShell>
-        <Show when={editor()} keyed>{(request) => <ItemEditor items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />}</Show>
+        {/* Over the page, or (Editors beside the page) down its right side like List's. */}
+        <Show when={sideEditors()} fallback={<Show when={editor()} keyed>{(request) => editorFor(request, false)}</Show>}>
+          <Show when={besideMounted()}>
+            <aside class="task-detail-pane side-editor-pane" classList={{ closing: besideClosing() }} aria-label="Editor">
+              <Show when={editor() || lastBeside} keyed>{(request) => editorFor(request, true)}</Show>
+            </aside>
+          </Show>
+        </Show>
         <Show when={showSettings()}><DialogShell labelledBy="settings-title" className="settings-dialog" onClose={closeSettings}>
           <div class="settings-content">
             <div class="dialog-header"><h2 id="settings-title">Settings</h2><button class="icon-button" aria-label="Close settings" onClick={closeSettings}>×</button></div>
@@ -432,6 +480,7 @@ export function App() {
                   <For each={deadlineChoices}>{([days, label]) => <option value={days} selected={days === deadlineDaysOf(items())}>{label}</option>}</For>
                 </select></label>
                 <p class="field-hint">For the whole calendar, on every device. Days are calendar days: “due today” means by midnight.</p>
+                <label class="animation-setting"><span><strong>Editors beside the page</strong><small>On a wide screen, every editor (events and records too, and in the Agenda and Calendar) opens down the right side, full height, as List's do, and the page narrows to make room. Off, only List and Boards open tasks beside the list; other editors open over the page.</small></span><input aria-label="Editors beside the page" type="checkbox" role="switch" checked={prefs.sideEditor()} onChange={event => prefs.setSideEditor(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Search everything</strong><small>Searching lists every matching task and event, past ones and done ones included, under the search field; picking one opens it. Off, search only narrows what the view shows.</small></span><input aria-label="Search everything" type="checkbox" role="switch" checked={prefs.findSearch()} onChange={event => prefs.setFindSearch(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Pretend time</strong><small>A clock in the top bar that makes the app act as if it's another moment. Turning this off goes back to real time.</small></span><input aria-label="Pretend time" type="checkbox" role="switch" checked={prefs.showTimeControl()} onChange={event => { prefs.setShowTimeControl(event.currentTarget.checked); if (!event.currentTarget.checked) pretend(null); }} /></label>
               </section>
@@ -493,7 +542,7 @@ export function App() {
                 <button class="text-button" onClick={() => importRef.click()}>Import backup</button>
                 <div class="solid-menu-divider" />
                 <h3>Sample data</h3>
-                <p class="field-hint">Something of everything, to try things on: tasks in every section (subtasks, dependent tasks, repeats, windows, push-down), events, records, and notifications, on their own boards. Removing deletes every sample item; both can be undone.</p>
+                <p class="field-hint">Something of everything, to try things on: tasks in every section (subtasks, dependent tasks, repeats, windows, suppressed), events, records, and notifications, on their own boards. Removing deletes every sample item; both can be undone.</p>
                 <button class="text-button" disabled={items().some(item => item.id.startsWith(SAMPLE_PREFIX))} onClick={() => void attempt(() => store.importBackup(JSON.stringify({ items: sampleItems() })), "Could not add the sample data.", "Added the sample data")}>Add sample data</button>
                 <button class="text-button" disabled={!items().some(item => item.id.startsWith(SAMPLE_PREFIX))} onClick={() => void attempt(() => store.removeByPrefix(SAMPLE_PREFIX, "Remove sample data"), "Could not remove the sample data.", "Removed the sample data")}>Remove sample data</button>
               </section>
@@ -505,7 +554,7 @@ export function App() {
             <h2 id="import-title">Import backup</h2>
             <p>Add {pending.added} new items and update {pending.updated} matching items.</p>
             <p>Matching IDs are updated with fields from the backup, including text, dates, tags, and attachment references. Items missing from the backup stay in your calendar. This does not replace your whole calendar.</p>
-            <p>JSON backups include item values and each task’s activity history (such as creation, completion, and pushing down). They do not include undo/redo history, the Automerge change history used for syncing, or attachment files. Referenced files must still exist on your sync server. Imported changes will sync to your other devices. You can undo this import.</p>
+            <p>JSON backups include item values and each task’s activity history (such as creation, completion, and suppressing). They do not include undo/redo history, the Automerge change history used for syncing, or attachment files. Referenced files must still exist on your sync server. Imported changes will sync to your other devices. You can undo this import.</p>
             <div class="dialog-actions"><button class="secondary-button" disabled={importing()} onClick={() => setPendingImport(null)}>Cancel</button><button class="primary-button" disabled={importing()} onClick={() => void confirmImport()}>{importing() ? "Importing…" : "Import and update matches"}</button></div>
           </div>
         </DialogShell>}</Show>

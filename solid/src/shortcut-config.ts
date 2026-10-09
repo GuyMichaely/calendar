@@ -14,8 +14,8 @@ export const DEFAULT_SHORTCUTS: Shortcuts = {
 export const labels: Record<ShortcutAction, string> = {
   edit: "Open task details",
   complete: "Complete or reopen task",
-  pushDown: "Push down or lift back up",
-  pushDownTomorrow: "Push down until tomorrow",
+  pushDown: "Suppress or unsuppress",
+  pushDownTomorrow: "Suppress until tomorrow",
   notYet: "Not yet (check-ins)",
   addTask: "Add a task",
 };

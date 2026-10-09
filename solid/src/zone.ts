@@ -111,6 +111,25 @@ export function formatIn(date: Date, options: Intl.DateTimeFormatOptions, timeZo
   return formatter.format(date);
 }
 export const clockText = (date: Date) => formatIn(date, { hour: "numeric", minute: "2-digit" });
+/**
+ * Whether an event or record takes whole days: its times left off, so it starts at midnight and
+ * ends at 11:59 PM (the end of its last day), or at the midnight after, or has no end.
+ */
+export function isAllDay(start: Date, end: Date | null) {
+  const first = partsOf(start);
+  if (first.hour || first.minute) return false;
+  if (!end) return true;
+  const last = partsOf(end);
+  return end > start && ((last.hour === 23 && last.minute === 59) || (!last.hour && !last.minute));
+}
+/** An all-day stretch's days: "All day" for one, else "Oct 8 – 10". */
+export function allDayText(start: Date, end: Date | null) {
+  // An end at midnight is the end of the day before.
+  const last = end && !partsOf(end).hour && !partsOf(end).minute ? new Date(end.getTime() - 60_000) : end;
+  if (!last || sameDay(start, last)) return "All day";
+  const a = partsOf(start), b = partsOf(last);
+  return `${formatIn(start, { month: "short", day: "numeric" })} – ${a.month === b.month && a.year === b.year ? b.day : formatIn(last, { month: "short", day: "numeric" })}`;
+}
 /** "Oct 12, 3:00 PM" (with the year only when it isn't this year). */
 export function dateTimeText(date: Date, now = new Date()) {
   return formatIn(date, { month: "short", day: "numeric", ...(partsOf(date).year !== partsOf(now).year ? { year: "numeric" } : {}), hour: "numeric", minute: "2-digit" });

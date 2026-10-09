@@ -148,6 +148,14 @@ export function createCalendarStore(options: { onChanged: () => void }) {
     },
     renameGroup: (group: Group, title: string) => batch("Rename board", () => patchGroup(group, { title })),
     /** Arrange the Boards view's boards (built-in ones included) as in this layout, in one undo step. */
+    /** Put sibling tasks (a task's subtasks, say) in this order, in the places in the order they already had. */
+    orderTasks: (ordered: Task[]) => batch("Reorder tasks", async () => {
+      const places = ordered.map(task => task.sortOrder ?? 0).sort((a, b) => a - b);
+      // Ties get pulled apart so the order holds.
+      for (let index = 1; index < places.length; index++) if (places[index] <= places[index - 1]) places[index] = places[index - 1] + 0.001;
+      for (const [index, task] of ordered.entries()) if (task.sortOrder !== places[index]) await putItem(patchedItem(task, { sortOrder: places[index] }, new Date()), task);
+    }),
+
     layoutBoards: async (layout: BoardLayout) => {
       const patches = boardLayoutPatches(items(), layout);
       if (patches.length) await batch("Reorder boards", async () => {

@@ -3,6 +3,7 @@ import { Icon } from "./Icon";
 import { ancestors, buildSections, deadlineDaysOf, pushedDownInfo, SECTION_ORDER, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
 import { boardLayout, placeBoard, sameLayout, userBoards, type BoardLayout, type BoardTarget } from "./board-order";
 import { taskSchedule, windowsById } from "./windows";
+import { wholeDays } from "./calendar-entries";
 import { describeRepeat, lastCheckIn } from "./repeats";
 // The same search as the calendar: title, notes, tags, and attachment names.
 import { textMatches } from "../../site/domain.js";
@@ -146,7 +147,9 @@ export function TodayView(props: TodayViewProps) {
   const EventRow = (rowProps: { event: CalendarEvent }) => {
     const start = () => new Date(rowProps.event.start!);
     const end = () => rowProps.event.end ? new Date(rowProps.event.end) : null;
-    const time = () => sameDay(start(), props.now) ? [clock(start()), end() && sameDay(end()!, start()) ? clock(end()!) : ""].filter(Boolean).join("–") : when(start(), props.now);
+    // An all-day one by its days ("Fri", "Oct 9 – 11").
+    const days = () => wholeDays(rowProps.event);
+    const time = () => days() && days() !== "All day" ? days()! : sameDay(start(), props.now) ? [clock(start()), end() && sameDay(end()!, start()) ? clock(end()!) : ""].filter(Boolean).join("–") : when(start(), props.now);
     return <div class="today-row event-row" title="An event: it leaves the list when it starts" onClick={() => props.onEditEvent(rowProps.event)}>
       <span class="event-mark" aria-hidden="true"><Icon name="calendar" size={15} /></span>
       <span class="today-copy">
@@ -158,7 +161,7 @@ export function TodayView(props: TodayViewProps) {
   const [collapsed, setCollapsed] = createSignal(new Set<string>(COLLAPSED_AT_FIRST));
   const isCollapsed = (id: string) => props.view === "today" && collapsed().has(id);
   const toggleSection = (id: string) => setCollapsed(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  // Compact: which folded runs of pushed-down tasks are open, by where they sit.
+  // Compact: which folded runs of suppressed tasks are open, by where they sit.
   const [openRuns, setOpenRuns] = createSignal(new Set<string>());
   const toggleRun = (key: string) => setOpenRuns(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; });
 
@@ -241,7 +244,7 @@ export function TodayView(props: TodayViewProps) {
     if (node.container) {
       if (task.deadline) result.push({ label: `Due ${when(new Date(task.deadline), now)}` });
       const own = pushedDownInfo(task, now);
-      if (own.pushed) result.push({ label: own.until ? `Pushed down until ${when(own.until, now)}` : "Pushed down" });
+      if (own.pushed) result.push({ label: own.until ? `Suppressed until ${when(own.until, now)}` : "Suppressed" });
       return result;
     }
     if (!placement || placement.section === "completed") return result;
@@ -256,8 +259,8 @@ export function TodayView(props: TodayViewProps) {
     } else if (placement.section === "later" && placement.opens) result.push({ label: `Opens ${clock(placement.opens)}`, title: windowName });
     else if (placement.section === "upcoming") result.push({ label: placement.next ? `${windowed ? "Opens" : "Starts"} ${when(placement.next, now)}` : "No opening in the next two weeks", title: windowName });
     const pushed = pushedDownInfo(task, now);
-    if (pushed.pushed) result.push({ label: pushed.until ? `Pushed down until ${when(pushed.until, now)}` : "Pushed down" });
-    else if (placement.pushed) result.push({ label: "Pushed down with its parent" });
+    if (pushed.pushed) result.push({ label: pushed.until ? `Suppressed until ${when(pushed.until, now)}` : "Suppressed" });
+    else if (placement.pushed) result.push({ label: "Suppressed with its parent" });
     return result;
   };
   // How it repeats, and a check-in's last "Not yet".
@@ -350,7 +353,7 @@ export function TodayView(props: TodayViewProps) {
       <Keyed nodes={shown()} depth={rowsProps.depth} label={rowsProps.label} runKey={rowsProps.runKey} />
       <Show when={folded().length}>
         <button type="button" class="today-fold today-run" aria-expanded={open()} data-holds={open() ? undefined : idsIn(folded()).join(" ")} style={{ "padding-left": `${10 + rowsProps.depth * 20}px` }} onClick={() => toggleRun(rowsProps.runKey)}>
-          <span class="section-chevron" aria-hidden="true">›</span>{folded().length} pushed down
+          <span class="section-chevron" aria-hidden="true">›</span>{folded().length} suppressed
         </button>
         <Show when={open()}><Keyed nodes={folded()} depth={rowsProps.depth} label={rowsProps.label} runKey={rowsProps.runKey} /></Show>
       </Show>
@@ -492,10 +495,10 @@ export function TodayView(props: TodayViewProps) {
           </Show>
           <Show when={!menuProps.done}>
             <Show when={pushed()} fallback={<>
-              <button role="menuitem" onClick={act(() => moving([id()], () => props.onPushDown(menuProps.task, null)))}>Push down</button>
-              <button role="menuitem" onClick={act(() => moving([id()], () => props.onPushDown(menuProps.task, tomorrow())))}>Push down until tomorrow</button>
+              <button role="menuitem" onClick={act(() => moving([id()], () => props.onPushDown(menuProps.task, null)))}>Suppress</button>
+              <button role="menuitem" onClick={act(() => moving([id()], () => props.onPushDown(menuProps.task, tomorrow())))}>Suppress until tomorrow</button>
             </>}>
-              <button role="menuitem" onClick={act(() => moving([id()], () => props.onLift(menuProps.task)))}>Lift back up</button>
+              <button role="menuitem" onClick={act(() => moving([id()], () => props.onLift(menuProps.task)))}>Unsuppress</button>
             </Show>
           </Show>
           <Show when={!menuProps.done && menuProps.task.repeat && !menuProps.task.repeat.untilDone}>
@@ -878,7 +881,7 @@ export function TodayView(props: TodayViewProps) {
         </Show>
         <label class="check-row" title="Tasks on a board that are in Deadline, closing or opening today, or upcoming move to that column; the rest stay on their board"><input type="checkbox" checked={props.pullTimed} onChange={event => props.onPullTimedChange(event.currentTarget.checked)} />Pull timed tasks off boards</label>
       </Show>
-      <label class="check-row" title="Fold pushed-down tasks beside each other into one row you can open"><input type="checkbox" checked={props.compact} onChange={event => props.onCompactChange(event.currentTarget.checked)} />Compact</label>
+      <label class="check-row" title="Fold suppressed tasks beside each other into one row you can open"><input type="checkbox" checked={props.compact} onChange={event => props.onCompactChange(event.currentTarget.checked)} />Compact</label>
       <Show when={props.view === "today"}>
         <label class="today-filter"><span class="visually-hidden">Board</span>
           <select value={groupFilter()} onChange={event => setGroupFilter(event.currentTarget.value)}>

@@ -14,7 +14,10 @@ const monthOf = (date: Date, offset = 0) => { const { year, month } = partsOf(da
 export function DateTimeField(props: { name: string; label: string; value: string; disabled?: boolean; placeholder?: string; onChange: (value: string) => void }) {
   const [value, setValue] = createSignal(props.value || "");
   createEffect(() => setValue(props.value || ""));
-  const defaultTime = (): [number, number] => props.name === "deadline" ? [23, 59] : [0, 0];
+  // A date without a time: the end of the day for a due date or an end, else its start.
+  const endsDay = () => props.name === "deadline" || props.name === "eventEnd";
+  const defaultTime = (): [number, number] => endsDay() ? [23, 59] : [0, 0];
+  const timeless = (date: Date) => partsOf(date).hour === defaultTime()[0] && partsOf(date).minute === defaultTime()[1];
   const [hasTime, setHasTime] = createSignal(false);
   const displayText = (date: Date) => hasTime() ? formatDateTimeText(date) : formatDateTimeText(date).split(" ")[0];
   const [open, setOpen] = createSignal(false);
@@ -35,7 +38,7 @@ export function DateTimeField(props: { name: string; label: string; value: strin
   const show = () => {
     const current = fromLocalValue(value());
     setDraft(current);
-    setHasTime(!!current && (partsOf(current).hour !== defaultTime()[0] || partsOf(current).minute !== defaultTime()[1]));
+    setHasTime(!!current && !timeless(current));
     setText(current ? displayText(current) : "");
     setTextValid(true);
     const base = current || new Date();
@@ -98,7 +101,7 @@ export function DateTimeField(props: { name: string; label: string; value: strin
     onKeyDown={event => { if (event.key === "Escape" && open()) { event.preventDefault(); event.stopPropagation(); setOpen(false); } }}>
     <input type="hidden" name={props.name} value={value()} disabled={props.disabled} />
     <button type="button" class="dt-display" classList={{ empty: !value() }} aria-label={`${props.label}: ${value() ? formatDateTimeText(fromLocalValue(value())!) : "not set"}`} aria-expanded={open()} disabled={props.disabled} onClick={() => open() ? setOpen(false) : show()}>
-      {value() ? formatDateTimeShort(fromLocalValue(value())!) : props.placeholder || "Set date"}
+      {value() ? (date => timeless(date) ? formatIn(date, { month: "short", day: "numeric", year: "numeric" }) : formatDateTimeShort(date))(fromLocalValue(value())!) : props.placeholder || "Set date"}
     </button>
     <Show when={open()}>
       <div class="dt-popover" style={position() ? { top: `${position()!.top}px`, left: `${position()!.left}px` } : undefined} role="dialog" aria-label={`Choose ${props.label.toLowerCase()}`}>
@@ -114,7 +117,7 @@ export function DateTimeField(props: { name: string; label: string; value: strin
           <For each={days()}>{day => <button type="button" class="dt-day" classList={{ outside: partsOf(day).month !== partsOf(month()).month, today: sameDay(new Date(), day), selected: sameDay(draft(), day) }} onClick={() => pickDay(day)}>{partsOf(day).day}</button>}</For>
         </div>
         <label class="dt-time"><span>Time (optional)</span><input type="time" data-editor-ignore aria-label={`${props.label} time`} value={timeValue()} onInput={event => pickTime(event.currentTarget.value)} /></label>
-        <small class="field-hint">Without a time: {props.name === "deadline" ? "11:59 PM" : "12:00 AM"}.</small>
+        <small class="field-hint">Without a time: {props.name === "deadline" ? "due by the end of the day" : props.name === "eventEnd" ? "through the end of the day" : props.name === "eventStart" ? "the whole day" : "from the start of the day"}.</small>
         <div class="dt-actions">
           <button type="button" class="text-button" onClick={() => commit(null)}>Clear</button>
           <span class="spacer" />

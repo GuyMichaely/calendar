@@ -1,7 +1,7 @@
 import { For, Show, createMemo, createSignal, on, createEffect } from "solid-js";
 import { textMatches } from "../../site/domain.js";
 import { Icon } from "./Icon";
-import { calendarEntries, leafTasks, todaysWork, type CalendarEntry } from "./calendar-entries";
+import { calendarEntries, leafTasks, todaysWork, wholeDays, type CalendarEntry } from "./calendar-entries";
 import { placementOf, type Placement } from "./today";
 import { when } from "./TodayView";
 import { shutsAt, windowsById } from "./windows";
@@ -31,7 +31,8 @@ const title = (item: Item) => String(item.title || "").trim() || (item.kind === 
 
 /**
  * The days ahead at a glance, like the Calendar's day list: each day's events and timed tasks in
- * time order, today's overdue and open-now tasks first. Each task shows once in the days shown,
+ * order of the time each shows (a task open now at when it closes, one due at its due time, an
+ * event at its start; all-day events first, on each of their days). Each task shows once in the days shown,
  * where it first comes up: a task whose window opens several times shows at the first opening, and
  * a repeating one at its first occurrence with how many there are. A task due on a later day
  * shows on that day; a day with nothing in it doesn't show. Tasks you can do now with nothing
@@ -77,7 +78,7 @@ export function AgendaView(props: {
     const describe = (task: Task, placement: Placement): Row | null => {
       const schedule = task.windowId ? windows.get(task.windowId) : undefined;
       if (placement.section === "firm") return { item: task, at: placement.due ?? now, mark: "task due", label: !placement.due ? "Due soon" : placement.overdue ? `Overdue · was due ${when(placement.due, now)}` : `Due ${timeOf(placement.due) || "today"}` };
-      if (placement.section === "closing") { const shuts = placement.closes && (schedule ? shutsAt(schedule, { closes: placement.closes }) : placement.closes); return { item: task, at: now, mark: "task start", label: shuts ? `Open now · until ${clockText(shuts)}` : "Open now" }; }
+      if (placement.section === "closing") { const shuts = placement.closes && (schedule ? shutsAt(schedule, { closes: placement.closes }) : placement.closes); return { item: task, at: shuts || now, mark: "task start", label: shuts ? `Open now · until ${clockText(shuts)}` : "Open now" }; }
       if (placement.section === "later" && placement.opens) { const shuts = schedule && placement.closes ? shutsAt(schedule, { closes: placement.closes }) : null; return { item: task, at: placement.opens, mark: "task start", label: shuts ? `${clockText(placement.opens)}–${clockText(shuts)}` : `From ${clockText(placement.opens)}` }; }
       return null;
     };
@@ -96,8 +97,8 @@ export function AgendaView(props: {
     // with subtasks as its open subtasks, the work actually done).
     const entryRow = (entry: CalendarEntry, item: Task | CalendarEvent): Row => {
       if (item.kind === "event") {
-        const end = time(item.end);
-        return { item, at: entry.at, mark: "event", label: [timeOf(entry.at), end && dayKey(end) === dayKey(entry.at) ? clockText(end) : ""].filter(Boolean).join("–") || "All day", past: (end ?? entry.at) < now };
+        const end = time(item.end), days = wholeDays(item);
+        return { item, at: entry.at, mark: "event", label: days ?? [timeOf(entry.at), end && dayKey(end) === dayKey(entry.at) ? clockText(end) : ""].filter(Boolean).join("–"), past: (end ?? entry.at) < now };
       }
       const at = timeOf(entry.at);
       const pushed = entry.pushed ? " pushed-entry" : "";
@@ -110,7 +111,8 @@ export function AgendaView(props: {
       if (!block || entry.item.kind === "record") continue;
       const listed = entry.item.kind === "task" ? leafTasks(items, entry.item) : [entry.item];
       for (const item of listed) {
-        if (seen.has(item.id)) continue;
+        // A task once; an all-day event on each of its days.
+        if (item.kind === "task" && seen.has(item.id)) continue;
         seen.add(item.id);
         if (shown(item)) block.rows.push(entryRow(entry, item));
       }
@@ -133,7 +135,7 @@ export function AgendaView(props: {
   </button>;
 
   // Today's rows, with the Now line between what's behind you (finished events, what was due
-  // before now) and what's ahead, which starts with what's open now.
+  // before now) and what's ahead.
   const todayRows = (rows: Row[]) => {
     const split = rows.findIndex(entry => entry.at && entry.at >= props.now);
     const at = split < 0 ? rows.length : split;

@@ -41,6 +41,9 @@ export function createPreferences() {
   // Whether the hour views show tasks too (off: only events and records).
   const [calendarTasks, setCalendarTasks] = flag("calendar.calendar.tasks");
   const [hourHeight, setHourHeight] = stored<number | null>("calendar.calendar.hourHeight", raw => Number(raw) || null, value => value ? String(Math.round(value)) : null);
+  // Settings → Display: on wide screens, every editor opens beside the page (off: List and Boards
+  // open tasks beside the list, and other editors open over the page).
+  const [sideEditor, setSideEditor] = flag("calendar.editor.beside");
   // Settings → Display: search lists every matching task and event under the field (off: it only filters the view).
   const [findSearch, setFindSearch] = flag("calendar.search.find");
   const [timeOffset, setTimeOffset] = stored("calendar.timeOffset", raw => Number(raw) || 0, value => value ? String(value) : null);
@@ -58,6 +61,7 @@ export function createPreferences() {
     showTimeControl, setShowTimeControl,
     timeOffset, setTimeOffset,
     findSearch, setFindSearch,
+    sideEditor, setSideEditor,
     agendaDays, setAgendaDays,
     calendarMode, setCalendarMode,
     hourHeight, setHourHeight,

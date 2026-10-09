@@ -1,6 +1,6 @@
-import { calendarEntries } from "./calendar-entries";
+import { calendarEntries, wholeDays } from "./calendar-entries";
 import { isDormant } from "./dependencies";
-import { dateTimeText, clockText, sameDay } from "./zone";
+import { dateTimeText, clockText, formatIn, sameDay } from "./zone";
 import type { CalendarEvent, CalendarRecord, Item, Task } from "./types";
 
 /**
@@ -57,7 +57,9 @@ export function upcomingReminders(items: Item[], now: Date, settings: ReminderSe
         const at = new Date(time);
         if (Number.isNaN(at.getTime()) || !due(at)) continue;
         const deadline = item.kind === "task" && item.deadline ? new Date(item.deadline) : null;
-        const body = start ? at >= start ? "Starting now" : sameDay(start, at) ? `Starts at ${clockText(start)}` : `Starts ${dateTimeText(start, at)}`
+        const allDay = item.kind !== "task" && !!wholeDays(item);
+        const body = start && allDay ? at >= start || sameDay(start, at) ? "Today" : `Starts ${formatIn(start, { weekday: "short", month: "short", day: "numeric" })}`
+          : start ? at >= start ? "Starting now" : sameDay(start, at) ? `Starts at ${clockText(start)}` : `Starts ${dateTimeText(start, at)}`
           : deadline && !Number.isNaN(deadline.getTime()) ? `Due ${dateTimeText(deadline, at)}` : "";
         reminders.push({ id: reminderId(`at:${item.id}:${at.toISOString()}`), at, title: titleOf(item), body, itemId: item.id, kind: item.kind, channel: "events" });
       }

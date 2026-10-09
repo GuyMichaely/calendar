@@ -2,7 +2,7 @@ import { Icon } from "./Icon";
 import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import { textMatches } from "../../site/domain.js";
 import { addDays, clockText, dayKey as dateKey, formatIn, partsOf, startOfDay, zonedDate } from "./zone";
-import { calendarEntries, leafTasks, todaysWork, type CalendarEntry } from "./calendar-entries";
+import { calendarEntries, leafTasks, todaysWork, wholeDays, type CalendarEntry } from "./calendar-entries";
 import { placementOf, type Placement, type SectionId } from "./today";
 import { SECTION_LABELS, when } from "./TodayView";
 import { shutsAt, windowsById } from "./windows";
@@ -101,11 +101,12 @@ export function CalendarView(props: {
       const title = displayTitle(entry.item);
       const ghost = props.ghostIds.has(entry.item.id);
       const task = entry.item.kind === "task" ? entry.item : null;
-      const shown: Shown = entry.kind === "event" || entry.kind === "record" ? { ...entry, className: entry.kind, label: `${shortTime(entry.at)} ${title}`, title, kindLabel: shortTime(entry.at) }
+      const days = entry.item.kind === "task" ? null : wholeDays(entry.item);
+      const shown: Shown = entry.kind === "event" || entry.kind === "record" ? days ? { ...entry, className: entry.kind, label: title, title, kindLabel: days } : { ...entry, className: entry.kind, label: `${shortTime(entry.at)} ${title}`, title, kindLabel: shortTime(entry.at) }
         : entry.kind === "due" ? { ...entry, className: `task due${entry.overdue ? " overdue" : ""}`, label: ["Due", timeOf(entry.at), title].filter(Boolean).join(" "), title: `${title}: due ${shortTime(entry.at)}${entry.overdue ? " (overdue)" : ""}`, kindLabel: ["Due", timeOf(entry.at)].filter(Boolean).join(" · ") }
         : entry.kind === "repeat" ? { ...entry, className: "task repeat", label: `↻ ${title}`, title: `${title}: a later occurrence (${describeRepeat(task!.repeat!)})`, kindLabel: `Repeats${timeOf(entry.at) ? ` · ${timeOf(entry.at)}` : ""}` }
         : { ...entry, className: "task start", label: title, title: `${title}: can start`, kindLabel: `Can start${timeOf(entry.at) ? ` · ${timeOf(entry.at)}${entry.until ? `–${shortTime(entry.until)}` : ""}` : ""}` };
-      if (entry.pushed) { shown.className += " pushed-entry"; shown.title += " (pushed down)"; }
+      if (entry.pushed) { shown.className += " pushed-entry"; shown.title += " (suppressed)"; }
       if (ghost) { shown.className += " ghost-entry"; shown.label = `If started: ${shown.label}`; shown.title += " (dependent task, if started on its parent task's due date)"; }
       const key = dateKey(entry.at);
       map.set(key, [...(map.get(key) || []), shown]);
@@ -118,7 +119,7 @@ export function CalendarView(props: {
   const pendingForDay = (day: Date) => dateKey(day) === today() ? work() : [];
   const matchingPending = (day: Date) => props.query ? pendingForDay(day).filter(item => textMatches(item, props.query)) : pendingForDay(day);
   // The selected day's entries; on today, its tasks go in List's sections instead, each
-  // labelled with what it waits on, and the entries left (events, pushed-down tasks) come first.
+  // labelled with what it waits on, and the entries left (events, suppressed tasks) come first.
   // Only work shows: a container's entry lists its open leaf tasks instead, once each.
   const dayList = createMemo(() => {
     const day = selectedDay();
@@ -176,11 +177,13 @@ export function CalendarView(props: {
           <For each={days()}>{day => {
             const entries = () => entriesForDay(day);
             const matching = () => props.query ? entries().filter(entry => textMatches(entry.item, props.query)) : entries();
+            // Searching, what matches comes first, so it isn't left in "+N more".
+            const ordered = () => props.query ? [...matching(), ...entries().filter(entry => !textMatches(entry.item, props.query))] : entries();
             return <div class={`calendar-day ${!sameMonth(day, props.month) ? "outside" : ""} ${dateKey(day) === today() ? "today" : ""}`} classList={{selected: dateKey(day) === dateKey(selectedDay())}} onClick={() => setSelectedDay(day)}>
               <button class="day-number" aria-label={formatIn(day, {dateStyle: "full"})} aria-pressed={dateKey(day) === dateKey(selectedDay())} onClick={() => setSelectedDay(day)}>{partsOf(day).day}</button>
               <div class="calendar-cell-entries">
                 <Show when={matchingPending(day).length}><button class="calendar-chip task start" title="Open today's tasks" onClick={event => { event.stopPropagation(); props.onOpenTodayTasks(); }}>{matchingPending(day).length} tasks for today</button></Show>
-                <For each={entries().slice(0, pendingForDay(day).length ? 2 : 3)}>{entry => <button class={`calendar-chip ${entry.className} ${props.query && !textMatches(entry.item, props.query) ? "search-dimmed" : ""}`} title={entry.title} onClick={event => { event.stopPropagation(); props.onEdit(entry.item); }}>{entry.label}</button>}</For>
+                <For each={ordered().slice(0, pendingForDay(day).length ? 2 : 3)}>{entry => <button class={`calendar-chip ${entry.className} ${props.query && textMatches(entry.item, props.query) ? "search-match" : ""}`} title={entry.title} onClick={event => { event.stopPropagation(); props.onEdit(entry.item); }}>{entry.label}</button>}</For>
                 <Show when={entries().length > (pendingForDay(day).length ? 2 : 3)}><button class="more-count" onClick={() => setSelectedDay(day)}>+{entries().length - (pendingForDay(day).length ? 2 : 3)} more</button></Show>
               </div>
               <div class="calendar-day-dots" aria-hidden="true"><For each={matching().slice(0, 3)}>{entry => <i class={`legend-dot ${entry.kind === "event" || entry.kind === "record" ? entry.kind : entry.kind === "due" ? "due" : entry.kind === "repeat" ? "repeat" : "start"}`} />}</For><Show when={matchingPending(day).length}><i class="legend-dot start" /></Show></div>
