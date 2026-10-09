@@ -30,7 +30,10 @@ export function sampleItems(now = new Date()): Item[] {
     id: id(name), kind: "task", title, state: "open", notes: "", tags: [], attachments: [], sortOrder: order++,
     createdAt: at, updatedAt: at, history: [{ at, type: "created" }], ...extra,
   });
-  const event = (name: string, title: string, start: string, end: string, extra: Partial<CalendarEvent> = {}): CalendarEvent => ({ id: id(name), kind: "event", title, notes: "", tags: [], attachments: [], start, end, reminderMinutes: 30, createdAt: at, updatedAt: at, ...extra });
+  // Some minutes before a time, for a notification.
+  const before = (time: string, minutes: number) => new Date(new Date(time).getTime() - minutes * 60_000).toISOString();
+  // An event notifies 30 minutes before it starts unless it says otherwise.
+  const event = (name: string, title: string, start: string, end: string, extra: Partial<CalendarEvent> = {}): CalendarEvent => ({ id: id(name), kind: "event", title, notes: "", tags: [], attachments: [], start, end, remindAt: [before(start, 30)], createdAt: at, updatedAt: at, ...extra });
   const record = (name: string, title: string, start: string, extra: Partial<CalendarRecord> = {}): CalendarRecord => ({ id: id(name), kind: "record", title, notes: "", tags: [], attachments: [], start, end: null, createdAt: at, updatedAt: at, ...extra });
   const yesterday = day(-1, "15:00");
 
@@ -94,13 +97,13 @@ export function sampleItems(now = new Date()): Item[] {
     task("returned", "Return library books", { groupId: id("home"), state: "completed", completedAt: yesterday }),
 
     // Events: earlier today (past), later today (with its reminder), tomorrow, and later this week.
-    event("standup", "Morning standup", day(0, "09:00"), day(0, "09:15"), { reminderMinutes: null, tags: ["work"] }),
+    event("standup", "Morning standup", day(0, "09:00"), day(0, "09:15"), { remindAt: null, tags: ["work"] }),
     event("doctor", "Doctor's appointment", hours(3), hours(4), { notes: "Notifies you 30 minutes before it starts. Leaves List once it starts." }),
-    event("lunch", "Lunch with Sam", day(1, "12:30"), day(1, "13:30"), { reminderMinutes: 60 }),
-    event("concert", "Concert", day(4, "20:00"), day(4, "22:30"), { reminderMinutes: 120, remindAt: [day(3, "18:00")] }),
+    event("lunch", "Lunch with Sam", day(1, "12:30"), day(1, "13:30"), { remindAt: [before(day(1, "12:30"), 60)] }),
+    event("concert", "Concert", day(4, "20:00"), day(4, "22:30"), { remindAt: [day(3, "18:00"), before(day(4, "20:00"), 120)] }),
 
     // Records: noted, nothing to do; on the Calendar and found by search.
     record("bank-letter", "Bank asked for statements", day(-1, "11:00"), { notes: "Only a record: not in the Agenda or List." }),
-    record("meter", "Meter reading due", day(5, "08:00"), { reminderMinutes: 60 }),
+    record("meter", "Meter reading due", day(5, "08:00"), { remindAt: [before(day(5, "08:00"), 60)] }),
   ];
 }

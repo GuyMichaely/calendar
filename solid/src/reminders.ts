@@ -1,6 +1,6 @@
 import { calendarEntries } from "./calendar-entries";
 import { isDormant } from "./dependencies";
-import { dateTimeText, clockText } from "./zone";
+import { dateTimeText, clockText, sameDay } from "./zone";
 import type { CalendarEvent, CalendarRecord, Item, Task } from "./types";
 
 /**
@@ -53,17 +53,12 @@ export function upcomingReminders(items: Item[], now: Date, settings: ReminderSe
       // A finished task, or one waiting to be started, has nothing to remind about.
       if (item.kind === "task" && (item.state === "completed" || isDormant(item, byId))) continue;
       const start = item.kind === "task" ? null : startOf(item);
-      // Before it starts.
-      if (item.kind !== "task" && start && item.reminderMinutes != null) {
-        const at = new Date(start.getTime() - item.reminderMinutes * 60_000);
-        if (due(at)) reminders.push({ id: reminderId(`${item.kind}:${item.id}:${at.toISOString()}`), at, title: titleOf(item), body: item.reminderMinutes ? `Starts at ${clockText(start)}` : "Starting now", itemId: item.id, kind: item.kind, channel: "events" });
-      }
-      // At moments chosen for it.
       for (const time of item.remindAt || []) {
         const at = new Date(time);
         if (Number.isNaN(at.getTime()) || !due(at)) continue;
         const deadline = item.kind === "task" && item.deadline ? new Date(item.deadline) : null;
-        const body = start ? `Starts ${dateTimeText(start, at)}` : deadline && !Number.isNaN(deadline.getTime()) ? `Due ${dateTimeText(deadline, at)}` : "";
+        const body = start ? at >= start ? "Starting now" : sameDay(start, at) ? `Starts at ${clockText(start)}` : `Starts ${dateTimeText(start, at)}`
+          : deadline && !Number.isNaN(deadline.getTime()) ? `Due ${dateTimeText(deadline, at)}` : "";
         reminders.push({ id: reminderId(`at:${item.id}:${at.toISOString()}`), at, title: titleOf(item), body, itemId: item.id, kind: item.kind, channel: "events" });
       }
     }

@@ -161,17 +161,16 @@ test("kind conversion removes obsolete source-kind fields without overwriting un
 });
 
 
-test("an event made a record keeps its times and loses its reminder", async () => {
+test("an event made a record keeps its times and its notifications", async () => {
   const id = "event-to-record";
-  const event = { id, kind: "event", title: "Bank asked for statements", notes: "", tags: [], attachments: [], start: "2026-09-21T13:00:00.000Z", end: "2026-09-21T14:00:00.000Z", reminderMinutes: 30, createdAt: "2026-09-04T12:00:00.000Z", updatedAt: "2026-09-04T12:00:00.000Z" };
+  const event = { id, kind: "event", title: "Bank asked for statements", notes: "", tags: [], attachments: [], start: "2026-09-21T13:00:00.000Z", end: "2026-09-21T14:00:00.000Z", remindAt: ["2026-09-21T12:30:00.000Z"], createdAt: "2026-09-04T12:00:00.000Z", updatedAt: "2026-09-04T12:00:00.000Z" };
   await storage.putItem(event);
   const baseline = (await storage.listItems()).find((item) => item.id === id);
-  const { reminderMinutes: _, ...times } = baseline;
-  await storage.putItem({ ...times, kind: "record", updatedAt: "2026-09-04T13:00:00.000Z" }, baseline);
+  await storage.putItem({ ...baseline, kind: "record", updatedAt: "2026-09-04T13:00:00.000Z" }, baseline);
   const current = (await storage.listItems()).find((item) => item.id === id);
   assert.equal(current.kind, "record");
   assert.equal(current.start, "2026-09-21T13:00:00.000Z");
-  assert.equal("reminderMinutes" in current, false);
+  assert.deepEqual(current.remindAt, ["2026-09-21T12:30:00.000Z"]);
 });
 
 test("a different document generation cannot replace current browser data", async () => {

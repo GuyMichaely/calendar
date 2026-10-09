@@ -45,7 +45,7 @@ export type Task = BaseItem & {
   // With a "not-yet" start: whether starting it also finishes the parent (default yes).
   stopParent?: boolean | null;
   completedAt?: string | null;
-  // Reminders at moments you choose (ISO times), besides any it gets from its dates.
+  // Notifies at these times (ISO), besides when it can start.
   remindAt?: string[] | null;
   history?: HistoryEntry[];
   // Only top-level tasks use this; subtasks appear wherever their parent task is.
@@ -65,20 +65,17 @@ export type CalendarEvent = BaseItem & {
   kind: "event";
   start?: string | null;
   end?: string | null;
-  // Notifies this many minutes before it starts (0: as it starts); unset or null: no reminder.
-  reminderMinutes?: number | null;
-  // Reminders at moments you choose (ISO times).
+  // Notifies at these times (ISO); a new one starts with the calendar's eventReminderMinutes before it starts.
   remindAt?: string[] | null;
 };
 
 // Something noted at a time, for the record (the bank asked for papers that day): on the
 // Calendar and found by search, but nothing to do, so not in the Agenda or List. It can still
-// remind you, before it starts or at moments you choose. Its end is optional.
+// notify you, at the times you choose. Its end is optional.
 export type CalendarRecord = BaseItem & {
   kind: "record";
   start?: string | null;
   end?: string | null;
-  reminderMinutes?: number | null;
   remindAt?: string[] | null;
 };
 

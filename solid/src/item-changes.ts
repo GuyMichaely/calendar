@@ -83,7 +83,6 @@ export type EventDraft = {
   attachments: Attachment[];
   start: string | null;
   end: string | null;
-  reminderMinutes: number | null;
   remindAt?: string[];
 };
 
@@ -160,7 +159,6 @@ export function recordFromDraft(draft: RecordDraft, { id, previous, now }: Draft
     attachments: draft.attachments,
     start: draft.start,
     end: draft.end,
-    reminderMinutes: draft.reminderMinutes,
     remindAt: remindAtOf(draft.remindAt),
     createdAt: previous?.createdAt || at,
     updatedAt: at,
@@ -185,7 +183,6 @@ export function eventFromDraft(draft: EventDraft, { id, previous, now }: DraftCo
     attachments: draft.attachments,
     start,
     end,
-    reminderMinutes: draft.reminderMinutes,
     remindAt: remindAtOf(draft.remindAt),
     createdAt: previous?.createdAt || at,
     updatedAt: at,
