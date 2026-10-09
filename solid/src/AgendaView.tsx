@@ -132,11 +132,12 @@ export function AgendaView(props: {
     <Icon name="arrow" size={15} />
   </button>;
 
-  // Today's rows, with where now falls among them.
+  // Today's rows, with the Now line between what's behind you (finished events, what was due
+  // before now) and what's ahead, which starts with what's open now.
   const todayRows = (rows: Row[]) => {
-    const split = rows.findIndex(entry => entry.at && entry.at > props.now);
-    if (split <= 0 || split === rows.length) return <For each={rows}>{row}</For>;
-    return <><For each={rows.slice(0, split)}>{row}</For><div class="agenda-now"><span>Now · {clockText(props.now)}</span></div><For each={rows.slice(split)}>{row}</For></>;
+    const split = rows.findIndex(entry => entry.at && entry.at >= props.now);
+    const at = split < 0 ? rows.length : split;
+    return <><For each={rows.slice(0, at)}>{row}</For><div class="agenda-now"><span>Now · {clockText(props.now)}</span></div><For each={rows.slice(at)}>{row}</For></>;
   };
 
   return <section class="panel today-panel agenda-panel">
