@@ -4,8 +4,7 @@ import { For, Index, Show, createEffect, createMemo, createSignal, onMount, onCl
 import { atTime, fromInputValue, inputToIso as localInputToIso, partsOf, startOfDay, toInputValue as isoToLocalInput } from "./zone";
 import { NotesEditor, type NotesEditorApi } from "./NotesEditor";
 import { DateTimeField } from "./DateTimeField";
-import { pushedDownInfo, taskGroupId } from "./today";
-import { userBoards } from "./board-order";
+import { pushedDownInfo } from "./today";
 import { describeSchedule } from "./windows";
 import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
 import { attachmentMarkdown } from "./markdown";
@@ -160,6 +159,9 @@ export function ItemEditor(props: {
     if (!formRef.checkValidity()) return "Complete the required fields to save.";
     return "";
   };
+  // The editor doesn't choose a board (Boards does, by dragging): a task keeps the one it's on
+  // now, however it got there while open, and a new one takes the one it was started from.
+  const boardOf = () => { const stored = props.items.find(item => item.id === itemId); return stored?.kind === "task" ? stored.groupId ?? null : props.request.groupId ?? null; };
   // What the board card should show right now (the form in flushable field shape).
   const draftPatch = (): Partial<Task> | null => {
     if (kind() !== "task" || !formRef) return null;
@@ -169,7 +171,7 @@ export function ItemEditor(props: {
       notes: String(data.get("notes") || ""),
       availableFrom: localInputToIso(data.get("availableFrom")),
       deadline: localInputToIso(data.get("deadline")),
-      groupId: String(data.get("groupId") || "") || null,
+      groupId: boardOf(),
       state: taskState(),
     };
   };
@@ -322,7 +324,7 @@ export function ItemEditor(props: {
         ...shared,
         state: taskState(),
         pushedDown: !pushed() ? { mode: "normal" } : localInputToIso(data.get("pushUntil")) ? { mode: "until", until: localInputToIso(data.get("pushUntil")) } : { mode: "indefinite" },
-        groupId: String(data.get("groupId") || "") || null,
+        groupId: boardOf(),
         availableFrom: localInputToIso(data.get("availableFrom")),
         deadline: localInputToIso(data.get("deadline")),
         windowId: choice || null,
@@ -431,11 +433,6 @@ export function ItemEditor(props: {
   };
 
   // Options are keyed by id: rebuilding <option> elements would reset the select's choice.
-  const boardChoices = createMemo(() => userBoards(props.items));
-  const boardLabel = (id: string) => boardChoices().find(board => board.id === id)?.title ?? "";
-  // A subtask with no board of its own follows its parent's.
-  const isSubtask = !!(task?.parentId || props.request.parentId);
-  const inheritedBoard = () => { const parent = props.items.find(item => item.id === (task?.parentId || props.request.parentId)); return parent?.kind === "task" ? boardLabel(taskGroupId(parent, new Map(props.items.map(item => [item.id, item]))) || "") : ""; };
   const ancestors = () => {
     const byId = new Map(props.items.map(item => [item.id, item]));
     const chain: Task[] = [], seen = new Set([itemId]);
@@ -572,7 +569,6 @@ export function ItemEditor(props: {
               <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><Show when={!props.embedded}>{completionButton(false)}</Show></div>
               {dateField("availableFrom", "Can start", <DateTimeField name="availableFrom" label="Can start" value={isoToLocalInput(task?.availableFrom)} onChange={syncDirty} />)}
               {dateField("deadline", "Due", <DateTimeField name="deadline" label="Due" value={isoToLocalInput(task?.deadline)} onChange={syncDirty} />)}
-              <label class="field"><span>Board</span><select name="groupId" value={task?.groupId || props.request.groupId || ""}><option value="">{isSubtask ? `Same as parent${inheritedBoard() ? ` (${inheritedBoard()})` : ""}` : "No board"}</option><For each={boardChoices().map(board => board.id)}>{id => <option value={id}>{boardLabel(id)}</option>}</For></select></label>
               <div class="field"><span class="field-label-row"><span>Window</span><Show when={props.onManageWindows}><button type="button" class="inline-link" onClick={() => props.onManageWindows?.()}>Manage</button></Show></span>
                 <select name="windowId" aria-label="Window" value={windowChoice()} onChange={event => { setWindowChoice(event.currentTarget.value); syncDirty(); }}>
                   <option value="">Any time</option>
