@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { boardLayout, boardLayoutPatches, placeBoard } from "../src/board-order";
+import { boardLayout, boardLayoutPatches, placeBoard, placeColumn } from "../src/board-order";
 import type { Group, Item } from "../src/types";
 
 const at = "2026-09-01T00:00:00.000Z";
@@ -18,6 +18,19 @@ test("a drop lands next to the visible board it's dropped beside; hidden boards 
   expect(placeBoard(layout, shown, "notes", { newColumn: 2 })).toEqual(layout);
   // Pulling Opens later today's column mate out into its own column after Upcoming.
   expect(placeBoard(layout, shown, "closing", { newColumn: 4 })).toEqual([["firm", "later"], ["available"], ["notes"], ["upcoming"], ["closing"], ["completed"]]);
+});
+
+test("a whole column moves between the columns on screen, its hidden boards with it", () => {
+  const layout = [["firm", "closing", "later"], ["available"], ["notes"], ["upcoming"], ["completed"]];
+  const shown = [["closing"], ["available"], ["notes"], ["upcoming"], ["completed"]];
+  // Closing today's column (Deadline and Opens later today too) after Notes.
+  expect(placeColumn(layout, shown, "closing", 3)).toEqual([["available"], ["notes"], ["firm", "closing", "later"], ["upcoming"], ["completed"]]);
+  // Notes's to the front; either side of its own place changes nothing.
+  expect(placeColumn(layout, shown, "notes", 0)).toEqual([["notes"], ["firm", "closing", "later"], ["available"], ["upcoming"], ["completed"]]);
+  expect(placeColumn(layout, shown, "notes", 2)).toEqual(layout);
+  expect(placeColumn(layout, shown, "notes", 3)).toEqual(layout);
+  // To the very end.
+  expect(placeColumn(layout, shown, "available", 5)).toEqual([["firm", "closing", "later"], ["notes"], ["upcoming"], ["completed"], ["available"]]);
 });
 
 test("storing a layout writes each board's column and row, creating built-in rows once", () => {

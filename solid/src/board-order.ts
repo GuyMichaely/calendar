@@ -76,6 +76,21 @@ export function placeBoard(layout: BoardLayout, shown: BoardLayout, moved: strin
   return next.filter(column => column.length);
 }
 
+/**
+ * The full layout after moving a whole column (the one holding `key`, hidden boards and all) to
+ * the spot between columns `newColumn` in the layout on screen (`shown`, as in placeBoard).
+ */
+export function placeColumn(layout: BoardLayout, shown: BoardLayout, key: string, newColumn: number): BoardLayout {
+  const from = layout.findIndex(column => column.includes(key));
+  if (from < 0) return layout;
+  const moved = layout[from], rest = layout.filter((_, index) => index !== from);
+  const columnOf = (other: string) => rest.findIndex(column => column.includes(other));
+  const left = shown[newColumn - 1]?.find(other => !moved.includes(other));
+  const right = shown.slice(newColumn).flat().find(other => !moved.includes(other));
+  rest.splice(left != null ? columnOf(left) + 1 : right != null ? columnOf(right) : rest.length, 0, moved);
+  return rest;
+}
+
 export function sameLayout(a: BoardLayout, b: BoardLayout) {
   return a.length === b.length && a.every((column, index) => column.length === b[index].length && column.every((key, row) => key === b[index][row]));
 }

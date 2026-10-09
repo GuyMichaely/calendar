@@ -528,6 +528,13 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .board-add:focus-within { background: var(--surface-2); color: var(--text); }
 .board-add input { flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; font-size: 12px; padding: 4px 0; outline: none; }
 .board-card-ghost { box-shadow: var(--shadow); opacity: .95; }
+/* The grip atop a column drags the whole column. */
+.board-stack-grip { flex: 0 0 auto; align-self: center; width: 44px; height: 12px; margin-bottom: 2px; border-radius: 99px; cursor: grab; touch-action: none; opacity: 0; background: radial-gradient(circle, var(--muted) 1.1px, transparent 1.4px) 0 0 / 6px 6px; transition: opacity .15s ease; }
+.board-stack:hover > .board-stack-grip, .board-stack-grip:focus-visible { opacity: .7; }
+.board-stack-grip:hover { opacity: 1; }
+@media (hover: none) { .board-stack-grip { opacity: .45; } }
+.board-stack.column-dragging { opacity: .4; }
+.board-stack-ghost { background: var(--bg); border-radius: 10px; }
 /* A drop: the openings close at once, so the boards can slide straight to their places. */
 .boards-layout.settling .board-drop-slot, .boards-layout.settling .board-drop-column { transition: none; }
 .today-panel.columns .today-section { min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 4px 6px 8px; }

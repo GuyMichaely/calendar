@@ -1,7 +1,7 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Icon } from "./Icon";
 import { ancestors, buildSections, deadlineDaysOf, pushedDownInfo, SECTION_ORDER, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
-import { boardLayout, placeBoard, sameLayout, userBoards, type BoardLayout, type BoardTarget } from "./board-order";
+import { boardLayout, placeBoard, placeColumn, sameLayout, userBoards, type BoardLayout, type BoardTarget } from "./board-order";
 import { taskSchedule, windowsById } from "./windows";
 import { wholeDays } from "./calendar-entries";
 import { describeRepeat, lastCheckIn } from "./repeats";
@@ -749,6 +749,92 @@ export function TodayView(props: TodayViewProps) {
     document.addEventListener("contextmenu", still, true);
     if (touch) hold = setTimeout(begin, 380);
   };
+  // Dragging a whole column by the grip atop it: between columns, a space opens where it would
+  // go (not beside its own place, which changes nothing), and it moves there with every board in it.
+  const [dragColumnKey, setDragColumnKey] = createSignal<string | null>(null);
+  const dragColumn = (index: number) => (event: PointerEvent) => {
+    if (props.view !== "boards" || event.button !== 0) return;
+    const shown = shownLayout(), key = shown[index]?.[0];
+    if (!key) return;
+    const handle = event.currentTarget as HTMLElement, stack = handle.closest<HTMLElement>(".board-stack");
+    const touch = event.pointerType === "touch", pointer = event.pointerId;
+    const x0 = event.clientX, y0 = event.clientY;
+    let x = x0, y = y0, started = false, frame = 0, ghost: HTMLElement | null = null, hold: ReturnType<typeof setTimeout> | undefined;
+    const layout = boardLayout(props.items), startScroll = boardRef.scrollLeft;
+    // The gap the pointer is nearest, by the columns' middles where they were when the drag
+    // started (the space it opens moves them along, which mustn't move the gap), as scrolled since.
+    const middles = [...boardRef.querySelectorAll<HTMLElement>(".board-stack")].map(element => { const rect = element.getBoundingClientRect(); return (rect.left + rect.right) / 2; });
+    const spotAt = () => {
+      const gap = middles.filter(middle => middle - (boardRef.scrollLeft - startScroll) < x).length;
+      return gap === index || gap === index + 1 ? "" : `column:${gap}`;
+    };
+    const aim = () => {
+      const box = boardRef.getBoundingClientRect();
+      if (x > box.right - 48) boardRef.scrollLeft += 18;
+      else if (x < box.left + 48) boardRef.scrollLeft -= 18;
+      if (ghost) ghost.style.transform = `translate(${x - x0}px, ${y - y0}px)`;
+      const spot = spotAt();
+      setDropKey(spot); setSpaceKey(spot);
+      frame = requestAnimationFrame(aim);
+    };
+    const begin = () => {
+      started = true;
+      try { handle.setPointerCapture(pointer); } catch { /* the pointer is already gone */ }
+      setDragKey(`column:${key}`); setDragColumnKey(key);
+      if (stack) {
+        const rect = stack.getBoundingClientRect();
+        ghost = stack.cloneNode(true) as HTMLElement;
+        ghost.classList.remove("column-dragging");
+        ghost.classList.add("board-card-ghost", "board-stack-ghost");
+        Object.assign(ghost.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, maxHeight: "70vh", overflow: "hidden", margin: "0", zIndex: "60", pointerEvents: "none" });
+        document.body.appendChild(ghost);
+        // Its space is as wide as a column, so you see where the column will go.
+        boardRef.style.setProperty("--drop-w", `${rect.width}px`);
+      }
+      frame = requestAnimationFrame(aim);
+    };
+    const move = (next: PointerEvent) => {
+      if (next.pointerId !== pointer) return;
+      x = next.clientX; y = next.clientY;
+      if (!started && Math.abs(x - x0) + Math.abs(y - y0) > (touch ? 8 : 6)) { if (touch) end(false); else begin(); }
+    };
+    const still = (next: Event) => { if (started) next.preventDefault(); };
+    const end = (drop: boolean) => {
+      clearTimeout(hold);
+      cancelAnimationFrame(frame);
+      document.removeEventListener("touchmove", still);
+      document.removeEventListener("contextmenu", still, true);
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", cancel);
+      document.removeEventListener("keydown", escape, true);
+      const target = targetOf(dropKey());
+      const settle = () => {
+        ghost?.remove();
+        boardRef.classList.add("settling");
+        setDragKey(null); setDragColumnKey(null); setDropKey(""); setSpaceKey("");
+        boardRef.style.removeProperty("--drop-w");
+        requestAnimationFrame(() => boardRef.classList.remove("settling"));
+      };
+      if (!started) return settle();
+      if (!drop || !target || !("newColumn" in target)) return void moveBoards(() => { settle(); boardRef.scrollLeft = startScroll; });
+      const next = placeColumn(layout, shown, key, target.newColumn);
+      if (sameLayout(next, layout)) return void moveBoards(settle);
+      void moveBoards(() => { setPendingLayout(next); settle(); });
+      void props.onLayoutBoards(next).finally(() => setPendingLayout(null));
+    };
+    const up = (next: PointerEvent) => { if (next.pointerId === pointer) end(true); };
+    const cancel = (next: PointerEvent) => { if (next.pointerId === pointer) end(false); };
+    const escape = (next: KeyboardEvent) => { if (next.key === "Escape") { next.preventDefault(); next.stopPropagation(); end(false); } };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", cancel);
+    document.addEventListener("keydown", escape, true);
+    document.addEventListener("touchmove", still, { passive: false });
+    document.addEventListener("contextmenu", still, true);
+    // With touch, a long press starts it, so a swipe still scrolls the boards.
+    if (touch) hold = setTimeout(begin, 380);
+  };
   // Boards slide to their new places too (a dragged one from where it was dropped).
   const moveBoards = async (run: () => unknown, dropped?: { key: string; rect: DOMRect }) => {
     const cards = cardElements;
@@ -905,7 +991,8 @@ export function TodayView(props: TodayViewProps) {
         </Show>}>
         {opening("column:0", "column")}
         <Index each={shownLayout()}>{(column, columnIndex) => <>
-          <div class="board-stack" data-end={`slot:${columnIndex}:${column().length}`}>
+          <div class="board-stack" classList={{ "column-dragging": dragColumnKey() === column()[0] }} data-end={`slot:${columnIndex}:${column().length}`}>
+            <div class="board-stack-grip" title="Drag to move this column" aria-hidden="true" onPointerDown={dragColumn(columnIndex)} />
             {opening(`slot:${columnIndex}:0`, "slot")}
             <For each={column()}>{(key, row) => <>
               <SectionBlock id={key} column={columnIndex} row={row()} />
