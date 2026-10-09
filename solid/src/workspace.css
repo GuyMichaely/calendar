@@ -560,6 +560,16 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .today-panel.columns .today-section.dragging { opacity: .45; }
 .today-column-empty { margin: 8px 10px; color: var(--muted); font-size: 11px; }
 .today-chip.tag { background: transparent; border: 1px solid var(--line); }
+/* Links in notes: a bubble under the one the caret is in; a file link marked, greyed when its file is gone, lit with its row. */
+.notes-richedit { position: relative; }
+.notes-link-bubble { position: absolute; z-index: 6; display: flex; align-items: center; gap: 8px; max-width: min(360px, 100%); padding: 5px 6px 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); font-size: 12px; }
+.notes-link-bubble > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.notes-link-gone { color: var(--muted); font-style: italic; }
+.notes-richtext .attachment-link { color: var(--event); }
+.notes-richtext .attachment-link::before { content: "📎"; margin-right: 2px; font-size: .85em; text-decoration: none; display: inline-block; }
+.notes-richtext .attachment-link.attachment-missing, .notes-richtext a:has(.attachment-missing) { color: var(--muted); text-decoration-style: dashed; }
+.notes-richtext .attachment-lit { background: var(--accent-soft); border-radius: 3px; }
+.attachment-list li.lit { background: var(--accent-soft); border-radius: 6px; }
 .notes-link-field { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .notes-link-field input { flex: 1; min-width: 0; background: var(--surface-3); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
 .notes-richtext a { color: var(--accent-strong); text-decoration: underline; cursor: text; }

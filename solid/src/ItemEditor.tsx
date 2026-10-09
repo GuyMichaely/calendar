@@ -423,6 +423,11 @@ export function ItemEditor(props: {
     notesRef.value = markdown;
     syncDirty();
   };
+  // The files as they stand (not counting ones removed here), for the notes' links to them, and
+  // the one pointed at: its row and its links in the notes light up together.
+  const liveFiles = createMemo(() => new Map(savedAttachments().filter(file => !removedAttachments().has(file.id)).map(file => [file.id, file.name] as const)));
+  const [litFile, setLitFile] = createSignal<string | null>(null);
+  const downloadById = (id: string) => { const file = savedAttachments().find(entry => entry.id === id); if (file) void download(file); };
   const insertAttachmentLink = (attachment: Attachment) => {
     // The editor syncs the hidden notes field and dirty state via onNotesChange.
     notesApi?.insertMarkdown(attachmentMarkdown(attachment.id, attachment.name));
@@ -619,7 +624,8 @@ export function ItemEditor(props: {
 
         <section class="notes-editor" aria-label="Notes">
           <div class="notes-toolbar"><span>Notes</span></div>
-          <NotesEditor ariaLabel="Notes" placeholder="Write notes…" initialMarkdown={props.liveEdits?.().get(itemId)?.notes ?? existing?.notes ?? ""} onChange={onNotesChange} onEditor={api => { notesApi = api; }} />
+          <NotesEditor ariaLabel="Notes" placeholder="Write notes…" initialMarkdown={props.liveEdits?.().get(itemId)?.notes ?? existing?.notes ?? ""} onChange={onNotesChange} onEditor={api => { notesApi = api; }}
+            files={liveFiles} lit={litFile} onLight={setLitFile} onDownload={downloadById} />
           <textarea ref={notesRef} id={`item-notes-${domId}`} name="notes" hidden value={existing?.notes || ""} />
         </section>
 
@@ -639,7 +645,7 @@ export function ItemEditor(props: {
               <label class="file-picker"><Icon name="paperclip" size={20} /><span><strong>Choose files</strong> or drop them here</span><input class="visually-hidden" type="file" aria-label="Add attachments" multiple onChange={event => { addFiles([...(event.currentTarget.files || [])]); event.currentTarget.value = ""; }} /></label>
             </div>
             <ul class="attachment-list">
-              <For each={savedAttachments().filter(file => !removedAttachments().has(file.id))}>{attachment => <li>
+              <For each={savedAttachments().filter(file => !removedAttachments().has(file.id))}>{attachment => <li classList={{ lit: litFile() === attachment.id }} onMouseEnter={() => setLitFile(attachment.id)} onMouseLeave={() => setLitFile(null)}>
                 <button type="button" class="attachment-name" onClick={() => void download(attachment)} title="Download attachment">↓ {attachment.name}</button>
                 <div class="attachment-actions"><button type="button" class="text-button" onClick={() => insertAttachmentLink(attachment)}>Link in notes</button><button type="button" class="text-button danger-text" aria-label={`Remove ${attachment.name}`} onClick={() => removeAttachment(attachment)}>Remove</button></div>
               </li>}</For>
