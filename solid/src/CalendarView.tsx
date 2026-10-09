@@ -9,6 +9,11 @@ import { shutsAt, windowsById } from "./windows";
 import { describeRepeat } from "./repeats";
 import type { Item, Task } from "./types";
 import type { Editable } from "./ItemEditor";
+import { TimeGrid } from "./TimeGrid";
+
+/** What the Calendar shows: the month, or three days or one by the hour. */
+export type CalendarMode = "month" | "3days" | "day";
+const MODES: [CalendarMode, string][] = [["month", "Month"], ["3days", "3 days"], ["day", "Day"]];
 
 type Shown = CalendarEntry & { className: string; label: string; title: string; kindLabel: string };
 // A row in the selected day's list: an entry, or one of today's tasks.
@@ -46,7 +51,30 @@ export function CalendarView(props: {
   onShowDependentsChange: (value: boolean) => void;
   onCreateForDay: (date: Date) => void;
   onOpenTodayTasks: () => void;
+  mode: CalendarMode;
+  onModeChange: (mode: CalendarMode) => void;
+  // The first day the hour views show.
+  day: Date;
+  onDayChange: (day: Date) => void;
+  // The hour views' zoom on this device (null: fit).
+  hourHeight: number | null;
+  onHourHeight: (height: number) => void;
 }) {
+  const gridDays = () => props.mode === "day" ? 1 : 3;
+  const shiftDays = (count: number) => props.onDayChange(addDays(startOfDay(props.day), count));
+  // Switching views keeps the time you were looking at: the month of the days shown, or this
+  // month's today (else its first day).
+  const switchMode = (mode: CalendarMode) => {
+    if (mode === props.mode) return;
+    if (mode === "month") props.onMonthChange(monthOf(props.day));
+    else if (props.mode === "month") props.onDayChange(sameMonth(props.now, props.month) ? startOfDay(props.now) : props.month);
+    props.onModeChange(mode);
+  };
+  const gridTitle = () => {
+    const first = props.day, last = addDays(first, gridDays() - 1);
+    if (gridDays() === 1) return formatIn(first, { weekday: "short", month: "short", day: "numeric" });
+    return sameMonth(first, last) ? `${formatIn(first, { month: "short", day: "numeric" })} – ${partsOf(last).day}` : `${formatIn(first, { month: "short", day: "numeric" })} – ${formatIn(last, { month: "short", day: "numeric" })}`;
+  };
   const [selectedDay, setSelectedDay] = createSignal(props.now);
   createEffect(() => {
     const month = props.month;
@@ -120,15 +148,19 @@ export function CalendarView(props: {
   return <section class="panel calendar-panel" style={{"--calendar-weeks": days().length / 7}}>
     <div class="calendar-toolbar">
       <div class="calendar-titlebar">
-        <button class="secondary-button month-today" onClick={() => { props.onMonthChange(monthOf(props.now)); setSelectedDay(props.now); }}>Today</button>
+        <button class="secondary-button month-today" onClick={() => { props.onMonthChange(monthOf(props.now)); setSelectedDay(props.now); props.onDayChange(startOfDay(props.now)); }}>Today</button>
         <div class="month-controls">
-          <button class="icon-button" aria-label="Previous month" onClick={() => props.onMonthChange(monthOf(props.month, -1))}>‹</button>
-          <button class="icon-button" aria-label="Next month" onClick={() => props.onMonthChange(monthOf(props.month, 1))}>›</button>
+          <button class="icon-button" aria-label={props.mode === "month" ? "Previous month" : `Previous ${gridDays() === 1 ? "day" : "days"}`} onClick={() => props.mode === "month" ? props.onMonthChange(monthOf(props.month, -1)) : shiftDays(-gridDays())}>‹</button>
+          <button class="icon-button" aria-label={props.mode === "month" ? "Next month" : `Next ${gridDays() === 1 ? "day" : "days"}`} onClick={() => props.mode === "month" ? props.onMonthChange(monthOf(props.month, 1)) : shiftDays(gridDays())}>›</button>
         </div>
-        <h1>{formatIn(props.month, {month: "long", year: "numeric"})}</h1>
+        <h1>{props.mode === "month" ? formatIn(props.month, {month: "long", year: "numeric"}) : gridTitle()}</h1>
+      </div>
+      <div class="agenda-range calendar-modes" role="group" aria-label="Calendar view">
+        <For each={MODES}>{([mode, label]) => <button type="button" aria-pressed={props.mode === mode} onClick={() => switchMode(mode)}>{label}</button>}</For>
       </div>
       <label class="check-row"><input type="checkbox" checked={props.showDependents} onChange={event => props.onShowDependentsChange(event.currentTarget.checked)} />Show dependent tasks</label>
     </div>
+    <Show when={props.mode === "month"} fallback={<TimeGrid items={props.items} query={props.query} now={props.now} start={props.day} days={gridDays()} ghostIds={props.ghostIds} hourHeight={props.hourHeight} onHourHeight={props.onHourHeight} onShift={shiftDays} onEdit={props.onEdit} />}>
     <div class="calendar-layout">
       <div class="calendar-board">
         <div class="calendar-grid">
@@ -182,5 +214,6 @@ export function CalendarView(props: {
         <button class="secondary-button agenda-add" onClick={() => props.onCreateForDay(selectedDay())}><Icon name="plus" size={16} />Add an event</button>
       </aside>
     </div>
+    </Show>
   </section>;
 }

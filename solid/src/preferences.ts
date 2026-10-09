@@ -36,6 +36,9 @@ export function createPreferences() {
   // The Agenda: how many days it shows (1, 3, or 7), and whether Open todos (at its end) starts open.
   const [agendaDays, setAgendaDays] = stored<1 | 3 | 7>("calendar.agenda.days", raw => raw === "3" ? 3 : raw === "7" ? 7 : 1, value => value === 1 ? null : String(value));
   const [todosOpen, setTodosOpen] = flag("calendar.agenda.todosOpen");
+  // The Calendar's view (month, three days, or a day by the hour), and the hour views' zoom (pixels an hour; unset: fit).
+  const [calendarMode, setCalendarMode] = choice("calendar.calendar.mode", ["month", "3days", "day"] as const);
+  const [hourHeight, setHourHeight] = stored<number | null>("calendar.calendar.hourHeight", raw => Number(raw) || null, value => value ? String(Math.round(value)) : null);
   // Settings → Display: search lists every matching task and event under the field (off: it only filters the view).
   const [findSearch, setFindSearch] = flag("calendar.search.find");
   const [timeOffset, setTimeOffset] = stored("calendar.timeOffset", raw => Number(raw) || 0, value => value ? String(value) : null);
@@ -54,6 +57,8 @@ export function createPreferences() {
     timeOffset, setTimeOffset,
     findSearch, setFindSearch,
     agendaDays, setAgendaDays,
+    calendarMode, setCalendarMode,
+    hourHeight, setHourHeight,
     todosOpen, setTodosOpen,
   };
 }

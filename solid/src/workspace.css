@@ -594,3 +594,57 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .remind-at { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .remind-at > :first-child { flex: 1; min-width: 0; }
 .remind-add { justify-self: start; align-self: start; }
+
+/* The Calendar by the hour: one day or three (TimeGrid). */
+.calendar-modes button { font-size: 12px; }
+.timegrid { --gutter: 52px; position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.timegrid-head, .timegrid-strip, .timegrid-body { display: grid; grid-template-columns: var(--gutter) repeat(var(--grid-days), minmax(0, 1fr)); }
+.timegrid-head, .timegrid-strip { border-bottom: 1px solid var(--line); }
+.timegrid-dayhead { display: grid; justify-items: center; gap: 2px; padding: 8px 0 6px; color: var(--muted); font-size: 11px; }
+.timegrid-dayhead strong { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: var(--text); font-size: 19px; font-weight: 600; }
+.timegrid-dayhead.today { color: var(--accent); }
+.timegrid-dayhead.today strong { background: var(--accent); color: var(--accent-ink); }
+.timegrid-strip-day { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 4px 3px; border-left: 1px solid var(--line); }
+.grid-chip { overflow: hidden; padding: 3px 6px; border: 0; border-radius: 4px; background: var(--surface-2); color: var(--text); font-size: 11px; text-align: left; white-space: nowrap; text-overflow: ellipsis; }
+.grid-chip.event { background: var(--event-bg); color: var(--event); }
+.grid-chip.due, .grid-chip.overdue { background: var(--due-bg); color: var(--due); }
+.grid-chip.start { background: var(--ready-bg); color: var(--ready); }
+.grid-chip.record { color: var(--muted); }
+.grid-chip.todos { background: transparent; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); }
+.timegrid-todos { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px 8px var(--gutter); border-bottom: 1px solid var(--line); }
+.grid-todo { padding: 3px 10px; border: 1px solid var(--line); border-radius: 99px; background: var(--surface-2); color: var(--text); font-size: 11.5px; }
+.timegrid-scroll { position: relative; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
+.timegrid-body { position: relative; }
+.timegrid-hours { position: relative; }
+.timegrid-hours span { position: absolute; right: 7px; transform: translateY(-50%); color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+.timegrid-hours span:first-child { transform: translateY(2px); }
+.timegrid-day { position: relative; min-width: 0; border-left: 1px solid var(--line); background-image: repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px var(--hour)); }
+.timegrid-day.today { background-color: color-mix(in srgb, var(--accent) 4%, transparent); }
+.grid-block { position: absolute; display: flex; flex-direction: column; gap: 1px; overflow: hidden; margin-left: 1px; padding: 3px 5px; border: 0; border-radius: 5px; font-size: 11px; line-height: 1.25; text-align: left; }
+.grid-block strong { overflow: hidden; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.grid-block small { overflow: hidden; opacity: .8; font-size: 10.5px; white-space: nowrap; text-overflow: ellipsis; }
+.grid-block.event { background: var(--event-bg); color: var(--event); box-shadow: inset 3px 0 0 var(--event); }
+.grid-block.record { background: transparent; box-shadow: inset 0 0 0 1px var(--control-border); color: var(--muted); }
+.grid-block.record-mark { background: var(--surface-2); color: var(--muted); box-shadow: inset 3px 0 0 var(--control-border); }
+.grid-block.window { background: var(--ready-bg); color: var(--ready); box-shadow: inset 3px 0 0 var(--ready); }
+/* A windowed task's later openings in view: there if you want them, not to plan around. */
+.grid-block.window-later { background: transparent; outline: 1px dashed var(--control-border); outline-offset: -1px; color: var(--muted); }
+.grid-block.start { background: var(--ready-bg); color: var(--ready); }
+.grid-block.due { background: var(--due-bg); color: var(--due); }
+.grid-block.faded { opacity: .5; }
+.grid-block.search-dimmed, .grid-chip.search-dimmed, .grid-todo.search-dimmed { opacity: .25; }
+.grid-more { position: absolute; z-index: 2; height: 22px; margin-left: 1px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); color: var(--text); font-size: 11px; font-weight: 600; }
+.grid-more-list { position: absolute; left: 6px; right: 6px; z-index: 5; display: grid; gap: 2px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }
+.grid-more-list button { display: grid; padding: 5px 6px; border: 0; border-radius: 5px; background: none; color: var(--text); font-size: 12px; text-align: left; }
+.grid-more-list button:hover { background: var(--surface-2); }
+.grid-more-list small { color: var(--muted); }
+.grid-now { position: absolute; left: 0; right: 0; z-index: 3; height: 2px; background: var(--accent); pointer-events: none; }
+.grid-now::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+.timegrid-zoom { position: absolute; right: 10px; bottom: 10px; z-index: 4; display: grid; gap: 4px; }
+.timegrid-zoom .icon-button { width: 30px; height: 30px; border: 1px solid var(--line); background: var(--surface-2); font-size: 16px; }
+@media (hover: none) and (pointer: coarse) { .timegrid-zoom { display: none; } }
+@media (max-width: 760px) { .timegrid { --gutter: 40px; }.timegrid-hours span { right: 4px; font-size: 9.5px; }.grid-block { padding: 2px 4px; font-size: 10.5px; } }
+.grid-block.short { flex-direction: row; align-items: center; gap: 5px; padding-block: 0; }
+.grid-block.short small { flex: 0 1 auto; }
+/* Narrow columns (three days on a phone): names wrap rather than cut off. */
+@media (max-width: 760px) { .timegrid[style*="--grid-days: 3"] .grid-block:not(.short) strong { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }.timegrid[style*="--grid-days: 3"] .grid-block:not(.short) small { text-overflow: clip; } }

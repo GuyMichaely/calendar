@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
-import { clockText, dayKey as dateKey, deviceZone, partsOf, setCalendarZone, zonedDate } from "./zone";
+import { clockText, dayKey as dateKey, deviceZone, partsOf, setCalendarZone, startOfDay, zonedDate } from "./zone";
 import { TimeControl } from "./TimeControl";
 import { WorkspaceShell, type SyncState } from "./WorkspaceShell";
 import { Icon } from "./Icon";
@@ -94,6 +94,8 @@ export function App() {
   });
   const openCount = createMemo(() => openWork(items()).length);
   const [calendarMonth, setCalendarMonth] = createSignal(zonedDate(partsOf(nowAtStart).year, partsOf(nowAtStart).month, 1));
+  // The first day the Calendar's hour views show.
+  const [calendarDay, setCalendarDay] = createSignal(startOfDay(nowAtStart));
   const [editor, setEditor] = createSignal<EditorRequest | null>(null);
   // Wide screens keep the task list beside an embedded editor for the selected task.
   const splitQuery = window.matchMedia("(min-width: 1180px)");
@@ -195,7 +197,7 @@ export function App() {
     if (view() !== "calendar") { if (item.kind === "task") editTask(item); else openEditor(item); return; }
     const at = item.kind === "task" ? item.availableFrom ?? item.deadline ?? item.completedAt : item.start;
     const date = at ? new Date(at) : null;
-    if (date && !Number.isNaN(date.getTime())) setCalendarMonth(zonedDate(partsOf(date).year, partsOf(date).month, 1));
+    if (date && !Number.isNaN(date.getTime())) { setCalendarMonth(zonedDate(partsOf(date).year, partsOf(date).month, 1)); setCalendarDay(startOfDay(date)); }
     openEditor(item);
   } });
   const openEditor = (item: Editable | null = null, kind?: Editable["kind"], date?: Date) => { editorParents.length = 0; setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() }); };
@@ -381,7 +383,7 @@ export function App() {
           onSettings={() => { setSettingsTab("data"); openSettings(); }}
           syncState={syncStatus().state} syncLabel={syncStatus().label} syncDetail={syncStatus().detail}
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
-          <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("agenda")} />}>
+          <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("agenda")} mode={prefs.calendarMode()} onModeChange={prefs.setCalendarMode} day={calendarDay()} onDayChange={setCalendarDay} hourHeight={prefs.hourHeight()} onHourHeight={prefs.setHourHeight} />}>
             <Show when={view() !== "agenda"} fallback={<AgendaView items={items()} query={query()} now={clock()} days={prefs.agendaDays()} onDaysChange={prefs.setAgendaDays} todosOpen={prefs.todosOpen()} onEdit={item => openEditor(item)} />}>
             <div class="tasks-workspace" classList={{ split: paneOpen() }}>
             <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
