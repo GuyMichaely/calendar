@@ -1,11 +1,11 @@
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { textMatches } from "../../site/domain.js";
-import { calendarEntries, todaysWork } from "./calendar-entries";
+import { calendarEntries } from "./calendar-entries";
 import { isDormant } from "./dependencies";
 import type { Editable } from "./ItemEditor";
 import { occurrenceTask } from "./repeats";
-import { effectivelyDone, placementOf, pushedDownInfo } from "./today";
-import type { Item, Task } from "./types";
+import { effectivelyDone, pushedDownInfo } from "./today";
+import type { Item } from "./types";
 import { openingOn, taskSchedule, windowsById } from "./windows";
 import { addDays, clockText, dayKey, formatIn, partsOf, startOfDay } from "./zone";
 
@@ -20,21 +20,22 @@ type Placed = {
   kind: "event" | "record" | "record-mark" | "window" | "window-later" | "start" | "due";
   label: string; detail: string; faded?: boolean;
   // Set by the layout: its column among those it overlaps, and how many there are.
-  col?: number; cols?: number; cluster?: number;
+  col?: number; cols?: number;
 };
 // Untimed things, in the strip above the hours.
-type Strip = { key: string; item: Editable; kind: "event" | "record" | "start" | "due" | "overdue"; label: string };
-type Column = { date: Date; blocks: Placed[]; strip: Strip[]; todos: Task[] };
+type Strip = { key: string; item: Editable; kind: "event" | "record" | "start" | "due"; label: string };
+type Column = { date: Date; blocks: Placed[]; strip: Strip[] };
 
 const MINUTE = 60_000, DAY_MINUTES = 24 * 60;
 // A pin or marker takes this long on the grid, so two at the same time sit side by side.
 const MARK_MINUTES = 30;
 // Hours always shown; the range grows to take in anything earlier or later.
 const FIRST_HOUR = 7, LAST_HOUR = 23;
-const MAX_COLUMNS = 3;
 
 const time = (value?: string | null) => { const date = value ? new Date(value) : null; return date && !Number.isNaN(date.getTime()) ? date : null; };
 const midnight = (date: Date) => { const { hour, minute } = partsOf(date); return !hour && !minute; };
+// A date with no time: midnight, or (for a due date) 11:59 PM, as the date picker leaves them.
+const dateOnly = (date: Date, due: boolean) => { const { hour, minute } = partsOf(date); return due ? hour === 23 && minute === 59 : !hour && !minute; };
 const title = (item: Item) => String(item.title || "").trim() || `Untitled ${item.kind}`;
 // Minutes into `day` (its own clock), clamped to the day.
 const minutesIn = (date: Date, day: Date) => {
@@ -45,19 +46,18 @@ const minutesIn = (date: Date, day: Date) => {
 };
 const hourLabel = (hour: number) => hour === 0 || hour === 24 ? "12 AM" : hour === 12 ? "12 PM" : hour < 12 ? `${hour} AM` : `${hour - 12} PM`;
 
-/** Overlapping blocks share the width, side by side; beyond MAX_COLUMNS the rest fold into "+N". */
+/** Overlapping blocks share the width, side by side, however many there are. */
 function pack(blocks: Placed[]) {
   const sorted = [...blocks].sort((a, b) => a.start - b.start || b.end - a.end);
-  let cluster: Placed[] = [], end = -1, id = 0;
+  let cluster: Placed[] = [], end = -1;
   const flush = () => {
     const columns: number[] = [];
     for (const block of cluster) {
       let col = columns.findIndex(last => last <= block.start);
       if (col < 0) { col = columns.length; columns.push(block.end); } else columns[col] = block.end;
-      Object.assign(block, { col, cluster: id });
+      block.col = col;
     }
     for (const block of cluster) block.cols = columns.length;
-    id++;
   };
   for (const block of sorted) {
     if (cluster.length && block.start >= end) { flush(); cluster = []; end = -1; }
@@ -69,11 +69,11 @@ function pack(blocks: Placed[]) {
 }
 
 /**
- * One or three days by the hour, like a day planner: events as blocks, records as markers (or
- * outlined, with an end), a windowed task's openings (the first in view as a block, the later
- * ones dotted), and pins where tasks can start or are due. Above the hours: all-day events and
- * date-only times, and today's overdue tasks and open todos (folded). Swipe sideways for the
- * days before or after; pinch (Ctrl+scroll, or −/+) to fit more or fewer hours, scroll for the rest.
+ * One or three days by the hour, like a day planner: events as blocks and records as markers (or
+ * outlined, with an end). With tasks shown, also a windowed task's openings (the first in view as
+ * a block, the later ones hatched) and pins where tasks can start or are due. Above the hours:
+ * all-day events and date-only times. Swipe sideways for the days before or after; pinch
+ * (Ctrl+scroll, or −/+) to fit more or fewer hours, scroll for the rest.
  */
 export function TimeGrid(props: {
   items: Item[];
@@ -82,6 +82,8 @@ export function TimeGrid(props: {
   // The first day shown.
   start: Date;
   days: GridDays;
+  // Tasks too (off: only events and records, to see when you're free).
+  showTasks: boolean;
   ghostIds: Set<string>;
   // Pixels per hour, as the zoom was last left on this device (null: fit the hours shown).
   hourHeight: number | null;
@@ -93,7 +95,7 @@ export function TimeGrid(props: {
     const now = props.now, items = props.items;
     const dates = Array.from({ length: props.days }, (_, index) => addDays(startOfDay(props.start), index));
     const first = dates[0], after = addDays(dates.at(-1)!, 1);
-    const byKey = new Map(dates.map(date => [dayKey(date), { date, blocks: [] as Placed[], strip: [] as Strip[], todos: [] as Task[] }]));
+    const byKey = new Map(dates.map(date => [dayKey(date), { date, blocks: [] as Placed[], strip: [] as Strip[] }]));
     const byId = new Map(items.map(item => [item.id, item]));
     const windows = windowsById(items);
 
@@ -115,9 +117,12 @@ export function TimeGrid(props: {
         if (allDay) { column.strip.push({ key, item, kind: item.kind, label: title(item) }); continue; }
         const from = minutesIn(start, date);
         if (!until) column.blocks.push({ key, item, start: from, end: from + MARK_MINUTES, kind: "record-mark", label: title(item), detail: range });
-        else column.blocks.push({ key, item, start: from, end: Math.max(from + 15, minutesIn(until, date)), kind: item.kind, label: title(item), detail: range, faded: until < now });
+        else column.blocks.push({ key, item, start: from, end: Math.max(from + 15, minutesIn(until, date)), kind: item.kind, label: title(item), detail: range });
       }
     }
+
+    const done = () => dates.map(date => { const column = byKey.get(dayKey(date))!; return { ...column, blocks: pack(column.blocks) }; });
+    if (!props.showTasks) return done();
 
     // Tasks' can-start and due times (a windowed task's openings come next), and later occurrences.
     for (const entry of calendarEntries(items, first, dates.at(-1)!, now)) {
@@ -129,7 +134,7 @@ export function TimeGrid(props: {
       const word = entry.kind === "due" ? entry.overdue ? "Overdue" : "Due" : entry.kind === "repeat" ? "Repeats" : "Can start";
       const key = `${entry.item.id}:${entry.kind}:${entry.at.getTime()}`;
       const faded = entry.pushed || props.ghostIds.has(entry.item.id);
-      if (midnight(entry.at)) column.strip.push({ key, item: entry.item, kind, label: `${word}: ${title(entry.item)}` });
+      if (dateOnly(entry.at, kind === "due")) column.strip.push({ key, item: entry.item, kind, label: `${word}: ${title(entry.item)}` });
       else { const from = minutesIn(entry.at, column.date); column.blocks.push({ key, item: entry.item, start: from, end: from + MARK_MINUTES, kind, label: title(entry.item), detail: `${word} ${clockText(entry.at)}`, faded }); }
     }
     // A windowed task's openings in view, from when it can start: the first as itself, the rest dotted.
@@ -150,14 +155,7 @@ export function TimeGrid(props: {
         shown = true;
       }
     }
-    // Today: overdue tasks, and the open todos (tasks you can do now with nothing timed about them).
-    const today = byKey.get(dayKey(now));
-    if (today) for (const task of todaysWork(items, now)) {
-      const placement = placementOf(task, items, now);
-      if (placement.section === "firm" && placement.overdue) today.strip.unshift({ key: `${task.id}:overdue`, item: task, kind: "overdue", label: `Overdue: ${title(task)}` });
-      else if (placement.section === "available") today.todos.push(task);
-    }
-    return dates.map(date => { const column = byKey.get(dayKey(date))!; return { ...column, blocks: pack(column.blocks) }; });
+    return done();
   });
 
   // The hours shown: the usual ones, and any others something falls in (and now, today).
@@ -187,8 +185,9 @@ export function TimeGrid(props: {
   const fit = () => {
     if (!scroller?.isConnected) return;
     const nav = document.querySelector<HTMLElement>(".mobile-nav");
-    const bottom = nav && nav.offsetParent ? nav.getBoundingClientRect().height : 16;
-    setViewHeight(Math.max(240, innerHeight - scroller.getBoundingClientRect().top - bottom));
+    const bottom = nav && getComputedStyle(nav).display !== "none" ? nav.getBoundingClientRect().top - 8 : innerHeight - 16;
+    // Measured from the top of the page, so it fits however far the page is scrolled.
+    setViewHeight(Math.max(240, bottom - (scroller.getBoundingClientRect().top + scrollY)));
   };
   // Opens on now (today), else on the first thing shown.
   const scrollToStart = () => {
@@ -242,18 +241,18 @@ export function TimeGrid(props: {
   let wheelSave: ReturnType<typeof setTimeout> | undefined;
   onMount(() => { scroller.addEventListener("wheel", wheel, { passive: false }); onCleanup(() => scroller.removeEventListener("wheel", wheel)); });
 
-  const [todosOpen, setTodosOpen] = createSignal(false);
-  const [more, setMore] = createSignal<string | null>(null);
   const dimmed = (item: Item) => !!props.query && !textMatches(item, props.query);
   const isToday = (date: Date) => dayKey(date) === dayKey(props.now);
-  const hasStrip = () => columns().some(column => column.strip.length || column.todos.length);
+  const hasStrip = () => columns().some(column => column.strip.length);
 
   const block = (placed: Placed) => {
-    const width = () => 100 / Math.min(placed.cols!, MAX_COLUMNS);
+    const width = () => 100 / placed.cols!;
     const height = () => Math.max(18, (placed.end - placed.start) * hourHeight() / 60 - 2);
+    // Kept within the day: one at 11:59 PM sits just above the end, not past it.
+    const y = () => Math.min(top(placed.start), (hours().last - hours().first) * hourHeight() - height() - 1);
     // Too short for two lines: the name and its time on one.
     return <button type="button" class={`grid-block ${placed.kind}`} classList={{ faded: !!placed.faded, "search-dimmed": dimmed(placed.item), short: height() < 34 }}
-      style={{ top: `${top(placed.start)}px`, height: `${height()}px`, left: `${placed.col! * width()}%`, width: `calc(${width()}% - 2px)` }}
+      style={{ top: `${y()}px`, height: `${height()}px`, left: `${placed.col! * width()}%`, width: `calc(${width()}% - 2px)` }}
       title={`${placed.label} · ${placed.detail}`} onClick={() => props.onEdit(placed.item)}>
       <strong>{placed.label}</strong><small>{placed.detail}</small>
     </button>;
@@ -271,35 +270,16 @@ export function TimeGrid(props: {
         <span class="timegrid-gutter" />
         <For each={columns()}>{column => <div class="timegrid-strip-day">
           <For each={column.strip}>{entry => <button type="button" class={`grid-chip ${entry.kind}`} classList={{ "search-dimmed": dimmed(entry.item) }} title={entry.label} onClick={() => props.onEdit(entry.item)}>{entry.label}</button>}</For>
-          <Show when={column.todos.length}><button type="button" class="grid-chip todos" aria-expanded={todosOpen()} onClick={() => setTodosOpen(open => !open)}>{column.todos.length} open {column.todos.length === 1 ? "todo" : "todos"} {todosOpen() ? "▴" : "▾"}</button></Show>
         </div>}</For>
       </div>
-      <Show when={todosOpen()}>
-        <div class="timegrid-todos"><For each={columns().find(column => column.todos.length)?.todos ?? []}>{task =>
-          <button type="button" class="grid-todo" classList={{ "search-dimmed": dimmed(task) }} onClick={() => props.onEdit(task)}>{title(task)}</button>}</For></div>
-      </Show>
     </Show>
     <div class="timegrid-scroll" ref={scroller} style={{ height: `${viewHeight()}px` }} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
       <div class="timegrid-body" style={{ height: `${(hours().last - hours().first) * hourHeight()}px` }}>
         <div class="timegrid-hours timegrid-gutter"><For each={hourList()}>{hour => <span style={{ top: `${(hour - hours().first) * hourHeight()}px` }}>{hourLabel(hour)}</span>}</For></div>
-        <For each={columns()}>{column => {
-          const shown = () => column.blocks.filter(placed => placed.cols! <= MAX_COLUMNS || placed.col! < MAX_COLUMNS - 1);
-          // A crowded stretch's "+N": the blocks that didn't fit, listed when tapped.
-          const folds = () => {
-            const hidden = column.blocks.filter(placed => placed.cols! > MAX_COLUMNS && placed.col! >= MAX_COLUMNS - 1);
-            return [...new Set(hidden.map(placed => placed.cluster!))].map(cluster => { const list = hidden.filter(placed => placed.cluster === cluster); return { key: `${dayKey(column.date)}:${cluster}`, list, start: Math.min(...list.map(placed => placed.start)) }; });
-          };
-          return <div class="timegrid-day" classList={{ today: isToday(column.date) }}>
-            <For each={shown()}>{block}</For>
-            <For each={folds()}>{fold => <>
-              <button type="button" class="grid-more" style={{ top: `${top(fold.start)}px`, left: `${(MAX_COLUMNS - 1) * 100 / MAX_COLUMNS}%`, width: `calc(${100 / MAX_COLUMNS}% - 2px)` }} aria-expanded={more() === fold.key} onClick={() => setMore(open => open === fold.key ? null : fold.key)}>+{fold.list.length}</button>
-              <Show when={more() === fold.key}><div class="grid-more-list" style={{ top: `${top(fold.start) + 26}px` }}>
-                <For each={fold.list}>{placed => <button type="button" onClick={() => { setMore(null); props.onEdit(placed.item); }}><strong>{placed.label}</strong><small>{placed.detail}</small></button>}</For>
-              </div></Show>
-            </>}</For>
-            <Show when={isToday(column.date)}><div class="grid-now" style={{ top: `${top(minutesIn(props.now, startOfDay(props.now)))}px` }} /></Show>
-          </div>;
-        }}</For>
+        <For each={columns()}>{column => <div class="timegrid-day" classList={{ today: isToday(column.date) }}>
+          <For each={column.blocks}>{block}</For>
+          <Show when={isToday(column.date)}><div class="grid-now" style={{ top: `${top(minutesIn(props.now, startOfDay(props.now)))}px` }} /></Show>
+        </div>}</For>
       </div>
     </div>
     <div class="timegrid-zoom" aria-label="Zoom">

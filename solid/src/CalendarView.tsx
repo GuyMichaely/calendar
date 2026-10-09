@@ -13,7 +13,7 @@ import { TimeGrid } from "./TimeGrid";
 
 /** What the Calendar shows: the month, or three days or one by the hour. */
 export type CalendarMode = "month" | "3days" | "day";
-const MODES: [CalendarMode, string][] = [["month", "Month"], ["3days", "3 days"], ["day", "Day"]];
+const MODES: [CalendarMode, string][] = [["day", "Day"], ["3days", "3 days"], ["month", "Month"]];
 
 type Shown = CalendarEntry & { className: string; label: string; title: string; kindLabel: string };
 // A row in the selected day's list: an entry, or one of today's tasks.
@@ -59,6 +59,9 @@ export function CalendarView(props: {
   // The hour views' zoom on this device (null: fit).
   hourHeight: number | null;
   onHourHeight: (height: number) => void;
+  // Whether the hour views show tasks too, or only events and records (when you're busy).
+  showTasks: boolean;
+  onShowTasksChange: (value: boolean) => void;
 }) {
   const gridDays = () => props.mode === "day" ? 1 : 3;
   const shiftDays = (count: number) => props.onDayChange(addDays(startOfDay(props.day), count));
@@ -158,9 +161,14 @@ export function CalendarView(props: {
       <div class="agenda-range calendar-modes" role="group" aria-label="Calendar view">
         <For each={MODES}>{([mode, label]) => <button type="button" aria-pressed={props.mode === mode} onClick={() => switchMode(mode)}>{label}</button>}</For>
       </div>
-      <label class="check-row"><input type="checkbox" checked={props.showDependents} onChange={event => props.onShowDependentsChange(event.currentTarget.checked)} />Show dependent tasks</label>
+      <Show when={props.mode !== "month"}>
+        <label class="check-row" title="Off: only events and records, to see when you're free"><input type="checkbox" checked={props.showTasks} onChange={event => props.onShowTasksChange(event.currentTarget.checked)} />Show tasks</label>
+      </Show>
+      <Show when={props.mode === "month" || props.showTasks}>
+        <label class="check-row"><input type="checkbox" checked={props.showDependents} onChange={event => props.onShowDependentsChange(event.currentTarget.checked)} />Show dependent tasks</label>
+      </Show>
     </div>
-    <Show when={props.mode === "month"} fallback={<TimeGrid items={props.items} query={props.query} now={props.now} start={props.day} days={gridDays()} ghostIds={props.ghostIds} hourHeight={props.hourHeight} onHourHeight={props.onHourHeight} onShift={shiftDays} onEdit={props.onEdit} />}>
+    <Show when={props.mode === "month"} fallback={<TimeGrid items={props.items} query={props.query} now={props.now} start={props.day} days={gridDays()} showTasks={props.showTasks} ghostIds={props.ghostIds} hourHeight={props.hourHeight} onHourHeight={props.onHourHeight} onShift={shiftDays} onEdit={props.onEdit} />}>
     <div class="calendar-layout">
       <div class="calendar-board">
         <div class="calendar-grid">

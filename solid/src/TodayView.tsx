@@ -855,6 +855,7 @@ export function TodayView(props: TodayViewProps) {
         </div>
       </div>}
     </Show>
+    <div class="today-top">
     <div class="today-heading">
       <h1>{props.view === "boards" ? "Boards" : "List"}</h1>
       <span class="today-date">{formatIn(props.now, { weekday: "short", month: "short", day: "numeric" })} · {clock(props.now)}</span>
@@ -893,6 +894,7 @@ export function TodayView(props: TodayViewProps) {
       <input placeholder="Add a task" aria-label="Add a task" value={draft()} onInput={event => setDraft(event.currentTarget.value)}
         onKeyDown={event => { if (event.key === "ArrowDown") { event.preventDefault(); step(null, "ArrowDown"); } else if (event.key === "Escape" && !draft()) event.currentTarget.blur(); }} />
     </form>
+    </div>
     <div class="today-board" ref={boardRef} onKeyDown={onRowKey} classList={{ "boards-layout": props.view === "boards", "drag-active": !!dragKey() }}>
       <Show when={props.view === "boards"} fallback={
         <Show when={sections().length} fallback={<p class="today-empty">{props.query ? "No tasks match your search." : "Nothing needs you right now."}</p>}>

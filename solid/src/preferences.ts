@@ -38,6 +38,8 @@ export function createPreferences() {
   const [todosOpen, setTodosOpen] = flag("calendar.agenda.todosOpen");
   // The Calendar's view (month, three days, or a day by the hour), and the hour views' zoom (pixels an hour; unset: fit).
   const [calendarMode, setCalendarMode] = choice("calendar.calendar.mode", ["month", "3days", "day"] as const);
+  // Whether the hour views show tasks too (off: only events and records).
+  const [calendarTasks, setCalendarTasks] = flag("calendar.calendar.tasks");
   const [hourHeight, setHourHeight] = stored<number | null>("calendar.calendar.hourHeight", raw => Number(raw) || null, value => value ? String(Math.round(value)) : null);
   // Settings → Display: search lists every matching task and event under the field (off: it only filters the view).
   const [findSearch, setFindSearch] = flag("calendar.search.find");
@@ -59,6 +61,7 @@ export function createPreferences() {
     agendaDays, setAgendaDays,
     calendarMode, setCalendarMode,
     hourHeight, setHourHeight,
+    calendarTasks, setCalendarTasks,
     todosOpen, setTodosOpen,
   };
 }

@@ -426,6 +426,10 @@ main:has(.calendar-panel) { padding: 14px 20px 20px; }
 .today-date { color: var(--muted); font-size: 12px; }
 .today-filter select { background: var(--surface); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; font-size: 12px; }
 .today-add { margin-bottom: 18px; }
+/* List: its heading and Add a task stay in view as the list scrolls under them. */
+.today-panel:not(.columns) .today-top { position: sticky; top: var(--topbar-height, 56px); z-index: 6; margin-top: -12px; padding-top: 12px; background: var(--bg); }
+.today-panel:not(.columns) .today-add { margin-bottom: 0; }
+.today-panel:not(.columns) .today-top { padding-bottom: 18px; }
 .today-empty { color: var(--muted); padding: 30px 0; }
 .today-section { margin-bottom: 18px; }
 .today-section-heading { display: flex; align-items: baseline; gap: 8px; width: 100%; border: 0; border-bottom: 1px solid var(--line); background: none; padding: 6px 0 7px; text-align: left; }
@@ -506,7 +510,6 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .today-panel.columns { max-width: none; width: 100%; }
 .today-board.boards-layout { display: flex; align-items: stretch; overflow-x: auto; padding-bottom: 12px; }
 /* On a phone, a swipe settles on a column. */
-@media (max-width: 760px) { .today-board.boards-layout:not(.drag-active) { scroll-snap-type: x proximity; }.boards-layout .board-stack { scroll-snap-align: center; } }
 /* A column stacks boards; the openings between them grow to preview a drop. */
 .board-stack { flex: 0 0 310px; min-width: 0; display: flex; flex-direction: column; }
 .boards-layout .board-drop-slot { flex: 0 0 10px; border-radius: 8px; transition: flex-basis .18s ease; }
@@ -571,7 +574,7 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .agenda-range button + button { border-left: 1px solid var(--line); }
 .agenda-range button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); }
 .agenda-day + .agenda-day { margin-top: 22px; }
-.agenda-day-heading { position: sticky; top: 56px; z-index: 2; display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 8px 0 6px; background: var(--bg); border-bottom: 1px solid var(--line); font-size: 15px; font-weight: 600; }
+.agenda-day-heading { position: sticky; top: var(--topbar-height, 56px); z-index: 2; display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 8px 0 6px; background: var(--bg); border-bottom: 1px solid var(--line); font-size: 15px; font-weight: 600; }
 .agenda-day-heading small { color: var(--muted); font-size: 12px; font-weight: 500; }
 .agenda-panel .agenda-entry { padding: 11px 0; }
 .agenda-panel .agenda-entry strong { font-size: 13.5px; }
@@ -582,7 +585,6 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .agenda-now { display: flex; align-items: center; gap: 8px; margin: 2px 0; color: var(--accent); font-size: 11px; font-weight: 600; }
 .agenda-now::after { content: ""; flex: 1; height: 1px; background: var(--accent); opacity: .6; }
 .agenda-quiet { margin: 12px 0 0; color: var(--muted); font-size: 12.5px; }
-@media (max-width: 760px) { .agenda-day-heading { top: 48px; } }
 .agenda-fold { display: flex; align-items: baseline; gap: 8px; border: 0; background: none; padding: 0; color: inherit; font: inherit; cursor: pointer; }
 .agenda-fold small { color: var(--muted); font-size: 12px; font-weight: 500; }
 .agenda-fold .section-chevron { font-size: 17px; transition: transform .15s; }
@@ -607,12 +609,9 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .timegrid-strip-day { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 4px 3px; border-left: 1px solid var(--line); }
 .grid-chip { overflow: hidden; padding: 3px 6px; border: 0; border-radius: 4px; background: var(--surface-2); color: var(--text); font-size: 11px; text-align: left; white-space: nowrap; text-overflow: ellipsis; }
 .grid-chip.event { background: var(--event-bg); color: var(--event); }
-.grid-chip.due, .grid-chip.overdue { background: var(--due-bg); color: var(--due); }
+.grid-chip.due { background: var(--due-bg); color: var(--due); }
 .grid-chip.start { background: var(--ready-bg); color: var(--ready); }
 .grid-chip.record { color: var(--muted); }
-.grid-chip.todos { background: transparent; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); }
-.timegrid-todos { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px 8px var(--gutter); border-bottom: 1px solid var(--line); }
-.grid-todo { padding: 3px 10px; border: 1px solid var(--line); border-radius: 99px; background: var(--surface-2); color: var(--text); font-size: 11.5px; }
 .timegrid-scroll { position: relative; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
 .timegrid-body { position: relative; }
 .timegrid-hours { position: relative; }
@@ -628,16 +627,11 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .grid-block.record-mark { background: var(--surface-2); color: var(--muted); box-shadow: inset 3px 0 0 var(--control-border); }
 .grid-block.window { background: var(--ready-bg); color: var(--ready); box-shadow: inset 3px 0 0 var(--ready); }
 /* A windowed task's later openings in view: there if you want them, not to plan around. */
-.grid-block.window-later { background: transparent; outline: 1px dashed var(--control-border); outline-offset: -1px; color: var(--muted); }
+.grid-block.window-later { background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9'%3E%3Cg fill='%23888' fill-opacity='.55'%3E%3Crect x='0' y='8' width='1.3' height='1'/%3E%3Crect x='3' y='5' width='1.3' height='1.3'/%3E%3Crect x='6' y='2' width='1.3' height='1.3'/%3E%3C/g%3E%3C/svg%3E"); outline: 1px dashed var(--control-border); outline-offset: -1px; color: var(--muted); }
 .grid-block.start { background: var(--ready-bg); color: var(--ready); }
 .grid-block.due { background: var(--due-bg); color: var(--due); }
 .grid-block.faded { opacity: .5; }
-.grid-block.search-dimmed, .grid-chip.search-dimmed, .grid-todo.search-dimmed { opacity: .25; }
-.grid-more { position: absolute; z-index: 2; height: 22px; margin-left: 1px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); color: var(--text); font-size: 11px; font-weight: 600; }
-.grid-more-list { position: absolute; left: 6px; right: 6px; z-index: 5; display: grid; gap: 2px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }
-.grid-more-list button { display: grid; padding: 5px 6px; border: 0; border-radius: 5px; background: none; color: var(--text); font-size: 12px; text-align: left; }
-.grid-more-list button:hover { background: var(--surface-2); }
-.grid-more-list small { color: var(--muted); }
+.grid-block.search-dimmed, .grid-chip.search-dimmed { opacity: .25; }
 .grid-now { position: absolute; left: 0; right: 0; z-index: 3; height: 2px; background: var(--accent); pointer-events: none; }
 .grid-now::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
 .timegrid-zoom { position: absolute; right: 10px; bottom: 10px; z-index: 4; display: grid; gap: 4px; }

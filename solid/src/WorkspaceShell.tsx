@@ -1,4 +1,4 @@
-import { Show, createSignal, type JSX } from "solid-js";
+import { Show, createSignal, onCleanup, type JSX } from "solid-js";
 import { Icon, type IconName } from "./Icon";
 import type { View } from "./types";
 
@@ -17,6 +17,12 @@ export function WorkspaceShell(props: {
   searchResults?: JSX.Element; onSearchKeyDown?: (event: KeyboardEvent) => void; onSearchFocus?: () => void; searchExpanded?: boolean;
 }) {
   const [searchOpen, setSearchOpen] = createSignal(false);
+  // The top bar's height, for what sticks below it (--topbar-height).
+  const watchTopbar = (header: HTMLElement) => {
+    const observer = new ResizeObserver(() => document.documentElement.style.setProperty("--topbar-height", `${header.offsetHeight}px`));
+    observer.observe(header);
+    onCleanup(() => observer.disconnect());
+  };
   const searchLabel = () => props.searchResults ? "Search everything" : props.view === "calendar" ? "Search calendar" : props.view === "agenda" ? "Search agenda" : "Search tasks";
   let searchInput!: HTMLInputElement;
   const toggleSearch = () => { const open = !searchOpen(); setSearchOpen(open); if (!open) props.onQuery(""); else requestAnimationFrame(() => searchInput.focus()); };
@@ -35,7 +41,7 @@ export function WorkspaceShell(props: {
       </div>
     </aside>
     <div class="workspace-body">
-      <header class="workspace-topbar">
+      <header class="workspace-topbar" ref={watchTopbar}>
         <strong class="mobile-word">Calendar<span class="mobile-brand-period">.</span></strong>
         <Show when={props.notice}>{props.notice}</Show>
         <label class="workspace-search" data-open={searchOpen() || !!props.query}><Icon name="search" size={17} /><input ref={searchInput} type="search" aria-label={searchLabel()} placeholder={searchLabel()} value={props.query} onInput={event => props.onQuery(event.currentTarget.value)} onKeyDown={event => props.onSearchKeyDown?.(event)} onFocus={() => props.onSearchFocus?.()} aria-expanded={props.searchResults ? !!props.searchExpanded : undefined} aria-controls={props.searchResults ? "search-results" : undefined} autocomplete="off" /><Show when={props.query}><button type="button" aria-label="Clear search" onClick={() => props.onQuery("")}>×</button></Show>{props.searchResults}</label>
