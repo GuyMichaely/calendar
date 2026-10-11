@@ -549,7 +549,7 @@ export function ItemEditor(props: {
             <div><button type="button" class="danger-button" onClick={() => void revert()}>Revert</button></div>
           </div>
         </Show>
-        <Show when={(props.embedded && kind() === "task") || ancestors().length > 0} fallback={<p class="editor-eyebrow">{existing ? "The details" : props.request.parentId ? "New subtask" : "Make a little space for it"}</p>}>
+        <Show when={(props.embedded && kind() === "task") || ancestors().length > 0} fallback={<Show when={existing || props.request.parentId}><p class="editor-eyebrow">{existing ? "The details" : "New subtask"}</p></Show>}>
           <nav class="detail-path" aria-label="Task path"><button type="button" class="text-button" onClick={close}>Tasks</button><For each={ancestors()}>{parent => <><span aria-hidden="true">›</span><button type="button" class="text-button" onClick={() => void navigateTask(parent)}>{parent.title || "Untitled task"}</button></>}</For></nav>
         </Show>
         <div class="dialog-header">
