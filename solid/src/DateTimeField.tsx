@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import { formatDateTimeShort, formatDateTimeText, parseDateTimeText } from "./datetime-text";
 import { addDays, formatIn, fromInputValue as fromLocalValue, partsOf, sameDay as sameZoneDay, toInputValue as toLocalValue, zonedDate } from "./zone";
 
@@ -12,8 +12,8 @@ const monthOf = (date: Date, offset = 0) => { const { year, month } = partsOf(da
  * above them. Each pick takes effect as it's made (typed text once it's entered or left); closing keeps it.
  * The value is a hidden "YYYY-MM-DDTHH:mm" input, the same as a datetime-local field.
  */
-// `startOpen`: the picker opens as the field appears (one just added).
-export function DateTimeField(props: { name: string; label: string; value: string; disabled?: boolean; placeholder?: string; startOpen?: boolean; onChange: (value: string) => void }) {
+// `startOpen`: the picker opens as the field appears (one just added), or when it turns true. `onClose` follows its closing.
+export function DateTimeField(props: { name: string; label: string; value: string; disabled?: boolean; placeholder?: string; startOpen?: boolean; onChange: (value: string) => void; onClose?: () => void }) {
   const [value, setValue] = createSignal(props.value || "");
   createEffect(() => setValue(props.value || ""));
   // A date without a time: the end of the day for a due date or an end, else its start.
@@ -22,7 +22,16 @@ export function DateTimeField(props: { name: string; label: string; value: strin
   const timeless = (date: Date) => partsOf(date).hour === defaultTime()[0] && partsOf(date).minute === defaultTime()[1];
   const [hasTime, setHasTime] = createSignal(false);
   const displayText = (date: Date) => hasTime() ? formatDateTimeText(date) : formatDateTimeText(date).split(" ")[0];
-  const [open, setOpen] = createSignal(false);
+  const [open, setShown] = createSignal(false);
+  // `onClose` follows the event that closed it (a press outside, after its click), so whatever it changes can't redirect that event.
+  const setOpen = (next: boolean, pressing = false) => {
+    const was = open();
+    setShown(next);
+    if (!was || next || !props.onClose) return;
+    const close = props.onClose, after = () => setTimeout(() => { if (!open()) close(); });
+    if (pressing) addEventListener("pointerup", after, { once: true, capture: true });
+    else after();
+  };
   const [draft, setDraft] = createSignal<Date | null>(null);
   const [month, setMonth] = createSignal(monthOf(new Date()));
   const [text, setText] = createSignal("");
@@ -92,19 +101,22 @@ export function DateTimeField(props: { name: string; label: string; value: strin
   });
   const timeValue = () => { const date = draft(); return date && hasTime() ? toLocalValue(date).slice(11) : ""; };
 
-  // Clicking outside closes it, keeping what was picked (and typed, if it reads as a date).
+  // Clicking outside closes it, keeping what was picked (and typed, if it reads as a date); so does Escape, wherever the focus is
+  // (one that opened as it was added hasn't taken it).
   createEffect(() => {
     if (!open()) return;
-    const outside = (event: PointerEvent) => { if (!root.contains(event.target as Node)) { applyTyped(); setOpen(false); } };
+    const outside = (event: PointerEvent) => { if (!root.contains(event.target as Node)) { applyTyped(); setOpen(false, true); } };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); } };
     document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("keydown", escape, true);
+    onCleanup(() => document.removeEventListener("keydown", escape, true));
     addEventListener("scroll", place, true); addEventListener("resize", place);
     onCleanup(() => { document.removeEventListener("pointerdown", outside, true); removeEventListener("scroll", place, true); removeEventListener("resize", place); });
   });
 
-  onMount(() => { if (props.startOpen) show(); });
+  createEffect(on(() => props.startOpen, start => { if (start && !open()) show(); }));
 
-  return <div class="dt-field" ref={root}
-    onKeyDown={event => { if (event.key === "Escape" && open()) { event.preventDefault(); event.stopPropagation(); setOpen(false); } }}>
+  return <div class="dt-field" ref={root}>
     <input type="hidden" name={props.name} value={value()} disabled={props.disabled} />
     <button type="button" class="dt-display" classList={{ empty: !value() }} aria-label={`${props.label}: ${value() ? formatDateTimeText(fromLocalValue(value())!) : "not set"}`} aria-expanded={open()} disabled={props.disabled} onClick={() => open() ? setOpen(false) : show()}>
       {value() ? (date => timeless(date) ? formatIn(date, { month: "short", day: "numeric", year: "numeric" }) : formatDateTimeShort(date))(fromLocalValue(value())!) : props.placeholder || "Set date"}

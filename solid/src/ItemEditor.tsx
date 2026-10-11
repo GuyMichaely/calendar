@@ -617,10 +617,10 @@ export function ItemEditor(props: {
         <div class="form-grid reminders-grid">
           <div class="field full-span remind-at-field"><span>Notify me at</span>
             <Index each={remindAts()}>{(value, index) => <div class="remind-at">
-              <DateTimeField name="remindAt" label={`Notification ${index + 1}`} value={value()} startOpen={index === addedNotice()} onChange={next => { editNotices(list => list.map((entry, at) => at === index ? next : entry)); syncDirty(); }} />
+              <DateTimeField name="remindAt" label={`Notification ${index + 1}`} value={value()} startOpen={index === addedNotice()} onClose={() => { if (!remindAts()[index]) { editNotices(list => list.filter((_, at) => at !== index)); queueMicrotask(syncDirty); } }} onChange={next => { editNotices(list => list.map((entry, at) => at === index ? next : entry)); syncDirty(); }} />
               <button type="button" class="icon-button" aria-label={`Remove notification ${index + 1}`} onClick={() => { editNotices(list => list.filter((_, at) => at !== index)); queueMicrotask(syncDirty); }}>×</button>
             </div>}</Index>
-            <button type="button" class="text-button remind-add" onClick={() => { setAddedNotice(remindAts().length); editNotices(list => [...list, ""]); setTimeout(() => setAddedNotice(null)); }}>+ Add a notification</button>
+            <button type="button" class="text-button remind-add" onClick={() => { const empty = remindAts().indexOf(""); if (empty >= 0) setAddedNotice(empty); else { setAddedNotice(remindAts().length); editNotices(list => [...list, ""]); } setTimeout(() => setAddedNotice(null)); }}>+ Add a notification</button>
           </div>
         </div>
 
