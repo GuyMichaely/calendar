@@ -7,7 +7,7 @@ import { DateTimeField } from "./DateTimeField";
 import { pushedDownInfo } from "./today";
 import { describeSchedule } from "./windows";
 import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
-import { attachmentMarkdown } from "./markdown";
+import { attachmentHref } from "./markdown";
 import { DialogShell } from "./DialogShell";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
 import { eventFromDraft, recordFromDraft, taskFromDraft, type TaskDraft } from "./item-changes";
@@ -432,7 +432,7 @@ export function ItemEditor(props: {
   const downloadById = (id: string) => { const file = savedAttachments().find(entry => entry.id === id); if (file) void download(file); };
   const insertAttachmentLink = (attachment: Attachment) => {
     // The editor syncs the hidden notes field and dirty state via onNotesChange.
-    notesApi?.insertMarkdown(attachmentMarkdown(attachment.id, attachment.name));
+    notesApi?.insertLink(attachment.name, attachmentHref(attachment.id));
   };
   const toggleCompleted = () => {
     setTaskState(state => state === "open" ? "completed" : "open");
@@ -549,7 +549,7 @@ export function ItemEditor(props: {
             <div><button type="button" class="danger-button" onClick={() => void revert()}>Revert</button></div>
           </div>
         </Show>
-        <Show when={(props.embedded && kind() === "task") || ancestors().length > 0} fallback={<Show when={existing || props.request.parentId}><p class="editor-eyebrow">{existing ? "The details" : "New subtask"}</p></Show>}>
+        <Show when={(props.embedded && kind() === "task") || ancestors().length > 0} fallback={<Show when={!existing && props.request.parentId}><p class="editor-eyebrow">New subtask</p></Show>}>
           <nav class="detail-path" aria-label="Task path"><button type="button" class="text-button" onClick={close}>Tasks</button><For each={ancestors()}>{parent => <><span aria-hidden="true">›</span><button type="button" class="text-button" onClick={() => void navigateTask(parent)}>{parent.title || "Untitled task"}</button></>}</For></nav>
         </Show>
         <div class="dialog-header">
@@ -648,12 +648,11 @@ export function ItemEditor(props: {
             </div>
             <ul class="attachment-list">
               <For each={savedAttachments().filter(file => !removedAttachments().has(file.id))}>{attachment => <li classList={{ lit: litFile() === attachment.id }} onMouseEnter={() => setLitFile(attachment.id)} onMouseLeave={() => setLitFile(null)}>
-                <button type="button" class="attachment-name" onClick={() => void download(attachment)} title="Download attachment">↓ {attachment.name}</button>
-                <div class="attachment-actions"><button type="button" class="text-button" onClick={() => insertAttachmentLink(attachment)}>Link in notes</button><button type="button" class="text-button danger-text" aria-label={`Remove ${attachment.name}`} onClick={() => removeAttachment(attachment)}>Remove</button></div>
+                <button type="button" class="attachment-name" onClick={() => insertAttachmentLink(attachment)} title="Link it in the notes">{attachment.name}</button>
+                <div class="attachment-actions"><button type="button" class="text-button" onClick={() => void download(attachment)}>Download</button><button type="button" class="text-button danger-text" aria-label={`Remove ${attachment.name}`} onClick={() => removeAttachment(attachment)}>Remove</button></div>
               </li>}</For>
               <For each={pendingFiles()}>{file => <li><span>{file.name} · waiting to save</span><button type="button" class="text-button" disabled={saving()} onClick={() => { setPendingFiles(files => files.filter(candidate => candidate !== file)); syncDirty(); }}>Remove</button></li>}</For>
             </ul>
-            <small class="field-hint">Click a filename to download. Attachment changes can be undone.</small>
           </section>
           <Show when={kind() === "task"}>
               <div class="subtask-editor full-span"><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" hidden={!!props.onQuickAddSubtask} disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <div class="subtask-row" data-id={child.id}><span class="subtask-grip" title="Drag to reorder" aria-hidden="true" onPointerDown={startRowDrag(child)} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button><Show when={props.onConvertChild && hasSavedItem()}><button type="button" class="text-button convert-button" title="Make this a dependent task: one that starts after this task" onClick={() => void props.onConvertChild!(child, "dependent")}>Make dependent</button></Show></div>}</For>

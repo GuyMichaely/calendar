@@ -7,7 +7,8 @@ import { createNotesExtensions } from "./notes-markdown";
 
 // Lets the item form insert attachment links and keep a hidden field in sync.
 export type NotesEditorApi = {
-  insertMarkdown(markdown: string): void;
+  // A link in the line at the caret (the end of the notes if they haven't been in use), set off by a space.
+  insertLink(text: string, href: string): void;
   // Replace the document from outside (inline board edits); ignored while the user
   // is typing in this editor, so the caret is never disturbed mid-keystroke.
   setMarkdown(markdown: string): void;
@@ -127,6 +128,8 @@ export function NotesEditor(props: {
   };
 
   let focused = false;
+  // Whether the caret's been put somewhere: until then a link goes at the end, not the start.
+  let used = false;
   const noFiles: ReadonlyMap<string, string> = new Map();
   const files = () => props.files?.() ?? noFiles;
   // The caret in a link shows a bubble under it: a file link's file (or that it's gone), or a
@@ -158,7 +161,7 @@ export function NotesEditor(props: {
           "aria-label": props.ariaLabel,
         },
       },
-      onFocus: () => { focused = true; placeBubble(); },
+      onFocus: () => { focused = used = true; placeBubble(); },
       onBlur: () => { focused = false; setBubble(null); },
       onSelectionUpdate: placeBubble,
       onUpdate: () => {
@@ -170,8 +173,15 @@ export function NotesEditor(props: {
     });
     refresh();
     props.onEditor?.({
-      insertMarkdown: (markdown) => {
-        editor?.chain().focus().insertContent(markdown, { contentType: "markdown" }).run();
+      insertLink: (text, href) => {
+        if (!editor) return;
+        editor.commands.focus(used ? undefined : "end");
+        const { $from } = editor.state.selection;
+        const before = $from.parent.textBetween(0, $from.parentOffset, undefined, "\ufffc");
+        editor.chain().insertContent([
+          ...(before && !/\s$/.test(before) ? [{ type: "text", text: " " }] : []),
+          { type: "text", text, marks: [{ type: "link", attrs: { href } }] },
+        ]).run();
       },
         setMarkdown: (markdown) => {
         if (!editor || focused) return;

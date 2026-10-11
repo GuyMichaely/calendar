@@ -65,6 +65,7 @@ markdown.inline.ruler2.before("emphasis", "underline", state => {
   }
 });
 export function renderNotes(value: string) { return markdown.render(value); }
+export const attachmentHref = (id: string) => `attachment:${encodeURIComponent(id)}`;
 export function attachmentMarkdown(id: string, name: string) {
-  return `[${name.replace(/[\\[\]]/g, "\\$&")}](attachment:${encodeURIComponent(id)})`;
+  return `[${name.replace(/[\\[\]]/g, "\\$&")}](${attachmentHref(id)})`;
 }

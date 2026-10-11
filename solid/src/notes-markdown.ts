@@ -1,5 +1,6 @@
 import { Extension, Node, flattenExtensions, type Extensions, type JSONContent } from "@tiptap/core";
 import { StarterKit } from "@tiptap/starter-kit";
+import { Link } from "@tiptap/extension-link";
 import { Markdown, MarkdownManager } from "@tiptap/markdown";
 import { TableKit } from "@tiptap/extension-table";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
@@ -53,13 +54,13 @@ const ImageReference = Node.create({
 
 export function createNotesExtensions(): Extensions {
   return [
-    StarterKit.configure({
-      link: {
-        // Never follow links from the editor. The attachment scheme is
-        // internal; everything else uses the editor's default validation.
-        openOnClick: false,
-        isAllowedUri: (url, ctx) => /^attachment:/i.test(url) || ctx.defaultValidate(url),
-      },
+    StarterKit.configure({ link: false }),
+    // Typing beside a link (before one starting a line, or after one) is plain text: it never grows the link.
+    Link.extend({ inclusive: () => false }).configure({
+      // Never follow links from the editor. The attachment scheme is
+      // internal; everything else uses the editor's default validation.
+      openOnClick: false,
+      isAllowedUri: (url, ctx) => /^attachment:/i.test(url) || ctx.defaultValidate(url),
     }),
     TableKit,
     TaskList,
