@@ -203,32 +203,87 @@ export function TimeGrid(props: {
   });
   createEffect(on(() => [props.start.getTime(), props.days], () => requestAnimationFrame(scrollToStart), { defer: true }));
 
-  // Touch: two fingers pinch the hours; one finger swiped sideways goes to the days before or after.
-  const pointers = new Map<number, { x: number; y: number; x0: number; y0: number }>();
-  let pinch: { distance: number; height: number } | null = null;
-  const distance = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  // Touch is handled here rather than by the browser, so a gesture can change midway: one finger
+  // scrolls the hours (gliding on after it lets go) or, swiped sideways, goes to the days before or
+  // after; a second finger, even mid-scroll, pinches them, keeping what's between the fingers under
+  // them (and moving both pans); lifting one goes back to scrolling with the other.
+  const pointers = new Map<number, { x: number; y: number }>();
+  type Gesture =
+    | { kind: "pending" | "swipe"; x0: number; y0: number }
+    | { kind: "scroll"; y0: number; top0: number; samples: { t: number; y: number }[] }
+    | { kind: "pinch"; distance: number; height: number; anchor: number };
+  let gesture: Gesture | null = null, glide = 0, moved = false;
+  const pair = () => { const [a, b] = [...pointers.values()]; return { distance: Math.hypot(a.x - b.x, a.y - b.y), middle: (a.y + b.y) / 2 - scroller.getBoundingClientRect().top }; };
+  const scrollWith = (point: { y: number }): Gesture => ({ kind: "scroll", y0: point.y, top0: scroller.scrollTop, samples: [{ t: performance.now(), y: point.y }] });
+  const pinchNow = (): Gesture => { const { distance, middle } = pair(); return { kind: "pinch", distance, height: hourHeight(), anchor: (scroller.scrollTop + middle) / hourHeight() }; };
   const down = (event: PointerEvent) => {
-    if (event.pointerType !== "touch") return;
-    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, x0: event.clientX, y0: event.clientY });
-    if (pointers.size === 2) pinch = { distance: distance(), height: hourHeight() };
+    if (event.pointerType !== "touch") { moved = false; return; }
+    cancelAnimationFrame(glide);
+    // A first finger starts afresh (nothing left over from a touch that never said it ended).
+    if (event.isPrimary) pointers.clear();
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 1) { gesture = { kind: "pending", x0: event.clientX, y0: event.clientY }; moved = false; }
+    else if (pointers.size === 2) { gesture = pinchNow(); moved = true; }
   };
   const move = (event: PointerEvent) => {
     const pointer = pointers.get(event.pointerId);
-    if (!pointer) return;
+    if (!pointer || !gesture) return;
     pointer.x = event.clientX; pointer.y = event.clientY;
-    if (pinch && pointers.size === 2) {
-      const [a, b] = [...pointers.values()];
-      zoomTo(pinch.height * distance() / pinch.distance, (a.y + b.y) / 2 - scroller.getBoundingClientRect().top);
+    if (gesture.kind === "pinch") {
+      if (pointers.size < 2) return;
+      const { distance, middle } = pair();
+      const height = Math.max(20, Math.min(160, gesture.height * distance / gesture.distance));
+      setZoomed(height);
+      scroller.scrollTop = gesture.anchor * height - middle;
+    } else if (gesture.kind === "pending") {
+      const dx = pointer.x - gesture.x0, dy = pointer.y - gesture.y0;
+      if (Math.abs(dy) > 8 && Math.abs(dy) >= Math.abs(dx)) { gesture = scrollWith({ y: gesture.y0 }); moved = true; }
+      else if (Math.abs(dx) > 8) { gesture = { ...gesture, kind: "swipe" }; moved = true; }
     }
+    if (gesture.kind === "scroll") {
+      scroller.scrollTop = gesture.top0 - (pointer.y - gesture.y0);
+      const now = performance.now();
+      gesture.samples = [...gesture.samples.filter(sample => now - sample.t < 100), { t: now, y: pointer.y }];
+    }
+  };
+  // Let go mid-scroll, it glides on and slows to a stop.
+  const glideFrom = (samples: { t: number; y: number }[]) => {
+    const first = samples[0], last = samples.at(-1)!;
+    let velocity = last.t - first.t > 0 ? (last.y - first.y) / (last.t - first.t) : 0;
+    if (performance.now() - last.t > 60 || Math.abs(velocity) < 0.1) return;
+    let then = performance.now();
+    const step = (now: number) => {
+      const elapsed = now - then; then = now;
+      scroller.scrollTop -= velocity * elapsed;
+      velocity *= Math.pow(0.95, elapsed / 16);
+      if (Math.abs(velocity) > 0.02) glide = requestAnimationFrame(step);
+    };
+    glide = requestAnimationFrame(step);
   };
   const up = (event: PointerEvent) => {
     const pointer = pointers.get(event.pointerId);
+    if (!pointer) return;
     pointers.delete(event.pointerId);
-    if (pinch) { if (!pointers.size) { pinch = null; saveZoom(); } return; }
-    if (!pointer || event.type === "pointercancel") return;
-    const dx = pointer.x - pointer.x0, dy = pointer.y - pointer.y0;
-    if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) props.onShift(dx < 0 ? props.days : -props.days);
+    const was = gesture;
+    if (!was) return;
+    if (was.kind === "pinch") {
+      // The zoom stays; with one finger left, it scrolls on from here.
+      saveZoom();
+      gesture = pointers.size === 1 ? scrollWith([...pointers.values()][0]) : pointers.size ? pinchNow() : null;
+      return;
+    }
+    if (pointers.size) return;
+    gesture = null;
+    if (event.type === "pointercancel") return;
+    if (was.kind === "scroll") glideFrom(was.samples);
+    else if (was.kind === "swipe") {
+      const dx = pointer.x - was.x0, dy = pointer.y - was.y0;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) props.onShift(dx < 0 ? props.days : -props.days);
+    }
   };
+  // A tap opens what's under it; the end of a scroll, swipe, or pinch doesn't.
+  const click = (event: MouseEvent) => { if (moved) { event.preventDefault(); event.stopPropagation(); moved = false; } };
+  onCleanup(() => cancelAnimationFrame(glide));
   // A trackpad pinch (or Ctrl and the wheel) zooms too.
   const wheel = (event: WheelEvent) => {
     if (!event.ctrlKey) return;
@@ -238,7 +293,11 @@ export function TimeGrid(props: {
     wheelSave = setTimeout(saveZoom, 300);
   };
   let wheelSave: ReturnType<typeof setTimeout> | undefined;
-  onMount(() => { scroller.addEventListener("wheel", wheel, { passive: false }); onCleanup(() => scroller.removeEventListener("wheel", wheel)); });
+  onMount(() => {
+    scroller.addEventListener("wheel", wheel, { passive: false });
+    scroller.addEventListener("click", click, true);
+    onCleanup(() => { scroller.removeEventListener("wheel", wheel); scroller.removeEventListener("click", click, true); });
+  });
 
   // Searching highlights what matches; the rest stays as it is.
   const matched = (item: Item) => !!props.query && textMatches(item, props.query);

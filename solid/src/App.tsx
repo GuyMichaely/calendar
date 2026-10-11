@@ -9,6 +9,7 @@ import { AgendaView } from "./AgendaView";
 import { createFind } from "./SearchResults";
 import { ItemEditor, type Editable, type EditorRequest } from "./ItemEditor";
 import { createCloudSync } from "./cloud-sync";
+import { closeOnBack } from "./back-close";
 import { disableWebPush, enableWebPush, inApp, onReminderOpened, registerDevice, scheduleReminders, updateWebPush, webPushSubscribed, webPushSupported, type NotificationAccess } from "./notifications";
 import { reminderChoices, upcomingReminders } from "./reminders";
 import { createCalendarStore } from "./calendar-store";
@@ -192,7 +193,7 @@ export function App() {
   const sideEditors = () => splitView();
   const besideOpen = () => sideEditors() && !!editor();
   const { mounted: besideMounted, closing: besideClosing } = closingPane(besideOpen);
-  let lastBeside: EditorRequest | null = null, flushBeside: (() => Promise<boolean>) | null = null, closeBesideEditor: (() => void) | null = null;
+  let lastBeside: EditorRequest | null = null, flushBeside: (() => Promise<boolean>) | null = null, closeEditorForm: (() => void) | null = null;
   createEffect(() => { if (editor()) lastBeside = editor(); });
   createEffect(() => {
     const root = document.documentElement;
@@ -238,7 +239,7 @@ export function App() {
   // The editor for a request; `beside` is the pane's (on a wide screen), the same as List's.
   const editorFor = (request: EditorRequest, beside: boolean) => <ItemEditor embedded={beside} onQuickAddSubtask={beside ? quickAddSubtask : undefined}
     registerFlush={beside ? flush => { flushBeside = flush; return () => { if (flushBeside === flush) flushBeside = null; }; } : undefined}
-    registerClose={beside ? close => { closeBesideEditor = close; return () => { if (closeBesideEditor === close) closeBesideEditor = null; }; } : undefined}
+    registerClose={close => { closeEditorForm = close; return () => { if (closeEditorForm === close) closeEditorForm = null; }; }}
     items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />;
   // In the Android app: notifications for tasks reaching their can-start time and before events,
   // rescheduled (in real time, not pretend time) whenever the calendar or these settings change
@@ -364,6 +365,9 @@ export function App() {
     finally { setImporting(false); }
   };
   const openSettings = () => { settingsReturnTask = document.activeElement instanceof HTMLElement && document.activeElement.matches("[data-task-card]") ? document.activeElement : null; setShowSettings(true); };
+  // A phone's back closes Settings, and an editor over the page (the editor's own close: it saves first).
+  closeOnBack(showSettings, () => closeSettings());
+  closeOnBack(() => !!editor() && !sideEditors(), () => closeEditorForm ? closeEditorForm() : void closeEditor());
   const closeSettings = () => { if (shortcutsDirty() && !window.confirm("Discard your unsaved shortcut changes?")) return; setShowSettings(false); const task = settingsReturnTask; settingsReturnTask = null; if (task?.isConnected) requestAnimationFrame(() => task.focus({ preventScroll: true })); };
 
   onMount(() => {
@@ -387,7 +391,7 @@ export function App() {
     };
     const onKeyDown = (event: KeyboardEvent) => {
       // Escape closes the pane beside the page even when focus is elsewhere (the pane handles it when focused inside).
-      const closePane = closeBesideEditor || closeDetailEditor;
+      const closePane = closeEditorForm || closeDetailEditor;
       if (event.key === "Escape" && !event.defaultPrevented && closePane && !document.querySelector(".solid-dialog-backdrop") && !editableTarget(event.target) && !(event.target instanceof Element && event.target.closest(".item-detail"))) {
         event.preventDefault(); closePane(); return;
       }

@@ -635,7 +635,8 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .grid-chip.due { background: var(--due-bg); color: var(--due); }
 .grid-chip.start { background: var(--ready-bg); color: var(--ready); }
 .grid-chip.record { color: var(--muted); }
-.timegrid-scroll { position: relative; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
+/* Touch gestures on the hours are the grid's own (scroll, swipe, pinch: see TimeGrid). */
+.timegrid-scroll { position: relative; overflow-y: auto; overscroll-behavior: contain; touch-action: none; }
 .timegrid-body { position: relative; }
 .timegrid-hours { position: relative; }
 .timegrid-hours span { position: absolute; right: 7px; transform: translateY(-50%); color: var(--muted); font-size: 10.5px; white-space: nowrap; }

@@ -7,6 +7,7 @@ import android.webkit.ServiceWorkerController;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
+import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 
@@ -23,6 +24,19 @@ public class MainActivity extends BridgeActivity {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 return serverOnly(request.getUrl()) ? null : super.shouldInterceptRequest(view, request);
+            }
+        });
+        // Back closes what the page has open over it (an editor, Settings) first; with nothing
+        // open, it does what back always does.
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                bridge.getWebView().evaluateJavascript("typeof calendarBack === 'function' && calendarBack()", closed -> {
+                    if ("true".equals(closed)) return;
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                    setEnabled(true);
+                });
             }
         });
         ServiceWorkerController.getInstance().setServiceWorkerClient(new ServiceWorkerClient() {
