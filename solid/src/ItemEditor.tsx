@@ -137,6 +137,8 @@ export function ItemEditor(props: {
   const [remindAts, setRemindAts] = createSignal<string[]>((existing?.remindAt || []).map(time => isoToLocalInput(time)));
   const chosenReminders = () => remindAts().map(value => localInputToIso(value)).filter((time): time is NonNullable<typeof time> => !!time);
   const [defaultNotice, setDefaultNotice] = createSignal(!existing && defaults.notifyBefore != null);
+  // The one just added opens its picker straight away.
+  const [addedNotice, setAddedNotice] = createSignal<number | null>(null);
   const editNotices = (change: (list: string[]) => string[]) => { setDefaultNotice(false); setRemindAts(change); };
   createEffect(() => {
     if (!defaultNotice()) return;
@@ -615,10 +617,10 @@ export function ItemEditor(props: {
         <div class="form-grid reminders-grid">
           <div class="field full-span remind-at-field"><span>Notify me at</span>
             <Index each={remindAts()}>{(value, index) => <div class="remind-at">
-              <DateTimeField name="remindAt" label={`Notification ${index + 1}`} value={value()} onChange={next => { editNotices(list => list.map((entry, at) => at === index ? next : entry)); syncDirty(); }} />
+              <DateTimeField name="remindAt" label={`Notification ${index + 1}`} value={value()} startOpen={index === addedNotice()} onChange={next => { editNotices(list => list.map((entry, at) => at === index ? next : entry)); syncDirty(); }} />
               <button type="button" class="icon-button" aria-label={`Remove notification ${index + 1}`} onClick={() => { editNotices(list => list.filter((_, at) => at !== index)); queueMicrotask(syncDirty); }}>×</button>
             </div>}</Index>
-            <button type="button" class="text-button remind-add" onClick={() => editNotices(list => [...list, ""])}>+ Add a notification</button>
+            <button type="button" class="text-button remind-add" onClick={() => { setAddedNotice(remindAts().length); editNotices(list => [...list, ""]); setTimeout(() => setAddedNotice(null)); }}>+ Add a notification</button>
           </div>
         </div>
 

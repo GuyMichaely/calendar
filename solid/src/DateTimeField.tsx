@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { formatDateTimeShort, formatDateTimeText, parseDateTimeText } from "./datetime-text";
 import { addDays, formatIn, fromInputValue as fromLocalValue, partsOf, sameDay as sameZoneDay, toInputValue as toLocalValue, zonedDate } from "./zone";
 
@@ -12,7 +12,8 @@ const monthOf = (date: Date, offset = 0) => { const { year, month } = partsOf(da
  * above them. Each pick takes effect as it's made (typed text once it's entered or left); closing keeps it.
  * The value is a hidden "YYYY-MM-DDTHH:mm" input, the same as a datetime-local field.
  */
-export function DateTimeField(props: { name: string; label: string; value: string; disabled?: boolean; placeholder?: string; onChange: (value: string) => void }) {
+// `startOpen`: the picker opens as the field appears (one just added).
+export function DateTimeField(props: { name: string; label: string; value: string; disabled?: boolean; placeholder?: string; startOpen?: boolean; onChange: (value: string) => void }) {
   const [value, setValue] = createSignal(props.value || "");
   createEffect(() => setValue(props.value || ""));
   // A date without a time: the end of the day for a due date or an end, else its start.
@@ -99,6 +100,8 @@ export function DateTimeField(props: { name: string; label: string; value: strin
     addEventListener("scroll", place, true); addEventListener("resize", place);
     onCleanup(() => { document.removeEventListener("pointerdown", outside, true); removeEventListener("scroll", place, true); removeEventListener("resize", place); });
   });
+
+  onMount(() => { if (props.startOpen) show(); });
 
   return <div class="dt-field" ref={root}
     onKeyDown={event => { if (event.key === "Escape" && open()) { event.preventDefault(); event.stopPropagation(); setOpen(false); } }}>
