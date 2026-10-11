@@ -1,8 +1,9 @@
 import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
-import { Editor, Extension } from "@tiptap/core";
+import { Editor, Node as TiptapNode, type MarkViewRenderer } from "@tiptap/core";
 import { Placeholder } from "@tiptap/extensions";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Plugin, type EditorState } from "@tiptap/pm/state";
+import type { MarkView } from "@tiptap/pm/view";
 import { createNotesExtensions } from "./notes-markdown";
 
 // Lets the item form insert attachment links and keep a hidden field in sync.
@@ -56,39 +57,88 @@ const ATTACHMENT = "attachment:";
 const attachmentIdOf = (href: string) => href.toLowerCase().startsWith(ATTACHMENT) ? decodeURIComponent(href.slice(ATTACHMENT.length)) : null;
 
 /*
+ * A file link starts with a paperclip, a character of its own that carries the link: the caret
+ * right of it is in the link (typing there adds to the link's text), left of it is outside. Each
+ * file link gets exactly one, kept as links are typed, pasted, undone or unlinked; the notes'
+ * markdown never has it. Backspace or Delete beside it steps over it rather than taking it out.
+ */
+const CLIP = "attachmentClip";
+const fileLinkOf = (node: ProseMirrorNode) => node.marks.find(mark => mark.type.name === "link" && attachmentIdOf(String(mark.attrs.href || "")) != null);
+function placeClips(state: EditorState) {
+  const tr = state.tr, clip = state.schema.nodes[CLIP];
+  state.doc.descendants((block, pos) => {
+    if (!block.inlineContent) return true;
+    let offset = pos + 1;
+    for (let index = 0; index < block.childCount; index++) {
+      const node = block.child(index), before = index ? block.child(index - 1) : null, after = index + 1 < block.childCount ? block.child(index + 1) : null;
+      const link = fileLinkOf(node);
+      if (node.type === clip) {
+        const starts = link && after?.isText && link.isInSet(after.marks) && !(before && before.type !== clip && link.isInSet(before.marks));
+        if (!starts) tr.delete(tr.mapping.map(offset), tr.mapping.map(offset + node.nodeSize));
+      } else if (node.isText && link && !(before && link.isInSet(before.marks))) tr.insert(tr.mapping.map(offset), clip.create(null, null, node.marks));
+      offset += node.nodeSize;
+    }
+    return false;
+  });
+  return tr.docChanged ? tr : null;
+}
+const AttachmentClip = TiptapNode.create({
+  name: CLIP,
+  inline: true,
+  group: "inline",
+  atom: true,
+  selectable: false,
+  draggable: false,
+  priority: 1000,
+  parseHTML: () => [{ tag: "span.attachment-clip" }],
+  renderHTML: () => ["span", { class: "attachment-clip" }, "📎"],
+  renderText: () => "",
+  renderMarkdown: () => "",
+  addKeyboardShortcuts() {
+    const step = (side: -1 | 1) => () => {
+      const { selection } = this.editor.state;
+      const beside = side < 0 ? selection.$from.nodeBefore : selection.$from.nodeAfter;
+      return selection.empty && beside?.type.name === CLIP && this.editor.commands.setTextSelection(selection.from + side);
+    };
+    return { Backspace: step(-1), Delete: step(1) };
+  },
+  addProseMirrorPlugins() {
+    return [new Plugin({ appendTransaction: (transactions, _, state) => transactions.some(tr => tr.docChanged) ? placeClips(state) : null })];
+  },
+  onCreate() {
+    const tr = placeClips(this.editor.state);
+    if (tr) this.editor.view.dispatch(tr.setMeta("addToHistory", false).setMeta("preventUpdate", true));
+  },
+});
+
+/*
  * A link to one of the item's files is stored by the file's id ("attachment:<id>"), whatever its
  * text says. Shown, it's marked as a file link; as removed when no file has that id any more
- * (undoing the removal brings it back); and lit while its file's row is pointed at.
+ * (undoing the removal brings it back); and lit while its file's row is pointed at. The marks go
+ * on the link itself: a wrapper around its text would split it from the paperclip, and a phone
+ * keyboard typing right of the paperclip would land between them.
  */
-const attachmentLinksKey = new PluginKey("attachment-links");
-function AttachmentLinks(look: () => { files: ReadonlyMap<string, string>; lit: string | null }) {
-  return Extension.create({
-    name: "attachmentLinks",
-    addProseMirrorPlugins() {
-      return [new Plugin({
-        key: attachmentLinksKey,
-        props: {
-          decorations(state) {
-            const { files, lit } = look();
-            const marks: Decoration[] = [];
-            state.doc.descendants((node, pos) => {
-              if (!node.isText) return;
-              const link = node.marks.find(mark => mark.type.name === "link");
-              const id = link ? attachmentIdOf(String(link.attrs.href || "")) : null;
-              if (id == null) return;
-              const known = files.has(id);
-              marks.push(Decoration.inline(pos, pos + node.nodeSize, {
-                class: `attachment-link${known ? "" : " attachment-missing"}${lit === id ? " attachment-lit" : ""}`,
-                "data-attachment-id": id,
-                title: known ? `${files.get(id)} · Ctrl+click to download` : "This file was removed",
-              }));
-            });
-            return DecorationSet.create(state.doc, marks);
-          },
-        },
-      })];
-    },
-  });
+function fileLinkViews(look: () => { files: ReadonlyMap<string, string>; lit: string | null }) {
+  const shown = new Map<HTMLAnchorElement, string>();
+  // Data attributes only: the browser can copy the element while a phone keyboard composes in it,
+  // and a copy's class or title would read back as a different link.
+  const paint = (link: HTMLAnchorElement, id: string) => {
+    const { files, lit } = look();
+    link.toggleAttribute("data-missing", !files.has(id));
+    link.toggleAttribute("data-lit", lit === id);
+  };
+  // Other links render as usual.
+  const view: MarkViewRenderer = ({ mark, HTMLAttributes }) => {
+    const id = attachmentIdOf(String(mark.attrs.href || ""));
+    if (id == null) return undefined as unknown as MarkView;
+    const link = document.createElement("a");
+    for (const [name, value] of Object.entries(HTMLAttributes)) if (value != null) link.setAttribute(name, String(value));
+    link.dataset.attachmentId = id;
+    shown.set(link, id);
+    paint(link, id);
+    return { dom: link, ignoreMutation: mutation => mutation.type === "attributes" && mutation.target === link, destroy: () => shown.delete(link) };
+  };
+  return { view, repaint: () => shown.forEach((id, link) => paint(link, id)) };
 }
 
 // What the bubble under the link the caret is in says and offers.
@@ -132,6 +182,7 @@ export function NotesEditor(props: {
   let used = false;
   const noFiles: ReadonlyMap<string, string> = new Map();
   const files = () => props.files?.() ?? noFiles;
+  const fileLinks = fileLinkViews(() => ({ files: files(), lit: props.lit?.() ?? null }));
   // The caret in a link shows a bubble under it: a file link's file (or that it's gone), or a
   // web link's address, with what you can do with it. Clicking a link still just edits it.
   const [bubble, setBubble] = createSignal<Bubble | null>(null);
@@ -150,7 +201,7 @@ export function NotesEditor(props: {
   onMount(() => {
     editor = new Editor({
       element: container,
-      extensions: [...createNotesExtensions(), AttachmentLinks(() => ({ files: files(), lit: props.lit?.() ?? null })), Placeholder.configure({ placeholder: props.placeholder })],
+      extensions: [...createNotesExtensions({ linkView: fileLinks.view }), AttachmentClip, Placeholder.configure({ placeholder: props.placeholder })],
       content: props.initialMarkdown,
       contentType: "markdown",
       editorProps: {
@@ -196,7 +247,7 @@ export function NotesEditor(props: {
   // The files or the lit one changed: mark the links again.
   createEffect(() => {
     files(); props.lit?.();
-    if (editor && !editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(attachmentLinksKey, true));
+    fileLinks.repaint();
   });
   const unlink = () => { editor?.chain().focus().extendMarkRange("link").unsetLink().run(); refresh(); };
   // Ctrl/Cmd+click, or the bubble: a file link downloads (if the file's still there), a web link opens.
@@ -271,7 +322,10 @@ export function NotesEditor(props: {
       }} onMouseOver={event => {
         const id = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-attachment-id]")?.dataset.attachmentId ?? null : null;
         props.onLight?.(id);
-      }} onMouseLeave={() => props.onLight?.(null)}
+        // A file link's tooltip sits out here, where the editor won't read it back as part of the link.
+        if (id == null) container.removeAttribute("title");
+        else container.title = files().has(id) ? `${files().get(id)} · Ctrl+click to download` : "This file was removed";
+      }} onMouseLeave={() => { props.onLight?.(null); container.removeAttribute("title"); }}
         onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openLinkField(); } }} />
       <Show when={bubble()}>{shown =>
         // Pressing in it mustn't take the caret out of the link (which would close it).
