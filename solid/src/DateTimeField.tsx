@@ -9,7 +9,8 @@ const monthOf = (date: Date, offset = 0) => { const { year, month } = partsOf(da
 
 /**
  * A date and time picker: a calendar, an optional time (midnight, or 11:59 PM for due dates, unless set), and an editable text version
- * above them. The value is a hidden "YYYY-MM-DDTHH:mm" input, the same as a datetime-local field.
+ * above them. Each pick takes effect as it's made (typed text once it's entered or left); closing keeps it.
+ * The value is a hidden "YYYY-MM-DDTHH:mm" input, the same as a datetime-local field.
  */
 export function DateTimeField(props: { name: string; label: string; value: string; disabled?: boolean; placeholder?: string; onChange: (value: string) => void }) {
   const [value, setValue] = createSignal(props.value || "");
@@ -46,9 +47,8 @@ export function DateTimeField(props: { name: string; label: string; value: strin
     place();
     setOpen(true);
   };
-  const commit = (next: Date | null) => {
+  const apply = (next: Date | null) => {
     const local = next ? toLocalValue(next) : "";
-    setOpen(false);
     if (local === value()) return;
     setValue(local);
     props.onChange(local);
@@ -58,7 +58,10 @@ export function DateTimeField(props: { name: string; label: string; value: strin
     setText(next ? displayText(next) : "");
     setTextValid(true);
     if (next) setMonth(monthOf(next));
+    apply(next);
   };
+  // Typed text takes effect once entered (Enter) or left, if it reads as a date.
+  const applyTyped = () => { if (textValid()) apply(draft()); };
   const pickDay = (day: Date) => {
     const time = draft();
     const { year, month, day: date } = partsOf(day);
@@ -88,10 +91,10 @@ export function DateTimeField(props: { name: string; label: string; value: strin
   });
   const timeValue = () => { const date = draft(); return date && hasTime() ? toLocalValue(date).slice(11) : ""; };
 
-  // Clicking outside cancels, like the Cancel button.
+  // Clicking outside closes it, keeping what was picked (and typed, if it reads as a date).
   createEffect(() => {
     if (!open()) return;
-    const outside = (event: PointerEvent) => { if (!root.contains(event.target as Node)) setOpen(false); };
+    const outside = (event: PointerEvent) => { if (!root.contains(event.target as Node)) { applyTyped(); setOpen(false); } };
     document.addEventListener("pointerdown", outside, true);
     addEventListener("scroll", place, true); addEventListener("resize", place);
     onCleanup(() => { document.removeEventListener("pointerdown", outside, true); removeEventListener("scroll", place, true); removeEventListener("resize", place); });
@@ -106,7 +109,7 @@ export function DateTimeField(props: { name: string; label: string; value: strin
     <Show when={open()}>
       <div class="dt-popover" style={position() ? { top: `${position()!.top}px`, left: `${position()!.left}px` } : undefined} role="dialog" aria-label={`Choose ${props.label.toLowerCase()}`}>
         <input class="dt-text" classList={{ invalid: !textValid() }} data-editor-ignore aria-label={`${props.label} as text`} placeholder="mm/dd/yyyy hh:mm AM/PM" value={text()}
-          onInput={event => typed(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); if (textValid()) commit(draft()); } }} />
+          onInput={event => typed(event.currentTarget.value)} onChange={applyTyped} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); if (textValid()) { applyTyped(); setOpen(false); } } }} />
         <div class="dt-month">
           <strong>{formatIn(month(), { month: "long", year: "numeric" })}</strong>
           <button type="button" class="icon-button" aria-label="Previous month" onClick={() => setMonth(current => monthOf(current, -1))}>‹</button>
@@ -119,10 +122,9 @@ export function DateTimeField(props: { name: string; label: string; value: strin
         <label class="dt-time"><span>Time (optional)</span><input type="time" data-editor-ignore aria-label={`${props.label} time`} value={timeValue()} onInput={event => pickTime(event.currentTarget.value)} /></label>
         <small class="field-hint">Without a time: {props.name === "deadline" ? "due by the end of the day" : props.name === "eventEnd" ? "through the end of the day" : props.name === "eventStart" ? "the whole day" : "from the start of the day"}.</small>
         <div class="dt-actions">
-          <button type="button" class="text-button" onClick={() => commit(null)}>Clear</button>
+          <button type="button" class="text-button" onClick={() => { pick(null); setOpen(false); }}>Clear</button>
           <span class="spacer" />
-          <button type="button" class="text-button" onClick={() => setOpen(false)}>Cancel</button>
-          <button type="button" class="primary-button" disabled={!textValid()} onClick={() => commit(draft())}>Done</button>
+          <button type="button" class="primary-button" onClick={() => { applyTyped(); setOpen(false); }}>Done</button>
         </div>
       </div>
     </Show>

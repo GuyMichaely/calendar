@@ -186,10 +186,10 @@ export function App() {
   const { mounted: paneMounted, closing: paneClosing } = closingPane(paneOpen);
   let lastRequest: EditorRequest | null = null;
   createEffect(() => { if (detailRequest()) lastRequest = detailRequest(); });
-  // Settings → Display → Editors beside the page: on a wide screen every other editor (events,
-  // records, new items, and everything outside List and Boards) opens beside the page too, the
-  // same way, instead of over it; the page narrows to make room.
-  const sideEditors = () => prefs.sideEditor() && splitView();
+  // On a wide screen every other editor (events, records, new items, and everything outside List
+  // and Boards) opens beside the page too, the same way; the page narrows to make room. A narrower
+  // screen opens editors over the page.
+  const sideEditors = () => splitView();
   const besideOpen = () => sideEditors() && !!editor();
   const { mounted: besideMounted, closing: besideClosing } = closingPane(besideOpen);
   let lastBeside: EditorRequest | null = null, flushBeside: (() => Promise<boolean>) | null = null, closeBesideEditor: (() => void) | null = null;
@@ -235,7 +235,7 @@ export function App() {
     setEditor({ item, kind: item?.kind || kind || "task", date, nonce: Date.now() });
     if (sideEditors() && !item) requestAnimationFrame(() => document.querySelector<HTMLElement>(".side-editor-pane [data-dialog-autofocus]")?.focus());
   };
-  // The editor for a request; `beside` (Editors beside the page) is the pane's, the same as List's.
+  // The editor for a request; `beside` is the pane's (on a wide screen), the same as List's.
   const editorFor = (request: EditorRequest, beside: boolean) => <ItemEditor embedded={beside} onQuickAddSubtask={beside ? quickAddSubtask : undefined}
     registerFlush={beside ? flush => { flushBeside = flush; return () => { if (flushBeside === flush) flushBeside = null; }; } : undefined}
     registerClose={beside ? close => { closeBesideEditor = close; return () => { if (closeBesideEditor === close) closeBesideEditor = null; }; } : undefined}
@@ -445,7 +445,7 @@ export function App() {
             </Show>
           </Show>
         </WorkspaceShell>
-        {/* Over the page, or (Editors beside the page) down its right side like List's. */}
+        {/* Down the page's right side like List's, or (narrower screens) over the page. */}
         <Show when={sideEditors()} fallback={<Show when={editor()} keyed>{(request) => editorFor(request, false)}</Show>}>
           <Show when={besideMounted()}>
             <aside class="task-detail-pane side-editor-pane" classList={{ closing: besideClosing() }} aria-label="Editor">
@@ -480,7 +480,6 @@ export function App() {
                   <For each={deadlineChoices}>{([days, label]) => <option value={days} selected={days === deadlineDaysOf(items())}>{label}</option>}</For>
                 </select></label>
                 <p class="field-hint">For the whole calendar, on every device. Days are calendar days: “due today” means by midnight.</p>
-                <label class="animation-setting"><span><strong>Editors beside the page</strong><small>On a wide screen, every editor (events and records too, and in the Agenda and Calendar) opens down the right side, full height, as List's do, and the page narrows to make room. Off, only List and Boards open tasks beside the list; other editors open over the page.</small></span><input aria-label="Editors beside the page" type="checkbox" role="switch" checked={prefs.sideEditor()} onChange={event => prefs.setSideEditor(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Search everything</strong><small>Searching lists every matching task and event, past ones and done ones included, under the search field; picking one opens it. Off, search only narrows what the view shows.</small></span><input aria-label="Search everything" type="checkbox" role="switch" checked={prefs.findSearch()} onChange={event => prefs.setFindSearch(event.currentTarget.checked)} /></label>
                 <label class="animation-setting"><span><strong>Pretend time</strong><small>A clock in the top bar that makes the app act as if it's another moment. Turning this off goes back to real time.</small></span><input aria-label="Pretend time" type="checkbox" role="switch" checked={prefs.showTimeControl()} onChange={event => { prefs.setShowTimeControl(event.currentTarget.checked); if (!event.currentTarget.checked) pretend(null); }} /></label>
               </section>

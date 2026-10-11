@@ -666,7 +666,7 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .grid-block.short small { flex: 0 1 auto; }
 /* Narrow columns (three days on a phone): names wrap rather than cut off. */
 @media (max-width: 760px) { .timegrid[style*="--grid-days: 3"] .grid-block:not(.short) strong { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }.timegrid[style*="--grid-days: 3"] .grid-block:not(.short) small { text-overflow: clip; } }
-/* Editors beside the page (Settings → Display): every editor in a full-height pane down the right side, the page narrowing beside it. */
+/* Wide screens: every editor in a full-height pane down the right side, the page narrowing beside it. */
 :root { --side-width: clamp(420px, 36vw, 610px); }
 [data-side-editors] .tasks-workspace.split { grid-template-columns: minmax(0, 1fr) minmax(0, 0%); gap: 0; }
 [data-side-editors] .task-detail-pane { position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; width: var(--side-width); height: auto; border-width: 0 0 0 1px; border-radius: 0; }
