@@ -5,11 +5,11 @@ import type { Mark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, type EditorState } from "@tiptap/pm/state";
 import { ReplaceStep } from "@tiptap/pm/transform";
 import type { MarkView } from "@tiptap/pm/view";
-import { createNotesExtensions } from "./notes-markdown";
+import { createNotesExtensions, withoutLinkTails } from "./notes-markdown";
 
 // Lets the item form insert attachment links and keep a hidden field in sync.
 export type NotesEditorApi = {
-  // A link in the line at the caret (the end of the notes if they haven't been in use), set off by a space.
+  // A link in the line at the caret (the end of the notes if they haven't been in use), set off by spaces, with the caret after it.
   insertLink(text: string, href: string): void;
   // Replace the document from outside (inline board edits); ignored while the user
   // is typing in this editor, so the caret is never disturbed mid-keystroke.
@@ -90,6 +90,12 @@ function linkEnd(doc: ProseMirrorNode, from: number, link: Mark) {
   for (let index = $from.index(); index < $from.parent.childCount && link.isInSet($from.parent.child(index).marks); index++) end += $from.parent.child(index).nodeSize;
   return end;
 }
+// Backspace right of a paperclip: the paperclip goes, and its link's text is unlinked.
+function unlinkBehindCaret(state: EditorState) {
+  const { selection, doc } = state, clip = selection.$from.nodeBefore;
+  const link = selection.empty && clip?.type.name === CLIP ? fileLinkOf(clip) : undefined;
+  return link ? state.tr.removeMark(selection.from, linkEnd(doc, selection.from, link), link).delete(selection.from - 1, selection.from) : null;
+}
 const AttachmentClip = TiptapNode.create({
   name: CLIP,
   inline: true,
@@ -105,11 +111,9 @@ const AttachmentClip = TiptapNode.create({
   addKeyboardShortcuts() {
     return {
       Backspace: () => {
-        const { selection, doc } = this.editor.state, clip = selection.$from.nodeBefore;
-        const link = selection.empty && clip?.type.name === CLIP ? fileLinkOf(clip) : undefined;
-        if (!link) return false;
-        this.editor.view.dispatch(this.editor.state.tr.removeMark(selection.from, linkEnd(doc, selection.from, link), link).delete(selection.from - 1, selection.from));
-        return true;
+        const tr = unlinkBehindCaret(this.editor.state);
+        if (tr) this.editor.view.dispatch(tr);
+        return !!tr;
       },
       Delete: () => {
         const { selection } = this.editor.state;
@@ -129,6 +133,18 @@ const AttachmentClip = TiptapNode.create({
           if (link && after && link.isInSet(after.marks)) return state.tr.removeMark(step.from, linkEnd(state.doc, step.from, link), link);
         }
         return placeClips(state);
+      },
+      props: {
+        handleDOMEvents: {
+          // A phone keyboard's backspace there, before Chrome on Android fails to take out the paperclip.
+          beforeinput: (view, event) => {
+            const tr = (event as InputEvent).inputType === "deleteContentBackward" ? unlinkBehindCaret(view.state) : null;
+            if (!tr) return false;
+            event.preventDefault();
+            view.dispatch(tr);
+            return true;
+          },
+        },
       },
       // The caret right of a paperclip goes at the start of the link's text, where Chrome shows it
       // right of the paperclip (between the two elements, it can show it left of it).
@@ -177,6 +193,9 @@ function fileLinkViews(look: () => { files: ReadonlyMap<string, string>; lit: st
   };
   return { view, repaint: () => shown.forEach((id, link) => paint(link, id)) };
 }
+
+// Blank trailing paragraphs serialize as &nbsp;; notes don't need them (nor the spaces after links ending lines).
+const markdownOf = (editor: Editor) => editor.markdown!.serialize(withoutLinkTails(editor.getJSON())).replace(/(?:&nbsp;|[\s ])+$/g, "");
 
 // What the bubble under the link the caret is in says and offers.
 type Bubble = { href: string; file: { id: string; name: string | null } | null; top: number; left: number };
@@ -254,8 +273,7 @@ export function NotesEditor(props: {
       onSelectionUpdate: placeBubble,
       onUpdate: () => {
         if (!editor) return;
-        // Blank trailing paragraphs serialize as &nbsp;; notes don't need them.
-        props.onChange(editor.getMarkdown().replace(/(?:&nbsp;|[\s ])+$/g, ""));
+        props.onChange(markdownOf(editor));
       },
       onTransaction: () => { refresh(); placeBubble(); },
     });
@@ -270,10 +288,14 @@ export function NotesEditor(props: {
           ...(before && !/\s$/.test(before) ? [{ type: "text", text: " " }] : []),
           { type: "text", text, marks: [{ type: "link", attrs: { href } }] },
         ]).run();
+        // The caret goes past the space after it (a line's last link has one), so typing goes after the link.
+        const { $from: $end } = editor.state.selection;
+        if (/\s/.test($end.parent.textBetween($end.parentOffset, Math.min($end.parentOffset + 1, $end.parent.content.size), undefined, "\ufffc"))) editor.commands.setTextSelection($end.pos + 1);
+        else editor.chain().insertContent({ type: "text", text: " " }).run();
       },
         setMarkdown: (markdown) => {
         if (!editor || focused) return;
-        const current = editor.getMarkdown().replace(/(?:&nbsp;|[\s ])+$/g, "");
+        const current = markdownOf(editor);
         // contentType reaches the Markdown extension's setContent override (untyped upstream).
         if (current !== markdown) editor.commands.setContent(markdown, { emitUpdate: false, contentType: "markdown" } as unknown as Parameters<typeof editor.commands.setContent>[1]);
       },
