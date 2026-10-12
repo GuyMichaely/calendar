@@ -25,6 +25,16 @@ export type EditorRequest = {
 };
 
 let editorInstances = 0;
+// Where you were in an editor reopened on a newer version of its item (onStale), for the new one to put back.
+type Place = { id: string; field: string | number | null; start: number | null; end: number | null; scroll: number };
+let carried: Place | null = null;
+const fieldsOf = (form: HTMLFormElement) => [...form.querySelectorAll<HTMLElement>("input, textarea, select, button")];
+const scrollerOf = (form: HTMLElement) => {
+  for (let element: HTMLElement | null = form; element; element = element.parentElement) {
+    if (element.scrollHeight > element.clientHeight && /auto|scroll/.test(getComputedStyle(element).overflowY)) return element;
+  }
+  return null;
+};
 // The dates a dependent task can set as days after starting.
 const SHOWN_RELATIVE_FIELDS = ["availableFrom", "deadline"] as const;
 
@@ -81,6 +91,7 @@ export function ItemEditor(props: {
   /** The address that opens an item, for the links to a task's parents. */
   itemHref?: (id: string) => string;
   registerFlush?: (flush: () => Promise<boolean>) => () => void;
+  /** The item changed elsewhere (another view or device) while this editor had nothing unsaved: open it again on the stored version. */
   onStale?: () => void;
   onQuickAddSubtask?: (parent: Task, title: string) => Promise<boolean>;
   onAddDependent?: (parent: Task, title: string) => Promise<boolean>;
@@ -258,14 +269,37 @@ export function ItemEditor(props: {
     return true;
   };
   onMount(() => { const unregister = props.registerFlush?.(flush); onCleanup(() => unregister?.()); });
-  // Reload when another view or device changes the item while this editor is idle.
+  // Reload when another view or device changes the item while nothing here is unsaved, keeping
+  // your place: the focused field (and its selection) and the scroll. Notes being written in
+  // wait until you leave them.
+  const [focusMoved, setFocusMoved] = createSignal(0);
   createEffect(() => {
+    focusMoved();
     const stored = props.items.find(item => item.id === itemId);
     if (!props.onStale || !stored || !currentItem || dirty() || saving()) return;
     if (stored.updatedAt === currentItem.updatedAt) return;
-    const active = document.activeElement;
-    if (active && formRef?.contains(active) && active.matches("input, textarea, select, [contenteditable]")) return;
+    const active = document.activeElement instanceof HTMLElement && formRef?.contains(document.activeElement) ? document.activeElement : null;
+    if (active?.isContentEditable) return;
+    const text = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active : null;
+    const named = active?.getAttribute("name");
+    carried = { id: itemId, field: active ? named ?? fieldsOf(formRef).indexOf(active) : null, start: text?.selectionStart ?? null, end: text?.selectionEnd ?? null, scroll: scrollerOf(formRef)?.scrollTop ?? 0 };
     props.onStale();
+  });
+  onMount(() => {
+    const place = carried?.id === itemId ? carried : null;
+    carried = null;
+    if (!place) return;
+    // After the dialog's own first focus.
+    queueMicrotask(() => {
+      const scroller = scrollerOf(formRef);
+      if (scroller) scroller.scrollTop = place.scroll;
+      if (place.field === null) return;
+      const field = typeof place.field === "string" ? formRef.querySelector<HTMLElement>(`[name="${CSS.escape(place.field)}"]`) : fieldsOf(formRef)[place.field];
+      field?.focus({ preventScroll: true });
+      if ((field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && place.start !== null) {
+        try { field.setSelectionRange(place.start, place.end ?? place.start); } catch { /* No selection in this kind of field. */ }
+      }
+    });
   });
 
   const addFiles = (files: File[]) => {
@@ -545,7 +579,7 @@ export function ItemEditor(props: {
   </>;
 
   const form = (
-      <form ref={(element) => { formRef = element; }} onSubmit={(event) => { event.preventDefault(); void close(); }} onInput={syncDirty}>
+      <form ref={(element) => { formRef = element; }} onFocusOut={() => setTimeout(() => setFocusMoved(count => count + 1))} onSubmit={(event) => { event.preventDefault(); void close(); }} onInput={syncDirty}>
         <div class="editor-close-bar"><button type="button" class="icon-button editor-close" classList={{ invalid: dirty() && !!(saveError() || invalid()) }} aria-label={dirty() && (saveError() || invalid()) ? "Close (reverts the unsaved changes)" : "Close"} title={dirty() && (saveError() || invalid()) ? `Can't save: ${saveError() || invalid()} — closing reverts` : "Close (Esc)"} onClick={() => void close()}>×</button></div>
         <Show when={closeBlocked() && dirty() && (saveError() || invalid())}>
           <div class="close-blocked" role="alert">
