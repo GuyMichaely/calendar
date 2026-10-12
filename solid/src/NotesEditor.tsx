@@ -11,8 +11,8 @@ import { createNotesExtensions, withoutLinkTails } from "./notes-markdown";
 export type NotesEditorApi = {
   // A link in the line at the caret (the end of the notes if they haven't been in use), set off by spaces, with the caret after it.
   insertLink(text: string, href: string): void;
-  // Replace the document from outside (inline board edits); ignored while the user
-  // is typing in this editor, so the caret is never disturbed mid-keystroke.
+  // Replace the document from outside (a change made elsewhere, a revert), keeping the caret
+  // with the text around it.
   setMarkdown(markdown: string): void;
   focus(): void;
 };
@@ -293,11 +293,21 @@ export function NotesEditor(props: {
         if (/\s/.test($end.parent.textBetween($end.parentOffset, Math.min($end.parentOffset + 1, $end.parent.content.size), undefined, "\ufffc"))) editor.commands.setTextSelection($end.pos + 1);
         else editor.chain().insertContent({ type: "text", text: " " }).run();
       },
-        setMarkdown: (markdown) => {
-        if (!editor || focused) return;
-        const current = markdownOf(editor);
-        // contentType reaches the Markdown extension's setContent override (untyped upstream).
-        if (current !== markdown) editor.commands.setContent(markdown, { emitUpdate: false, contentType: "markdown" } as unknown as Parameters<typeof editor.commands.setContent>[1]);
+      setMarkdown: (markdown) => {
+        if (!editor || markdownOf(editor) === markdown) return;
+        const before = editor.state.doc, { from, to } = editor.state.selection;
+        // Not an undo step: undoing goes back through your own typing only. contentType reaches
+        // the Markdown extension's setContent override (untyped upstream).
+        editor.chain().command(({ tr }) => { tr.setMeta("addToHistory", false); return true; })
+          .setContent(markdown, { emitUpdate: false, contentType: "markdown" } as unknown as Parameters<typeof editor.commands.setContent>[1]).run();
+        if (!focused) return;
+        // The caret stays with the text around it: moved by what changed before it, kept after it.
+        const after = editor.state.doc, start = before.content.findDiffStart(after.content), end = before.content.findDiffEnd(after.content);
+        if (start == null || !end) return;
+        const endA = Math.max(end.a, start), endB = end.b + (endA - end.a);
+        const map = (position: number) => position <= start ? position : position >= endA ? position + endB - endA : endB;
+        const size = after.content.size;
+        editor.commands.setTextSelection({ from: Math.min(map(from), size), to: Math.min(map(to), size) });
       },
       focus: () => editor?.commands.focus(),
     });
@@ -368,7 +378,7 @@ export function NotesEditor(props: {
       </div>
       <Show when={linkDraft() !== null}>
         <form class="notes-link-field" onSubmit={event => { event.preventDefault(); applyLink(); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setLinkDraft(null); editor?.commands.focus(); } }}>
-          <input ref={linkInput} data-editor-ignore aria-label="Link address" placeholder="https://example.com" value={linkDraft() || ""} onInput={event => setLinkDraft(event.currentTarget.value)} />
+          <input ref={linkInput} aria-label="Link address" placeholder="https://example.com" value={linkDraft() || ""} onInput={event => setLinkDraft(event.currentTarget.value)} />
           <button type="submit" class="text-button">{linkDraft() ? "Apply" : "Remove link"}</button>
           <Show when={linkDraft()}><button type="button" class="text-button" onClick={() => openLink(normalizeHref(linkDraft() || ""))}>Open</button></Show>
           <button type="button" class="text-button" onClick={() => { setLinkDraft(null); editor?.commands.focus(); }}>Cancel</button>

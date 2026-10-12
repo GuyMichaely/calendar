@@ -1,20 +1,18 @@
 import { Icon } from "./Icon";
 import { taskDescendants } from "../../site/task-tree.js";
-import { For, Index, Show, createEffect, createMemo, createSignal, onMount, onCleanup, type JSX } from "solid-js";
-import { atTime, fromInputValue, inputToIso as localInputToIso, partsOf, startOfDay, toInputValue as isoToLocalInput } from "./zone";
+import { For, Index, Show, batch, createEffect, createMemo, createRenderEffect, createSignal, onMount, onCleanup, untrack, type JSX } from "solid-js";
+import { inputToIso as localInputToIso } from "./zone";
 import { NotesEditor, type NotesEditorApi } from "./NotesEditor";
 import { DateTimeField } from "./DateTimeField";
-import { pushedDownInfo } from "./today";
 import { describeSchedule } from "./windows";
-import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
+import type { RelativeDateField } from "./dependencies";
 import { attachmentHref } from "./markdown";
 import { DialogShell } from "./DialogShell";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
-import { eventFromDraft, recordFromDraft, taskFromDraft, type TaskDraft } from "./item-changes";
-import type { Attachment, CalendarEvent, CalendarRecord, CalendarSettings, Item, Repeat, Task, TimeWindow } from "./types";
+import { blankDraft, changedFields, defaultReminders, draftOf, draftProblem, itemFromDraft, rebased, withEnd, withStart, type Draft, type Editable } from "./editor-draft";
+import type { Attachment, CalendarSettings, Item, Task, TimeWindow } from "./types";
 
-/** What the editor edits: a task, an event (a set time to be somewhere), or a record (noted at a time). */
-export type Editable = Task | CalendarEvent | CalendarRecord;
+export type { Editable };
 export type EditorRequest = {
   item: Editable | null;
   kind: Editable["kind"];
@@ -25,57 +23,27 @@ export type EditorRequest = {
 };
 
 let editorInstances = 0;
-// Where you were in an editor reopened on a newer version of its item (onStale), for the new one to put back.
-type Place = { id: string; field: string | number | null; start: number | null; end: number | null; scroll: number };
-let carried: Place | null = null;
-const fieldsOf = (form: HTMLFormElement) => [...form.querySelectorAll<HTMLElement>("input, textarea, select, button")];
-const scrollerOf = (form: HTMLElement) => {
-  for (let element: HTMLElement | null = form; element; element = element.parentElement) {
-    if (element.scrollHeight > element.clientHeight && /auto|scroll/.test(getComputedStyle(element).overflowY)) return element;
-  }
-  return null;
-};
-// The dates a dependent task can set as days after starting.
-const SHOWN_RELATIVE_FIELDS = ["availableFrom", "deadline"] as const;
 
 function uuid() {
   return crypto.randomUUID();
 }
 
-function parseTags(value: FormDataEntryValue | null) {
-  return String(value || "").split(",").map((tag) => tag.trim()).filter(Boolean);
-}
-
-const HOUR = 60 * 60 * 1000;
-// An event's or record's times left off: a start at midnight, an end at 11:59 PM (whole days).
-const dayStart = (date: Date) => !partsOf(date).hour && !partsOf(date).minute;
-const dayEnd = (date: Date) => partsOf(date).hour === 23 && partsOf(date).minute === 59;
-
-// A new event lasts an hour (a record has no end until you give it one), and an event notifies
-// as long before it starts as the calendar's settings say new events do.
-function eventDefaults(request: EditorRequest, items: Item[]) {
-  const existing = request.item?.kind === "event" || request.item?.kind === "record" ? request.item : null;
-  if (existing) return { start: isoToLocalInput(existing.start), end: isoToLocalInput(existing.end), notifyBefore: null };
-
-  const start = request.date ? atTime(request.date, "09:00") : new Date();
-  const settings = items.find((item): item is CalendarSettings => item.kind === "settings");
-  return { start: isoToLocalInput(start), end: request.kind === "record" ? "" : isoToLocalInput(new Date(start.getTime() + HOUR)), notifyBefore: settings?.eventReminderMinutes ?? null };
-}
-
-function serializeForm(form: HTMLFormElement, files: File[], removed: Set<string>) {
-  return JSON.stringify({
-    controls: [...form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input:not([data-editor-ignore]), textarea, select")].map((control, index) => ({
-      key: control.name || control.id || String(index),
-      type: control instanceof HTMLInputElement ? control.type : control.tagName.toLowerCase(),
-      value: control instanceof HTMLInputElement && control.type === "file"
-        ? [...(control.files || [])].map((file) => [file.name, file.size, file.lastModified])
-        : control.value,
-      checked: control instanceof HTMLInputElement ? control.checked : undefined,
-    })),
-    removed: [...removed].sort(),
-    pendingFiles: files.map((file) => [file.name, file.size, file.lastModified]),
+// A text field's caret and selection, put back after its value changes under it.
+const keepingSelection = (change: () => void) => {
+  const field = document.activeElement;
+  const text = field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field : null;
+  const [from, to] = [text?.selectionStart ?? null, text?.selectionEnd ?? null];
+  change();
+  if (text && from !== null) queueMicrotask(() => {
+    if (document.activeElement !== text) return;
+    const length = text.value.length;
+    text.setSelectionRange(Math.min(from, length), Math.min(to ?? from, length));
   });
-}
+};
+
+// A text box showing a value it also edits: written only when it differs from what's there, so
+// typing (and a number half typed, which reads as "") is never written over.
+const shows = (value: () => string) => (element: HTMLInputElement) => createRenderEffect(() => { const next = value(); if (element.value !== next) element.value = next; });
 
 export function ItemEditor(props: {
   request: EditorRequest;
@@ -91,8 +59,6 @@ export function ItemEditor(props: {
   /** The address that opens an item, for the links to a task's parents. */
   itemHref?: (id: string) => string;
   registerFlush?: (flush: () => Promise<boolean>) => () => void;
-  /** The item changed elsewhere (another view or device) while this editor had nothing unsaved: open it again on the stored version. */
-  onStale?: () => void;
   onQuickAddSubtask?: (parent: Task, title: string) => Promise<boolean>;
   onAddDependent?: (parent: Task, title: string) => Promise<boolean>;
   onStartDependent?: (task: Task, completeParent: boolean) => Promise<void>;
@@ -102,12 +68,8 @@ export function ItemEditor(props: {
   onConvertChild?: (child: Task, to: "subtask" | "dependent") => Promise<unknown>;
   // Subtasks (or dependent tasks) in a new order.
   onReorderChildren?: (ordered: Task[]) => Promise<unknown>;
-  // Unsaved text mirrors to the board card as it's typed (no debounce), and inline
-  // board edits flow back into this editor through the same map.
-  liveEdits?: () => Map<string, Partial<Task>>;
+  // Unsaved text mirrors to the board card as it's typed (no debounce).
   onLiveEdit?: (taskId: string, patch: Partial<Task> | null) => void;
-  // Reopens the editor on the given saved item (null: a fresh editor for the same request).
-  onRevert?: (saved: Item | null) => void;
   // Opens the settings where named windows are edited.
   onManageWindows?: () => void;
   // What counts as now for showing status (pretend time); saves still use the real time.
@@ -115,102 +77,71 @@ export function ItemEditor(props: {
 }) {
   const existing = props.request.item;
   const domId = `${++editorInstances}`;
-  let currentItem = existing;
-  const [hasSavedItem, setHasSavedItem] = createSignal(!!existing);
   const itemId = existing?.id || uuid();
+  const now = () => props.now ?? new Date();
+  const settings = props.items.find((item): item is CalendarSettings => item.kind === "settings");
+  // A new event notifies as the calendar's settings say, following its start until you change the list yourself.
+  const notifyBefore = existing ? null : settings?.eventReminderMinutes ?? null;
+  const blank = blankDraft(props.request.kind, { date: props.request.date, notifyBefore }, now());
+  // The stored version the fields stand on (the baseline a save is merged against), what they
+  // showed when they last matched it (`base`), and what they show now (`draft`). They differ
+  // from `base` in the fields edited here and not yet saved.
+  let currentItem = existing;
+  const [base, setBase] = createSignal(draftOf(existing, blank, now()));
+  const [draft, setDraft] = createSignal(base());
+  const [hasSavedItem, setHasSavedItem] = createSignal(!!existing);
+  const [savedAttachments, setSavedAttachments] = createSignal(existing?.attachments || []);
+  const adopt = (item: Editable) => { currentItem = item; setHasSavedItem(true); setSavedAttachments(item.attachments || []); };
   const [removedAttachments, setRemovedAttachments] = createSignal(new Set<string>());
-  const [taskState, setTaskState] = createSignal<Task["state"]>(existing?.kind === "task" ? existing.state : "open");
-  let notesRef!: HTMLTextAreaElement;
+  const [pendingFiles, setPendingFiles] = createSignal<File[]>([]);
+  const kind = () => draft().kind;
+  const taskState = () => draft().state;
   let notesApi: NotesEditorApi | null = null;
   const [saving, setSaving] = createSignal(false);
   const [saveError, setSaveError] = createSignal("");
-  const [savedAttachments, setSavedAttachments] = createSignal(existing?.attachments || []);
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let inFlight: Promise<boolean> | null = null;
   let closing = false;
-  const task = existing?.kind === "task" ? existing : null;
+  // The task as stored now (it can change while open: started, moved).
+  const task = () => { const item = props.items.find(entry => entry.id === itemId) ?? currentItem; return item?.kind === "task" ? item : null; };
   // A dependent task that hasn't started: its dates can be days after starting instead of fixed.
-  const dormant = () => !!task?.dependentOf && props.items.some(item => item.id === task.dependentOf && item.kind === "task");
-  const [dateModes, setDateModes] = createSignal(Object.fromEntries(RELATIVE_DATE_FIELDS.map(field => [field, task?.relativeDates?.[field] != null ? "after" : "date"])) as Record<RelativeDateField, "date" | "after">);
-  const now = () => props.now ?? new Date();
-  const initialPush = task ? pushedDownInfo(task, now()) : null;
-  const defaults = eventDefaults(props.request, props.items);
-  const [kind, setKind] = createSignal<Editable["kind"]>(props.request.kind);
-  // A window's id, or "" for any time.
-  const [windowChoice, setWindowChoice] = createSignal(task?.windowId || "");
-  // Pushed down, until a date if one is set (otherwise until lifted).
-  const [pushed, setPushed] = createSignal(!!initialPush?.pushed);
-  // Repeats ("" for not repeating), and a dependent task's automatic start.
-  const [repeatUnit, setRepeatUnit] = createSignal<string>(task?.repeat?.unit || "");
-  const [startWhen, setStartWhen] = createSignal<string>(task?.startWhen?.on || "");
-  const [eventStart, setEventStart] = createSignal(defaults.start);
-  // Notifications: at the times in the list. A new event starts with the calendar's (some minutes
-  // before it starts), which follows its start until you change the list yourself; a new task or
-  // record starts with none, as does an all-day event (its start is midnight).
-  const [remindAts, setRemindAts] = createSignal<string[]>((existing?.remindAt || []).map(time => isoToLocalInput(time)));
-  const chosenReminders = () => remindAts().map(value => localInputToIso(value)).filter((time): time is NonNullable<typeof time> => !!time);
-  const [defaultNotice, setDefaultNotice] = createSignal(!existing && defaults.notifyBefore != null);
+  const dormant = () => !!task()?.dependentOf && props.items.some(item => item.id === task()!.dependentOf && item.kind === "task");
+  const [defaultNotice, setDefaultNotice] = createSignal(notifyBefore != null);
   // The one just added opens its picker straight away.
   const [addedNotice, setAddedNotice] = createSignal<number | null>(null);
-  const editNotices = (change: (list: string[]) => string[]) => { setDefaultNotice(false); setRemindAts(change); };
-  createEffect(() => {
-    if (!defaultNotice()) return;
-    const start = kind() === "event" && eventStart() ? fromInputValue(eventStart()) : null;
-    setRemindAts(start && !dayStart(start) ? [isoToLocalInput(new Date(start.getTime() - defaults.notifyBefore! * 60_000))] : []);
-  });
-  const [eventEnd, setEventEnd] = createSignal(defaults.end);
-  const [pendingFiles, setPendingFiles] = createSignal<File[]>([]);
   const [draggingAttachments, setDraggingAttachments] = createSignal(false);
-  const [dirty, setDirty] = createSignal(false);
-  let formRef!: HTMLFormElement;
-  let baseline = "";
-  let edited = false;
-
-  // Why the current form can't save, if it can't. (Validates without saving.)
-  const [invalid, setInvalid] = createSignal("");
-  const validate = () => {
-    if (!formRef) return "";
-    if (!String(new FormData(formRef).get("title") || "").trim()) return "Enter a title to save.";
-    if (!formRef.checkValidity()) return "Complete the required fields to save.";
-    return "";
-  };
+  const dirty = createMemo(() => changedFields(draft(), base()).length > 0 || pendingFiles().length > 0 || removedAttachments().size > 0);
+  // Why the draft can't save, if it can't.
+  const invalid = createMemo(() => draftProblem(draft(), dormant()));
   // The editor doesn't choose a board (Boards does, by dragging): a task keeps the one it's on
   // now, however it got there while open, and a new one takes the one it was started from.
   const boardOf = () => { const stored = props.items.find(item => item.id === itemId); return stored?.kind === "task" ? stored.groupId ?? null : props.request.groupId ?? null; };
-  // What the board card should show right now (the form in flushable field shape).
-  const draftPatch = (): Partial<Task> | null => {
-    if (kind() !== "task" || !formRef) return null;
-    const data = new FormData(formRef);
-    return {
-      title: String(data.get("title") || ""),
-      notes: String(data.get("notes") || ""),
-      availableFrom: localInputToIso(data.get("availableFrom")),
-      deadline: localInputToIso(data.get("deadline")),
-      groupId: boardOf(),
-      state: taskState(),
-    };
+  // What the board card should show right now.
+  const draftPatch = (): Partial<Task> | null => kind() !== "task" ? null : {
+    title: draft().title,
+    notes: draft().notes,
+    availableFrom: localInputToIso(draft().availableFrom),
+    deadline: localInputToIso(draft().deadline),
+    groupId: boardOf(),
+    state: taskState(),
   };
 
-  const syncDirty = () => {
-    edited = true;
-    queueMicrotask(() => {
-      setDirty(!!baseline && serializeForm(formRef, pendingFiles(), removedAttachments()) !== baseline);
-      setInvalid(validate());
-      setCloseBlocked(false);
-      if (kind() === "task") props.onLiveEdit?.(itemId, draftPatch());
-      clearTimeout(saveTimer);
-      if (dirty() && !closing) saveTimer = setTimeout(() => { void persist(); }, 800);
-    });
+  // An edit made here: it shows on the board card at once and saves after a pause.
+  const edited = () => {
+    setCloseBlocked(false);
+    if (kind() === "task") props.onLiveEdit?.(itemId, draftPatch());
+    clearTimeout(saveTimer);
+    if (dirty() && !closing) saveTimer = setTimeout(() => { void persist(); }, 800);
   };
-
-  onMount(() => {
-    // Capture now so early edits count; refresh after the first frame if nothing was edited yet.
-    baseline = serializeForm(formRef, pendingFiles(), removedAttachments());
-    requestAnimationFrame(() => {
-      if (edited) return;
-      baseline = serializeForm(formRef, pendingFiles(), removedAttachments());
-      setDirty(false);
-    });
+  const edit = (change: Partial<Draft> | ((draft: Draft) => Draft)) => {
+    setDraft(current => typeof change === "function" ? change(current) : { ...current, ...change });
+    edited();
+  };
+  const editNotices = (change: (list: string[]) => string[]) => { setDefaultNotice(false); edit(current => ({ ...current, remindAt: change(current.remindAt) })); };
+  createEffect(() => {
+    if (!defaultNotice()) return;
+    const current = draft(), reminders = defaultReminders(current, notifyBefore);
+    if (reminders.join() !== current.remindAt.join()) setDraft({ ...current, remindAt: reminders });
   });
 
   // Closing saves first. If the edits can't be saved, say why and offer to revert to the last saved version.
@@ -230,15 +161,20 @@ export function ItemEditor(props: {
   // Reverting skips the save that closing would otherwise require (the app flushes before switching tasks).
   let reverting = false;
   const revertAndClose = () => { reverting = closing = true; clearTimeout(saveTimer); props.onClose(); };
-  // Reverting reopens the editor on the last saved version. Autosave waits for an
-  // 800ms pause, so that is the last valid state that stood still, not whatever
-  // briefly passed through the fields while typing.
+  // Reverting puts the fields back as last saved. Autosave waits for an 800ms pause, so that is
+  // the last valid state that stood still, not whatever briefly passed through the fields while typing.
   const revert = async () => {
-    reverting = closing = true;
+    reverting = true;
     clearTimeout(saveTimer);
     if (inFlight) await inFlight;
+    setDraft(base());
+    notesApi?.setMarkdown(base().notes);
+    setPendingFiles([]);
+    setRemovedAttachments(new Set<string>());
+    setSaveError("");
+    setCloseBlocked(false);
     props.onLiveEdit?.(itemId, null);
-    if (props.onRevert) props.onRevert(currentItem); else props.onClose();
+    reverting = false;
   };
   onMount(() => { const unregister = props.registerClose?.(() => void close()); onCleanup(() => unregister?.()); });
   const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -251,16 +187,6 @@ export function ItemEditor(props: {
     // An embedded editor can be replaced without closing it; keep edits that were still waiting to save.
     if (props.embedded && dirty() && !closing) void persist();
   });
-  // Inline board edits flow back in live: the title input re-renders from the store
-  // (see its value=), and the notes editor is updated unless it's the focused field.
-  createEffect(() => {
-    const draft = props.liveEdits?.().get(itemId);
-    if (!draft) return;
-    if (draft.notes !== undefined && notesRef && notesRef.value !== draft.notes) {
-      notesRef.value = draft.notes;
-      notesApi?.setMarkdown(draft.notes);
-    }
-  });
   const flush = async () => {
     if (reverting) return true;
     clearTimeout(saveTimer);
@@ -269,37 +195,26 @@ export function ItemEditor(props: {
     return true;
   };
   onMount(() => { const unregister = props.registerFlush?.(flush); onCleanup(() => unregister?.()); });
-  // Reload when another view or device changes the item while nothing here is unsaved, keeping
-  // your place: the focused field (and its selection) and the scroll. Notes being written in
-  // wait until you leave them.
-  const [focusMoved, setFocusMoved] = createSignal(0);
+
+  // The item changed elsewhere (another view, another device, undo): the fields that changed
+  // there take the new version in place, except ones edited here and not yet saved.
+  const follow = (before: Draft, after: Draft) => {
+    const changed = changedFields(before, after);
+    if (!changed.length) return;
+    keepingSelection(() => batch(() => { setDraft(current => rebased(current, base(), before, after)); setBase(current => rebased(current, current, before, after)); }));
+    if (changed.includes("notes") && draft().notes === after.notes) notesApi?.setMarkdown(after.notes);
+    props.onLiveEdit?.(itemId, dirty() ? draftPatch() : null);
+  };
+  // A save is merged against the stored version it was edited from (text edits merge with ones
+  // made elsewhere since), so a newer one is taken up only with nothing unsaved; edits waiting to
+  // save go first, and whatever their save brings back follows (saveOnce).
   createEffect(() => {
-    focusMoved();
     const stored = props.items.find(item => item.id === itemId);
-    if (!props.onStale || !stored || !currentItem || dirty() || saving()) return;
-    if (stored.updatedAt === currentItem.updatedAt) return;
-    const active = document.activeElement instanceof HTMLElement && formRef?.contains(document.activeElement) ? document.activeElement : null;
-    if (active?.isContentEditable) return;
-    const text = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active : null;
-    const named = active?.getAttribute("name");
-    carried = { id: itemId, field: active ? named ?? fieldsOf(formRef).indexOf(active) : null, start: text?.selectionStart ?? null, end: text?.selectionEnd ?? null, scroll: scrollerOf(formRef)?.scrollTop ?? 0 };
-    props.onStale();
-  });
-  onMount(() => {
-    const place = carried?.id === itemId ? carried : null;
-    carried = null;
-    if (!place) return;
-    // After the dialog's own first focus.
-    queueMicrotask(() => {
-      const scroller = scrollerOf(formRef);
-      if (scroller) scroller.scrollTop = place.scroll;
-      if (place.field === null) return;
-      const field = typeof place.field === "string" ? formRef.querySelector<HTMLElement>(`[name="${CSS.escape(place.field)}"]`) : fieldsOf(formRef)[place.field];
-      field?.focus({ preventScroll: true });
-      if ((field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && place.start !== null) {
-        try { field.setSelectionRange(place.start, place.end ?? place.start); } catch { /* No selection in this kind of field. */ }
-      }
-    });
+    if (!stored || !currentItem || stored === currentItem || dirty() || saving()) return;
+    if (stored.kind !== "task" && stored.kind !== "event" && stored.kind !== "record") return;
+    const moment = now(), before = draftOf(currentItem, blank, moment);
+    adopt(stored);
+    follow(before, draftOf(stored, blank, moment));
   });
 
   const addFiles = (files: File[]) => {
@@ -307,89 +222,32 @@ export function ItemEditor(props: {
       const seen = new Set(current.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
       return [...current, ...files.filter((file) => !seen.has(`${file.name}:${file.size}:${file.lastModified}`))];
     });
-    syncDirty();
-  };
-
-  // Setting one end of an event fills in a missing other end an hour away, and moves it there
-  // when it would come out on the wrong side. A record's end is optional: it's only moved.
-  // Leaving the times off makes it all day: a start without one ends that day (11:59 PM), and
-  // giving the start a time again brings the end back to an hour after it.
-  const deriveEnd = (value: string) => {
-    const before = eventStart() ? fromInputValue(eventStart()) : null;
-    setEventStart(value);
-    const start = value ? fromInputValue(value) : null;
-    if (!start) return;
-    const end = eventEnd() ? fromInputValue(eventEnd()) : null;
-    const missing = !end && kind() === "event";
-    if (dayStart(start)) { if (missing || (end && (end < start || !dayEnd(end)))) setEventEnd(isoToLocalInput(atTime(start, "23:59"))); }
-    else if (missing || (end && end < start) || (end && dayEnd(end) && before && dayStart(before))) setEventEnd(isoToLocalInput(new Date(start.getTime() + HOUR)));
-  };
-
-  const deriveStart = (value: string) => {
-    setEventEnd(value);
-    const end = value ? fromInputValue(value) : null;
-    if (!end) return;
-    const start = eventStart() ? fromInputValue(eventStart()) : null;
-    if (!eventStart() || (start && start > end)) setEventStart(isoToLocalInput(dayEnd(end) ? startOfDay(end) : new Date(end.getTime() - HOUR)));
+    edited();
   };
 
   const saveOnce = async (): Promise<boolean> => {
     if (!dirty()) return true;
-    if (!String(new FormData(formRef).get("title") || "").trim()) { setSaveError("Enter a title to save."); return false; }
-    if (!formRef.checkValidity()) { setSaveError("Complete the required fields to save."); return false; }
-    const submittedForm = serializeForm(formRef, pendingFiles(), removedAttachments());
+    const problem = invalid();
+    if (problem) { setSaveError(problem); return false; }
+    const submitted = draft();
     const submittedFiles = [...pendingFiles()];
     const submittedRemoved = new Set(removedAttachments());
-    const data = new FormData(formRef);
-    const title = String(data.get("title") || "").trim();
-    if (!title) { setSaveError("Enter a title to save."); return false; }
-    const shared = {
-      title,
-      notes: String(data.get("notes") || ""),
-      tags: parseTags(data.get("tags")),
-      attachments: [
-        ...(currentItem?.attachments || []).filter(file => !submittedRemoved.has(file.id)),
-        ...submittedFiles.map((file): Attachment => ({ id: uuid(), name: file.name, type: file.type, size: file.size, blob: file })),
-      ],
-    };
-    const context = { id: itemId, previous: currentItem, now: new Date() };
-    let item: Item;
-    if (kind() === "task") {
-      const relativeDates: TaskDraft["relativeDates"] = {};
-      for (const field of SHOWN_RELATIVE_FIELDS) if (dateModes()[field] === "after") relativeDates[field] = Math.max(0, Number(data.get(`${field}After`)) || 0);
-      const choice = windowChoice();
-      item = taskFromDraft({
-        ...shared,
-        state: taskState(),
-        pushedDown: !pushed() ? { mode: "normal" } : localInputToIso(data.get("pushUntil")) ? { mode: "until", until: localInputToIso(data.get("pushUntil")) } : { mode: "indefinite" },
-        groupId: boardOf(),
-        availableFrom: localInputToIso(data.get("availableFrom")),
-        deadline: localInputToIso(data.get("deadline")),
-        windowId: choice || null,
-        relativeDates,
-        repeat: repeatUnit() ? { unit: repeatUnit() as Repeat["unit"], every: Math.max(1, Math.round(Number(data.get("repeatEvery")) || 1)), until: localInputToIso(data.get("repeatUntil")), untilDone: data.get("repeatUntilDone") === "on", ifMissed: data.get("repeatMissed") === "keep" ? "keep" : "skip" } : null,
-        remindAt: chosenReminders(),
-        ...(dormant() ? { startWhen: startWhen() === "parent-done" ? { on: "parent-done" as const } : startWhen() === "not-yet" ? { on: "not-yet" as const, after: localInputToIso(data.get("startAfter")) } : null, stopParent: data.get("stopParent") === "on" } : {}),
-      }, { ...context, parentId: props.request.parentId, dormant: dormant() });
-    } else {
-      if (kind() === "record" ? !eventStart() : !eventStart() && !eventEnd()) { setSaveError(`Choose when the ${kind()} starts.`); return false; }
-      const draft = { ...shared, start: localInputToIso(eventStart()), end: localInputToIso(eventEnd()), remindAt: chosenReminders() };
-      item = kind() === "record" ? recordFromDraft(draft, context) : eventFromDraft(draft, context);
-    }
-
+    const attachments = [
+      ...(currentItem?.attachments || []).filter(file => !submittedRemoved.has(file.id)),
+      ...submittedFiles.map((file): Attachment => ({ id: uuid(), name: file.name, type: file.type, size: file.size, blob: file })),
+    ];
+    const item = itemFromDraft(submitted, { id: itemId, previous: currentItem, now: new Date(), parentId: props.request.parentId, dormant: dormant(), groupId: boardOf(), attachments });
     try {
       const saved = await props.onSave(item, !currentItem, currentItem);
       if (!saved) throw new Error("This item was deleted on another device. Close and reopen the calendar to review it.");
-      currentItem = saved as Editable;
-      setHasSavedItem(true);
-      setSavedAttachments(currentItem.attachments || []);
-      const unchanged = serializeForm(formRef, pendingFiles(), removedAttachments()) === submittedForm;
+      adopt(saved as Editable);
+      // What was saved is now what the fields stand on; anything typed since stays unsaved, and
+      // what the stored version has from elsewhere (which the save kept) comes in.
+      setBase(submitted);
+      const moment = now();
+      follow(draftOf(item, blank, moment), draftOf(saved as Editable, blank, moment));
       setPendingFiles((files) => files.filter((file) => !submittedFiles.includes(file)));
       setRemovedAttachments(current => new Set([...current].filter(id => !submittedRemoved.has(id))));
-      if (unchanged) {
-        baseline = serializeForm(formRef, pendingFiles(), removedAttachments());
-        setDirty(false);
-      }
       setSaveError("");
       return true;
     } catch (error) {
@@ -451,16 +309,12 @@ export function ItemEditor(props: {
     }
   };
 
-  const pushUntil = isoToLocalInput(initialPush?.until);
   const windowList = createMemo(() => props.items.filter((item): item is TimeWindow => item.kind === "window").sort((a, b) => a.title.localeCompare(b.title)));
   const removeAttachment = (attachment: Attachment) => {
     setRemovedAttachments(current => new Set([...current, attachment.id]));
-    syncDirty();
+    edited();
   };
-  const onNotesChange = (markdown: string) => {
-    notesRef.value = markdown;
-    syncDirty();
-  };
+  const onNotesChange = (notes: string) => edit({ notes });
   // The files as they stand (not counting ones removed here), for the notes' links to them, and
   // the one pointed at: its row and its links in the notes light up together.
   const liveFiles = createMemo(() => new Map(savedAttachments().filter(file => !removedAttachments().has(file.id)).map(file => [file.id, file.name] as const)));
@@ -471,8 +325,7 @@ export function ItemEditor(props: {
     notesApi?.insertLink(attachment.name, attachmentHref(attachment.id));
   };
   const toggleCompleted = () => {
-    setTaskState(state => state === "open" ? "completed" : "open");
-    syncDirty();
+    edit(current => ({ ...current, state: current.state === "open" ? "completed" : "open" }));
   };
 
   // Options are keyed by id: rebuilding <option> elements would reset the select's choice.
@@ -504,11 +357,11 @@ export function ItemEditor(props: {
 
   const dateField = (field: RelativeDateField, label: string, input: JSX.Element) =>
     <div class="field">
-      <span>{label}<Show when={dormant()}> <select class="date-mode" name={`${field}Mode`} aria-label={`${label} is set`} value={dateModes()[field]} onChange={event => { const mode = event.currentTarget.value as "date" | "after"; setDateModes(modes => ({ ...modes, [field]: mode })); syncDirty(); }}><option value="date">on a date</option><option value="after">days after starting</option></select></Show></span>
-      <Show when={dormant() && dateModes()[field] === "after"} fallback={input}><input name={`${field}After`} aria-label={`${label}: days after starting`} type="number" min="0" step="0.5" value={task?.relativeDates?.[field] ?? 0} /></Show>
+      <span>{label}<Show when={dormant()}> <select class="date-mode" name={`${field}Mode`} aria-label={`${label} is set`} value={draft()[`${field}Mode`]} onChange={event => edit({ [`${field}Mode`]: event.currentTarget.value as "date" | "after" })}><option value="date">on a date</option><option value="after">days after starting</option></select></Show></span>
+      <Show when={dormant() && draft()[`${field}Mode`] === "after"} fallback={input}><input name={`${field}After`} aria-label={`${label}: days after starting`} type="number" min="0" step="0.5" ref={shows(() => draft()[`${field}After`])} onInput={event => edit({ [`${field}After`]: event.currentTarget.value })} /></Show>
     </div>;
   const dependents = () => props.items.filter((item): item is Task => item.kind === "task" && item.dependentOf === itemId).sort(bySortOrder);
-  const parentTask = () => props.items.find((item): item is Task => item.kind === "task" && item.id === task?.dependentOf);
+  const parentTask = () => props.items.find((item): item is Task => item.kind === "task" && item.id === task()?.dependentOf);
   const [dependentDraft, setDependentDraft] = createSignal("");
   const addDependentInline = async () => {
     const title = dependentDraft().trim();
@@ -579,7 +432,7 @@ export function ItemEditor(props: {
   </>;
 
   const form = (
-      <form ref={(element) => { formRef = element; }} onFocusOut={() => setTimeout(() => setFocusMoved(count => count + 1))} onSubmit={(event) => { event.preventDefault(); void close(); }} onInput={syncDirty}>
+      <form onSubmit={(event) => { event.preventDefault(); void close(); }}>
         <div class="editor-close-bar"><button type="button" class="icon-button editor-close" classList={{ invalid: dirty() && !!(saveError() || invalid()) }} aria-label={dirty() && (saveError() || invalid()) ? "Close (reverts the unsaved changes)" : "Close"} title={dirty() && (saveError() || invalid()) ? `Can't save: ${saveError() || invalid()} — closing reverts` : "Close (Esc)"} onClick={() => void close()}>×</button></div>
         <Show when={closeBlocked() && dirty() && (saveError() || invalid())}>
           <div class="close-blocked" role="alert">
@@ -592,59 +445,59 @@ export function ItemEditor(props: {
         </Show>
         <div class="dialog-header">
           <Show when={props.embedded && kind() === "task"}>{completionButton(true)}</Show>
-          <label class="editor-title-field"><span class="visually-hidden" id={`editor-title-${domId}`}>Item title</span><input class="editor-title-input" name="title" aria-label="Item title" required maxLength={240} placeholder="Untitled item" value={props.liveEdits?.().get(itemId)?.title ?? existing?.title ?? ""} data-dialog-autofocus={true} /><span class="title-edit-hint" aria-hidden="true">✎</span></label>
+          <label class="editor-title-field"><span class="visually-hidden" id={`editor-title-${domId}`}>Item title</span><input class="editor-title-input" name="title" aria-label="Item title" required maxLength={240} placeholder="Untitled item" ref={shows(() => draft().title)} onInput={event => edit({ title: event.currentTarget.value })} data-dialog-autofocus={true} /><span class="title-edit-hint" aria-hidden="true">✎</span></label>
         </div>
 
         <Show when={props.embedded && status()}><p class="detail-status">{status()}</p></Show>
-        <Show when={dormant() && props.onStartDependent && task}>{own => <div class="dependent-start">{startButtons(own(), parentTask())}</div>}</Show>
+        <Show when={dormant() && props.onStartDependent && task()}>{own => <div class="dependent-start">{startButtons(own(), parentTask())}</div>}</Show>
         <div class="segmented kind-switch">
-          <label><input type="radio" name="kind" value="task" checked={kind() === "task"} onChange={() => { setKind("task"); syncDirty(); }} /><span>Task</span></label>
-          <label title="A set time to be somewhere: in the Agenda, and in List until it starts"><input type="radio" name="kind" value="event" checked={kind() === "event"} onChange={() => { setKind("event"); syncDirty(); }} /><span>Event</span></label>
-          <label title="Noted at a time, nothing to do: on the Calendar and in search only"><input type="radio" name="kind" value="record" checked={kind() === "record"} onChange={() => { setKind("record"); syncDirty(); }} /><span>Record</span></label>
+          <label><input type="radio" name="kind" value="task" checked={kind() === "task"} onChange={() => edit({ kind: "task" })} /><span>Task</span></label>
+          <label title="A set time to be somewhere: in the Agenda, and in List until it starts"><input type="radio" name="kind" value="event" checked={kind() === "event"} onChange={() => edit({ kind: "event" })} /><span>Event</span></label>
+          <label title="Noted at a time, nothing to do: on the Calendar and in search only"><input type="radio" name="kind" value="record" checked={kind() === "record"} onChange={() => edit({ kind: "record" })} /><span>Record</span></label>
         </div>
 
         <Show when={kind() === "task"} fallback={
           <div class="form-grid">
-            <div class="field"><span>Starts</span><DateTimeField name="eventStart" label="Starts" value={eventStart()} onChange={value => { deriveEnd(value); syncDirty(); }} /></div>
-            <div class="field"><span>{kind() === "record" ? "Ends (optional)" : "Ends"}</span><DateTimeField name="eventEnd" label="Ends" value={eventEnd()} onChange={value => { deriveStart(value); syncDirty(); }} /></div>
+            <div class="field"><span>Starts</span><DateTimeField name="eventStart" label="Starts" value={draft().start} onChange={value => edit(current => withStart(current, value))} /></div>
+            <div class="field"><span>{kind() === "record" ? "Ends (optional)" : "Ends"}</span><DateTimeField name="eventEnd" label="Ends" value={draft().end} onChange={value => edit(current => withEnd(current, value))} /></div>
           </div>
         }>
           <div>
             <div class="form-grid">
-              <div class="task-completion full-span"><input type="hidden" name="taskState" value={taskState()} /><Show when={!props.embedded}>{completionButton(false)}</Show></div>
-              {dateField("availableFrom", "Can start", <DateTimeField name="availableFrom" label="Can start" value={isoToLocalInput(task?.availableFrom)} onChange={syncDirty} />)}
-              {dateField("deadline", "Due", <DateTimeField name="deadline" label="Due" value={isoToLocalInput(task?.deadline)} onChange={syncDirty} />)}
+              <div class="task-completion full-span"><Show when={!props.embedded}>{completionButton(false)}</Show></div>
+              {dateField("availableFrom", "Can start", <DateTimeField name="availableFrom" label="Can start" value={draft().availableFrom} onChange={availableFrom => edit({ availableFrom })} />)}
+              {dateField("deadline", "Due", <DateTimeField name="deadline" label="Due" value={draft().deadline} onChange={deadline => edit({ deadline })} />)}
               <div class="field"><span class="field-label-row"><span>Window</span><Show when={props.onManageWindows}><button type="button" class="inline-link" onClick={() => props.onManageWindows?.()}>Manage</button></Show></span>
-                <select name="windowId" aria-label="Window" value={windowChoice()} onChange={event => { setWindowChoice(event.currentTarget.value); syncDirty(); }}>
+                <select name="windowId" aria-label="Window" value={draft().windowId} onChange={event => edit({ windowId: event.currentTarget.value })}>
                   <option value="">Any time</option>
                   <For each={windowList().map(window => window.id)}>{id => { const window = () => windowList().find(entry => entry.id === id); const hours = () => window() ? describeSchedule(window()!) : ""; return <option value={id}>{window()?.title === hours() ? hours() : `${window()?.title} · ${hours()}`}</option>; }}</For>
                 </select>
               </div>
               {/* One option: pushed down until the date if one is set, else until lifted. */}
-              <div class="field"><label class="field-label-row field-check"><input type="checkbox" checked={pushed()} onChange={event => { setPushed(event.currentTarget.checked); syncDirty(); }} /><span>Suppress</span></label>
-                <DateTimeField name="pushUntil" label="Suppressed until" placeholder="Until you unsuppress it" value={pushUntil} disabled={!pushed()} onChange={syncDirty} /></div>
+              <div class="field"><label class="field-label-row field-check"><input type="checkbox" checked={draft().pushed} onChange={event => edit({ pushed: event.currentTarget.checked })} /><span>Suppress</span></label>
+                <DateTimeField name="pushUntil" label="Suppressed until" placeholder="Until you unsuppress it" value={draft().pushUntil} disabled={!draft().pushed} onChange={pushUntil => edit({ pushUntil })} /></div>
               {/* Repeats: all controls always shown (disabled until it repeats) so nothing shifts. */}
               <div class="field full-span repeat-field"><span>Repeat</span>
                 <div class="repeat-controls">
-                  <select name="repeatUnit" aria-label="Repeats" value={repeatUnit()} onChange={event => { setRepeatUnit(event.currentTarget.value); syncDirty(); }}>
+                  <select name="repeatUnit" aria-label="Repeats" value={draft().repeatUnit} onChange={event => edit({ repeatUnit: event.currentTarget.value })}>
                     <option value="">Doesn't repeat</option><option value="day">Daily</option><option value="weekday">Weekdays</option><option value="week">Weekly</option><option value="month">Monthly</option>
                   </select>
-                  <label class="repeat-every">every <input name="repeatEvery" type="number" min="1" step="1" aria-label="Repeat every" value={task?.repeat?.every ?? 1} disabled={!repeatUnit()} /></label>
-                  <select name="repeatMissed" aria-label="If an occurrence is missed" title="What happens when an occurrence passes without being done" value={task?.repeat?.ifMissed ?? "skip"} disabled={!repeatUnit()}>
+                  <label class="repeat-every">every <input name="repeatEvery" type="number" min="1" step="1" aria-label="Repeat every" ref={shows(() => draft().repeatEvery)} onInput={event => edit({ repeatEvery: event.currentTarget.value })} disabled={!draft().repeatUnit} /></label>
+                  <select name="repeatMissed" aria-label="If an occurrence is missed" title="What happens when an occurrence passes without being done" value={draft().repeatMissed} onChange={event => edit({ repeatMissed: event.currentTarget.value === "keep" ? "keep" : "skip" })} disabled={!draft().repeatUnit}>
                     <option value="skip">If missed: skip it</option><option value="keep">If missed: keep until done</option>
                   </select>
-                  <div class="repeat-until"><DateTimeField name="repeatUntil" label="Repeat until" placeholder="Repeats until…" value={isoToLocalInput(task?.repeat?.until)} disabled={!repeatUnit()} onChange={syncDirty} /></div>
-                  <label class="field-check" title="Each time: Not yet (see it again next time) or It happened (finished for good)"><input type="checkbox" name="repeatUntilDone" checked={!!task?.repeat?.untilDone} disabled={!repeatUnit()} /> Check in until it happens</label>
+                  <div class="repeat-until"><DateTimeField name="repeatUntil" label="Repeat until" placeholder="Repeats until…" value={draft().repeatUntil} disabled={!draft().repeatUnit} onChange={repeatUntil => edit({ repeatUntil })} /></div>
+                  <label class="field-check" title="Each time: Not yet (see it again next time) or It happened (finished for good)"><input type="checkbox" name="repeatUntilDone" checked={draft().repeatUntilDone} onChange={event => edit({ repeatUntilDone: event.currentTarget.checked })} disabled={!draft().repeatUnit} /> Check in until it happens</label>
                 </div>
               </div>
               <Show when={dormant()}>
                 <div class="field full-span repeat-field"><span>Starts</span>
                   <div class="repeat-controls">
-                    <select aria-label="Starts" value={startWhen()} onChange={event => { setStartWhen(event.currentTarget.value); syncDirty(); }}>
+                    <select aria-label="Starts" value={draft().startWhen} onChange={event => edit({ startWhen: event.currentTarget.value as Draft["startWhen"] })}>
                       <option value="">When I start it</option><option value="parent-done">When “{parentTask()?.title || "its parent"}” is done</option><option value="not-yet">On a “Not yet” for “{parentTask()?.title || "its parent"}”</option>
                     </select>
-                    <div class="repeat-until"><DateTimeField name="startAfter" label="On or after" placeholder="On or after…" value={isoToLocalInput(task?.startWhen?.on === "not-yet" ? task.startWhen.after : null)} disabled={startWhen() !== "not-yet"} onChange={syncDirty} /></div>
-                    <label class="field-check"><input type="checkbox" name="stopParent" checked={task?.stopParent !== false} disabled={startWhen() !== "not-yet"} /> Finish “{parentTask()?.title || "its parent"}” when this starts</label>
+                    <div class="repeat-until"><DateTimeField name="startAfter" label="On or after" placeholder="On or after…" value={draft().startAfter} disabled={draft().startWhen !== "not-yet"} onChange={startAfter => edit({ startAfter })} /></div>
+                    <label class="field-check"><input type="checkbox" name="stopParent" checked={draft().stopParent} onChange={event => edit({ stopParent: event.currentTarget.checked })} disabled={draft().startWhen !== "not-yet"} /> Finish “{parentTask()?.title || "its parent"}” when this starts</label>
                   </div>
                 </div>
               </Show>
@@ -654,23 +507,22 @@ export function ItemEditor(props: {
 
         <div class="form-grid reminders-grid">
           <div class="field full-span remind-at-field"><span>Notify me at</span>
-            <Index each={remindAts()}>{(value, index) => <div class="remind-at">
-              <DateTimeField name="remindAt" label={`Notification ${index + 1}`} value={value()} startOpen={index === addedNotice()} onClose={() => { if (!remindAts()[index]) { editNotices(list => list.filter((_, at) => at !== index)); queueMicrotask(syncDirty); } }} onChange={next => { editNotices(list => list.map((entry, at) => at === index ? next : entry)); syncDirty(); }} />
-              <button type="button" class="icon-button" aria-label={`Remove notification ${index + 1}`} onClick={() => { editNotices(list => list.filter((_, at) => at !== index)); queueMicrotask(syncDirty); }}>×</button>
+            <Index each={draft().remindAt}>{(value, index) => <div class="remind-at">
+              <DateTimeField name="remindAt" label={`Notification ${index + 1}`} value={value()} startOpen={index === addedNotice()} onClose={() => { if (!draft().remindAt[index]) editNotices(list => list.filter((_, at) => at !== index)); }} onChange={next => editNotices(list => list.map((entry, at) => at === index ? next : entry))} />
+              <button type="button" class="icon-button" aria-label={`Remove notification ${index + 1}`} onClick={() => editNotices(list => list.filter((_, at) => at !== index))}>×</button>
             </div>}</Index>
-            <button type="button" class="text-button remind-add" onClick={() => { const empty = remindAts().indexOf(""); if (empty >= 0) setAddedNotice(empty); else { setAddedNotice(remindAts().length); editNotices(list => [...list, ""]); } setTimeout(() => setAddedNotice(null)); }}>+ Add a notification</button>
+            <button type="button" class="text-button remind-add" onClick={() => { const empty = draft().remindAt.indexOf(""); if (empty >= 0) setAddedNotice(empty); else { setAddedNotice(draft().remindAt.length); editNotices(list => [...list, ""]); } setTimeout(() => setAddedNotice(null)); }}>+ Add a notification</button>
           </div>
         </div>
 
         <section class="notes-editor" aria-label="Notes">
           <div class="notes-toolbar"><span>Notes</span></div>
-          <NotesEditor ariaLabel="Notes" placeholder="Write notes…" initialMarkdown={props.liveEdits?.().get(itemId)?.notes ?? existing?.notes ?? ""} onChange={onNotesChange} onEditor={api => { notesApi = api; }}
+          <NotesEditor ariaLabel="Notes" placeholder="Write notes…" initialMarkdown={untrack(draft).notes} onChange={onNotesChange} onEditor={api => { notesApi = api; }}
             files={liveFiles} lit={litFile} onLight={setLitFile} onDownload={downloadById} />
-          <textarea ref={notesRef} id={`item-notes-${domId}`} name="notes" hidden value={existing?.notes || ""} />
         </section>
 
         <div class="form-grid shared-item-fields">
-          <label class="field full-span"><span>Tags</span><input name="tags" placeholder="project, errands" value={(existing?.tags || []).join(", ")} /></label>
+          <label class="field full-span"><span>Tags</span><input name="tags" placeholder="project, errands" ref={shows(() => draft().tags)} onInput={event => edit({ tags: event.currentTarget.value })} /></label>
 
         </div>
 
@@ -689,17 +541,17 @@ export function ItemEditor(props: {
                 <button type="button" class="attachment-name" onClick={() => insertAttachmentLink(attachment)} title="Link it in the notes">{attachment.name}</button>
                 <div class="attachment-actions"><button type="button" class="text-button" onClick={() => void download(attachment)}>Download</button><button type="button" class="text-button danger-text" aria-label={`Remove ${attachment.name}`} onClick={() => removeAttachment(attachment)}>Remove</button></div>
               </li>}</For>
-              <For each={pendingFiles()}>{file => <li><span>{file.name} · waiting to save</span><button type="button" class="text-button" disabled={saving()} onClick={() => { setPendingFiles(files => files.filter(candidate => candidate !== file)); syncDirty(); }}>Remove</button></li>}</For>
+              <For each={pendingFiles()}>{file => <li><span>{file.name} · waiting to save</span><button type="button" class="text-button" disabled={saving()} onClick={() => { setPendingFiles(files => files.filter(candidate => candidate !== file)); edited(); }}>Remove</button></li>}</For>
             </ul>
           </section>
           <Show when={kind() === "task"}>
               <div class="subtask-editor full-span"><div class="subtask-heading"><strong>Subtasks</strong><button type="button" class="text-button" hidden={!!props.onQuickAddSubtask} disabled={!hasSavedItem() || !props.items.some(item => item.id === itemId)} title={hasSavedItem() ? "Add a child task" : "Name this task first"} onClick={() => void navigateTask()}>+ Add subtask</button></div><For each={children()}>{child => <div class="subtask-row" data-id={child.id}><span class="subtask-grip" title="Drag to reorder" aria-hidden="true" onPointerDown={startRowDrag(child)} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(child)}><span aria-label={child.state === "completed" ? "Completed" : "Open"}>{child.state === "completed" ? "✓" : "○"}</span> {child.title || "Untitled task"}</button><Show when={props.onConvertChild && hasSavedItem()}><button type="button" class="text-button convert-button" title="Make this a dependent task: one that starts after this task" onClick={() => void props.onConvertChild!(child, "dependent")}>Make dependent</button></Show></div>}</For>
-                <Show when={props.onQuickAddSubtask}><div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New subtask title" placeholder={hasSavedItem() ? "Add a subtask…" : "Name this task first"} disabled={!hasSavedItem()} maxLength={240} value={subtaskDraft()} onInput={event => setSubtaskDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addSubtaskInline(); } }} /><button type="button" class="text-button" disabled={!subtaskDraft().trim()} onClick={() => void addSubtaskInline()}>Add</button></div></Show>
+                <Show when={props.onQuickAddSubtask}><div class="subtask-quick-add"><span aria-hidden="true">+</span><input aria-label="New subtask title" placeholder={hasSavedItem() ? "Add a subtask…" : "Name this task first"} disabled={!hasSavedItem()} maxLength={240} value={subtaskDraft()} onInput={event => setSubtaskDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addSubtaskInline(); } }} /><button type="button" class="text-button" disabled={!subtaskDraft().trim()} onClick={() => void addSubtaskInline()}>Add</button></div></Show>
                 </div>
                 <Show when={hasSavedItem() && props.onAddDependent}>
                    <div class="subtask-editor dependents-editor full-span"><div class="subtask-heading"><strong>Dependent tasks</strong></div>
                      <For each={dependents()}>{dependent => <div class="dependent-row" data-id={dependent.id}><span class="subtask-grip" title="Drag to reorder" aria-hidden="true" onPointerDown={startRowDrag(dependent)} /><button type="button" class="subtask-editor-link" onClick={() => void navigateTask(dependent)}><span aria-hidden="true">◌</span> {dependent.title || "Untitled task"}</button>{startButtons(dependent, currentItem?.kind === "task" ? currentItem : undefined)}<Show when={props.onConvertChild}><button type="button" class="text-button convert-button" title="Make this a subtask: part of this task" onClick={() => void props.onConvertChild!(dependent, "subtask")}>Make subtask</button></Show></div>}</For>
-                    <div class="subtask-quick-add"><span aria-hidden="true">+</span><input data-editor-ignore aria-label="New dependent task title" placeholder="Add a dependent task…" maxLength={240} value={dependentDraft()} onInput={event => setDependentDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addDependentInline(); } }} /><button type="button" class="text-button" disabled={!dependentDraft().trim()} onClick={() => void addDependentInline()}>Add</button></div>
+                    <div class="subtask-quick-add"><span aria-hidden="true">+</span><input aria-label="New dependent task title" placeholder="Add a dependent task…" maxLength={240} value={dependentDraft()} onInput={event => setDependentDraft(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void addDependentInline(); } }} /><button type="button" class="text-button" disabled={!dependentDraft().trim()} onClick={() => void addDependentInline()}>Add</button></div>
                   </div>
                 </Show>
           </Show>

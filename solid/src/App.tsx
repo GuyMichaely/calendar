@@ -121,7 +121,6 @@ export function App() {
   });
   // Set from the address once the items have loaded (followRoute).
   const [selectedTaskId, setSelectedTaskId] = createSignal<string | null>(null);
-  const [detailVersion, setDetailVersion] = createSignal(0);
   let flushDetail: (() => Promise<boolean>) | null = null;
   let closeDetailEditor: (() => void) | null = null;
   const [toasts, setToasts] = createSignal<ToastMessage[]>([]);
@@ -170,7 +169,6 @@ export function App() {
   };
   const selectedExists = createMemo(() => { const id = selectedTaskId(); return !!id && items().some(item => item.id === id); });
   const detailRequest = createMemo<EditorRequest | null>(() => {
-    detailVersion();
     if (!selectedExists()) return null;
     const item = untrack(items).find(item => item.id === selectedTaskId());
     return item?.kind === "task" ? { item, kind: item.kind, nonce: Date.now() } : null;
@@ -252,7 +250,7 @@ export function App() {
   const editorFor = (request: EditorRequest, beside: boolean) => <ItemEditor embedded={beside} itemHref={id => itemHash(view(), id)} onQuickAddSubtask={quickAddSubtask}
     registerFlush={beside ? flush => { flushBeside = flush; return () => { if (flushBeside === flush) flushBeside = null; }; } : undefined}
     registerClose={close => { closeEditorForm = close; return () => { if (closeEditorForm === close) closeEditorForm = null; }; }}
-    items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onStale={() => { const stored = items().find(item => item.id === request.item?.id); if (stored?.kind === "task" || stored?.kind === "event") setEditor({ ...request, item: stored, nonce: Date.now() }); }} onClose={() => { if (editor() === request) void closeEditor(); }} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); if (beside && stepBack(item.id)) { flushBeside = null; editorParents.pop(); } else await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />;
+    items={items()} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onClose={() => { if (editor() === request) void closeEditor(); }} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); if (beside && stepBack(item.id)) { flushBeside = null; editorParents.pop(); } else await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />;
   // In the Android app: notifications for tasks reaching their can-start time and before events,
   // rescheduled (in real time, not pretend time) whenever the calendar or these settings change
   // and on coming back to the app. While the app's closed, the server tells the phone (FCM) when the
@@ -478,7 +476,7 @@ export function App() {
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
                 <Show when={detailRequest() || lastRequest} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
-                  <ItemEditor embedded itemHref={id => itemHash(view(), id)} request={request} items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} registerClose={close => { closeDetailEditor = close; return () => { if (closeDetailEditor === close) closeDetailEditor = null; }; }} onStale={() => setDetailVersion(version => version + 1)} onRevert={() => setDetailVersion(version => version + 1)}
+                  <ItemEditor embedded itemHref={id => itemHash(view(), id)} request={request} items={items()} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} registerClose={close => { closeDetailEditor = close; return () => { if (closeDetailEditor === close) closeDetailEditor = null; }; }}
                     onQuickAddSubtask={quickAddSubtask} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => void selectTask(task.id)} onAddSubtask={() => {}} onClose={() => void closeDetail()}
                     onDelete={async (item) => { await store.deleteItem(item.id); flushDetail = null; if (!stepBack(item.id)) await selectTask(null, true); showToast("Deleted"); }}
                     onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />}

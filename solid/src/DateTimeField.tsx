@@ -125,7 +125,7 @@ export function DateTimeField(props: { name: string; label: string; value: strin
     </button>
     <Show when={open()}>
       <div class="dt-popover" style={position() ? { top: `${position()!.top}px`, left: `${position()!.left}px` } : undefined} role="dialog" aria-label={`Choose ${props.label.toLowerCase()}`}>
-        <input class="dt-text" classList={{ invalid: !textValid() }} data-editor-ignore aria-label={`${props.label} as text`} placeholder={props.dateOnly ? "mm/dd/yyyy" : "mm/dd/yyyy hh:mm AM/PM"} value={text()}
+        <input class="dt-text" classList={{ invalid: !textValid() }} aria-label={`${props.label} as text`} placeholder={props.dateOnly ? "mm/dd/yyyy" : "mm/dd/yyyy hh:mm AM/PM"} value={text()}
           onInput={event => typed(event.currentTarget.value)} onChange={applyTyped} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); if (textValid()) { applyTyped(); setOpen(false); } } }} />
         <div class="dt-month">
           <strong>{formatIn(month(), { month: "long", year: "numeric" })}</strong>
@@ -137,7 +137,7 @@ export function DateTimeField(props: { name: string; label: string; value: strin
           <For each={days()}>{day => <button type="button" class="dt-day" classList={{ outside: partsOf(day).month !== partsOf(month()).month, today: sameDay(new Date(), day), selected: sameDay(draft(), day) }} onClick={() => pickDay(day)}>{partsOf(day).day}</button>}</For>
         </div>
         <Show when={!props.dateOnly}>
-        <label class="dt-time"><span>Time (optional)</span><input type="time" data-editor-ignore aria-label={`${props.label} time`} value={timeValue()} onInput={event => pickTime(event.currentTarget.value)} /></label>
+        <label class="dt-time"><span>Time (optional)</span><input type="time" aria-label={`${props.label} time`} value={timeValue()} onInput={event => pickTime(event.currentTarget.value)} /></label>
         <small class="field-hint">Without a time: {props.name === "deadline" ? "due by the end of the day" : props.name === "eventEnd" ? "through the end of the day" : props.name === "eventStart" ? "the whole day" : "from the start of the day"}.</small>
         <div class="dt-actions">
           <button type="button" class="text-button" onClick={() => { pick(null); setOpen(false); }}>Clear</button>
