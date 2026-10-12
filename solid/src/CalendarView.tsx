@@ -1,7 +1,8 @@
 import { Icon } from "./Icon";
 import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import { textMatches } from "../../site/domain.js";
-import { addDays, clockText, dayKey as dateKey, formatIn, partsOf, startOfDay, zonedDate } from "./zone";
+import { addDays, clockText, dayKey as dateKey, formatIn, fromInputValue, partsOf, startOfDay, toInputValue, zonedDate } from "./zone";
+import { DateTimeField } from "./DateTimeField";
 import { calendarEntries, leafTasks, todaysWork, wholeDays, type CalendarEntry } from "./calendar-entries";
 import { placementOf, type Placement, type SectionId } from "./today";
 import { SECTION_LABELS, when } from "./TodayView";
@@ -65,12 +66,12 @@ export function CalendarView(props: {
 }) {
   const gridDays = () => props.mode === "day" ? 1 : 3;
   const shiftDays = (count: number) => props.onDayChange(addDays(startOfDay(props.day), count));
-  // Switching views keeps the time you were looking at: the month of the days shown, or this
-  // month's today (else its first day).
+  // Switching views keeps the time you were looking at: the month of the days shown, or the day
+  // selected in the month (today, else its first day, unless one's been picked).
   const switchMode = (mode: CalendarMode) => {
     if (mode === props.mode) return;
     if (mode === "month") props.onMonthChange(monthOf(props.day));
-    else if (props.mode === "month") props.onDayChange(sameMonth(props.now, props.month) ? startOfDay(props.now) : props.month);
+    else if (props.mode === "month") props.onDayChange(startOfDay(selectedDay()));
     props.onModeChange(mode);
   };
   const gridTitle = () => {
@@ -148,16 +149,21 @@ export function CalendarView(props: {
   });
   const [folded, setFolded] = createSignal(new Set<SectionId>());
   const fold = (id: SectionId) => setFolded(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  // Going to a day: its month, selected, or the days from it.
+  const goTo = (day: Date) => { props.onMonthChange(monthOf(day)); setSelectedDay(day); props.onDayChange(startOfDay(day)); };
   const row = (entry: Listed) => <button class="agenda-entry" onClick={() => props.onEdit(entry.item)}><span class={`agenda-entry-mark ${entry.className}`} /><span><Show when={entry.kindLabel}><small>{entry.kindLabel}</small></Show><strong>{displayTitle(entry.item)}</strong></span><Icon name="arrow" size={15} /></button>;
   return <section class="panel calendar-panel" style={{"--calendar-weeks": days().length / 7}}>
     <div class="calendar-toolbar">
       <div class="calendar-titlebar">
-        <button class="secondary-button month-today" onClick={() => { props.onMonthChange(monthOf(props.now)); setSelectedDay(props.now); props.onDayChange(startOfDay(props.now)); }}>Today</button>
+        <button class="secondary-button month-today" onClick={() => goTo(props.now)}>Today</button>
         <div class="month-controls">
           <button class="icon-button" aria-label={props.mode === "month" ? "Previous month" : `Previous ${gridDays() === 1 ? "day" : "days"}`} onClick={() => props.mode === "month" ? props.onMonthChange(monthOf(props.month, -1)) : shiftDays(-gridDays())}>‹</button>
           <button class="icon-button" aria-label={props.mode === "month" ? "Next month" : `Next ${gridDays() === 1 ? "day" : "days"}`} onClick={() => props.mode === "month" ? props.onMonthChange(monthOf(props.month, 1)) : shiftDays(gridDays())}>›</button>
         </div>
-        <h1>{props.mode === "month" ? formatIn(props.month, {month: "long", year: "numeric"}) : gridTitle()}</h1>
+        {/* The title picks a day to go to. */}
+        <DateTimeField name="calendarDay" label="Go to date" dateOnly class="calendar-title" value={toInputValue(startOfDay(props.mode === "month" ? selectedDay() : props.day))} onChange={value => { const day = fromInputValue(value); if (day) goTo(day); }}>
+          {props.mode === "month" ? formatIn(props.month, {month: "long", year: "numeric"}) : gridTitle()}<Icon name="chevron" size={16} />
+        </DateTimeField>
       </div>
       <div class="agenda-range calendar-modes" role="group" aria-label="Calendar view">
         <For each={MODES}>{([mode, label]) => <button type="button" aria-pressed={props.mode === mode} onClick={() => switchMode(mode)}>{label}</button>}</For>

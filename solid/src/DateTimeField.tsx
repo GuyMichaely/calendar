@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type JSX } from "solid-js";
 import { formatDateTimeShort, formatDateTimeText, parseDateTimeText } from "./datetime-text";
 import { addDays, formatIn, fromInputValue as fromLocalValue, partsOf, sameDay as sameZoneDay, toInputValue as toLocalValue, zonedDate } from "./zone";
 
@@ -13,7 +13,8 @@ const monthOf = (date: Date, offset = 0) => { const { year, month } = partsOf(da
  * The value is a hidden "YYYY-MM-DDTHH:mm" input, the same as a datetime-local field.
  */
 // `startOpen`: the picker opens as the field appears (one just added), or when it turns true. `onClose` follows its closing.
-export function DateTimeField(props: { name: string; label: string; value: string; disabled?: boolean; placeholder?: string; startOpen?: boolean; onChange: (value: string) => void; onClose?: () => void }) {
+// `dateOnly`: just a day, picked (or typed) and done; `children` and `class` then make the button.
+export function DateTimeField(props: { name: string; label: string; value: string; disabled?: boolean; placeholder?: string; startOpen?: boolean; dateOnly?: boolean; class?: string; children?: JSX.Element; onChange: (value: string) => void; onClose?: () => void }) {
   const [value, setValue] = createSignal(props.value || "");
   createEffect(() => setValue(props.value || ""));
   // A date without a time: the end of the day for a due date or an end, else its start.
@@ -76,6 +77,7 @@ export function DateTimeField(props: { name: string; label: string; value: strin
     const time = draft();
     const { year, month, day: date } = partsOf(day);
     pick(zonedDate(year, month, date, time ? partsOf(time).hour : defaultTime()[0], time ? partsOf(time).minute : defaultTime()[1]));
+    if (props.dateOnly) setOpen(false);
   };
   const pickTime = (time: string) => {
     setHasTime(!!time);
@@ -118,12 +120,12 @@ export function DateTimeField(props: { name: string; label: string; value: strin
 
   return <div class="dt-field" ref={root}>
     <input type="hidden" name={props.name} value={value()} disabled={props.disabled} />
-    <button type="button" class="dt-display" classList={{ empty: !value() }} aria-label={`${props.label}: ${value() ? formatDateTimeText(fromLocalValue(value())!) : "not set"}`} aria-expanded={open()} disabled={props.disabled} onClick={() => open() ? setOpen(false) : show()}>
-      {value() ? (date => timeless(date) ? formatIn(date, { month: "short", day: "numeric", year: "numeric" }) : formatDateTimeShort(date))(fromLocalValue(value())!) : props.placeholder || "Set date"}
+    <button type="button" class={props.class ?? "dt-display"} classList={{ empty: !value() }} aria-label={`${props.label}: ${value() ? formatDateTimeText(fromLocalValue(value())!) : "not set"}`} aria-expanded={open()} disabled={props.disabled} onClick={() => open() ? setOpen(false) : show()}>
+      {props.children ?? (value() ? (date => timeless(date) ? formatIn(date, { month: "short", day: "numeric", year: "numeric" }) : formatDateTimeShort(date))(fromLocalValue(value())!) : props.placeholder || "Set date")}
     </button>
     <Show when={open()}>
       <div class="dt-popover" style={position() ? { top: `${position()!.top}px`, left: `${position()!.left}px` } : undefined} role="dialog" aria-label={`Choose ${props.label.toLowerCase()}`}>
-        <input class="dt-text" classList={{ invalid: !textValid() }} data-editor-ignore aria-label={`${props.label} as text`} placeholder="mm/dd/yyyy hh:mm AM/PM" value={text()}
+        <input class="dt-text" classList={{ invalid: !textValid() }} data-editor-ignore aria-label={`${props.label} as text`} placeholder={props.dateOnly ? "mm/dd/yyyy" : "mm/dd/yyyy hh:mm AM/PM"} value={text()}
           onInput={event => typed(event.currentTarget.value)} onChange={applyTyped} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); if (textValid()) { applyTyped(); setOpen(false); } } }} />
         <div class="dt-month">
           <strong>{formatIn(month(), { month: "long", year: "numeric" })}</strong>
@@ -134,6 +136,7 @@ export function DateTimeField(props: { name: string; label: string; value: strin
           <For each={WEEKDAYS}>{name => <span class="dt-weekday">{name}</span>}</For>
           <For each={days()}>{day => <button type="button" class="dt-day" classList={{ outside: partsOf(day).month !== partsOf(month()).month, today: sameDay(new Date(), day), selected: sameDay(draft(), day) }} onClick={() => pickDay(day)}>{partsOf(day).day}</button>}</For>
         </div>
+        <Show when={!props.dateOnly}>
         <label class="dt-time"><span>Time (optional)</span><input type="time" data-editor-ignore aria-label={`${props.label} time`} value={timeValue()} onInput={event => pickTime(event.currentTarget.value)} /></label>
         <small class="field-hint">Without a time: {props.name === "deadline" ? "due by the end of the day" : props.name === "eventEnd" ? "through the end of the day" : props.name === "eventStart" ? "the whole day" : "from the start of the day"}.</small>
         <div class="dt-actions">
@@ -141,6 +144,7 @@ export function DateTimeField(props: { name: string; label: string; value: strin
           <span class="spacer" />
           <button type="button" class="primary-button" onClick={() => { applyTyped(); setOpen(false); }}>Done</button>
         </div>
+        </Show>
       </div>
     </Show>
   </div>;

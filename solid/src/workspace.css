@@ -298,7 +298,9 @@ main:has(.calendar-panel) { padding: 14px 20px 20px; }
 .calendar-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; }
 .calendar-titlebar { display: flex; align-items: center; gap: 8px; }
 .calendar-toolbar { justify-content: space-between; margin-bottom: 12px; }
-.calendar-toolbar h1 { font-size: 28px; margin: 0; letter-spacing: -.7px; }
+.calendar-title { display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 2px 6px; margin-left: -6px; border-radius: 8px; background: none; color: var(--text); font-size: 28px; font-weight: 650; line-height: 1.2; letter-spacing: -.7px; white-space: nowrap; }
+.calendar-title:hover, .calendar-title[aria-expanded="true"] { background: var(--surface-3); }
+.calendar-title .ui-icon { color: var(--muted); }
 @media (min-width: 761px) {
   /* The selected day's panel is no taller than the grid; its list scrolls instead of the page. */
   .day-agenda { max-height: max(calc(100dvh - 166px), calc(28px + var(--calendar-weeks) * 82px)); }
@@ -309,7 +311,7 @@ main:has(.calendar-panel) { padding: 14px 20px 20px; }
   main:has(.calendar-panel) { padding: 12px 12px 88px; }
   .calendar-toolbar { gap: 6px; margin-bottom: 8px; }
   .calendar-titlebar { gap: 6px; }
-  .calendar-toolbar h1 { font-size: 23px; }
+  .calendar-title { font-size: 23px; }
   .calendar-layout { gap: 14px; }
 }
 .quick-capture { padding: 7px 11px; min-height: 42px; }

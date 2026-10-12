@@ -22,6 +22,7 @@ const paths = {
   compact: ["M4 6h16M4 12h16M4 18h16"],
   clock: ["M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0", "M12 7v5l3 2"],
   paperclip: ["m8 12 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l8-8", "m7 13 7-7"],
+  chevron: ["m6 9 6 6 6-6"],
 } as const;
 export type IconName = keyof typeof paths;
 export function Icon(props: { name: IconName; size?: number }) {
