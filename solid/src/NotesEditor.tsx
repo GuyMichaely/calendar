@@ -1,8 +1,9 @@
 import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { Editor, Node as TiptapNode, type MarkViewRenderer } from "@tiptap/core";
 import { Placeholder } from "@tiptap/extensions";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { Mark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, type EditorState } from "@tiptap/pm/state";
+import { ReplaceStep } from "@tiptap/pm/transform";
 import type { MarkView } from "@tiptap/pm/view";
 import { createNotesExtensions } from "./notes-markdown";
 
@@ -60,7 +61,7 @@ const attachmentIdOf = (href: string) => href.toLowerCase().startsWith(ATTACHMEN
  * A file link starts with a paperclip, a character of its own that carries the link: the caret
  * right of it is in the link (typing there adds to the link's text), left of it is outside. Each
  * file link gets exactly one, kept as links are typed, pasted, undone or unlinked; the notes'
- * markdown never has it. Backspace or Delete beside it steps over it rather than taking it out.
+ * markdown never has it. Backspace right of it takes out the whole link; Delete left of it steps over it.
  */
 const CLIP = "attachmentClip";
 const fileLinkOf = (node: ProseMirrorNode) => node.marks.find(mark => mark.type.name === "link" && attachmentIdOf(String(mark.attrs.href || "")) != null);
@@ -82,6 +83,13 @@ function placeClips(state: EditorState) {
   });
   return tr.docChanged ? tr : null;
 }
+// Where the file link `link`, from `from` on, ends.
+function linkEnd(doc: ProseMirrorNode, from: number, link: Mark) {
+  const $from = doc.resolve(from);
+  let end = from;
+  for (let index = $from.index(); index < $from.parent.childCount && link.isInSet($from.parent.child(index).marks); index++) end += $from.parent.child(index).nodeSize;
+  return end;
+}
 const AttachmentClip = TiptapNode.create({
   name: CLIP,
   inline: true,
@@ -95,15 +103,42 @@ const AttachmentClip = TiptapNode.create({
   renderText: () => "",
   renderMarkdown: () => "",
   addKeyboardShortcuts() {
-    const step = (side: -1 | 1) => () => {
-      const { selection } = this.editor.state;
-      const beside = side < 0 ? selection.$from.nodeBefore : selection.$from.nodeAfter;
-      return selection.empty && beside?.type.name === CLIP && this.editor.commands.setTextSelection(selection.from + side);
+    return {
+      Backspace: () => {
+        const { selection, doc } = this.editor.state, clip = selection.$from.nodeBefore;
+        const link = selection.empty && clip?.type.name === CLIP ? fileLinkOf(clip) : undefined;
+        return !!link && this.editor.commands.deleteRange({ from: selection.from - 1, to: linkEnd(doc, selection.from, link) });
+      },
+      Delete: () => {
+        const { selection } = this.editor.state;
+        return selection.empty && selection.$from.nodeAfter?.type.name === CLIP && this.editor.commands.setTextSelection(selection.from + 1);
+      },
     };
-    return { Backspace: step(-1), Delete: step(1) };
   },
   addProseMirrorPlugins() {
-    return [new Plugin({ appendTransaction: (transactions, _, state) => transactions.some(tr => tr.docChanged) ? placeClips(state) : null })];
+    return [new Plugin({
+      appendTransaction: (transactions, previous, state) => {
+        if (!transactions.some(tr => tr.docChanged)) return null;
+        // A phone keyboard's backspace (from right of a paperclip) takes out just the paperclip: the rest of its link goes too.
+        const [only] = transactions, step = only.steps[0];
+        if (transactions.length === 1 && only.steps.length === 1 && step instanceof ReplaceStep && !step.slice.size && step.to === step.from + 1
+          && previous.selection.empty && previous.selection.from === step.to && only.docs[0].nodeAt(step.from)?.type.name === CLIP) {
+          const link = fileLinkOf(only.docs[0].nodeAt(step.from)!), after = state.doc.nodeAt(step.from);
+          if (link && after && link.isInSet(after.marks)) return state.tr.delete(step.from, linkEnd(state.doc, step.from, link));
+        }
+        return placeClips(state);
+      },
+      // The caret right of a paperclip goes at the start of the link's text, where Chrome shows it
+      // right of the paperclip (between the two elements, it can show it left of it).
+      view: () => ({
+        update: view => {
+          const { selection } = view.state, dom = view.dom.ownerDocument.getSelection();
+          if (!dom || view.composing || !view.hasFocus() || !selection.empty || selection.$from.nodeBefore?.type.name !== CLIP) return;
+          const at = view.domAtPos(selection.from, 1);
+          if (at.node.nodeType === 3 && (dom.anchorNode !== at.node || dom.anchorOffset !== at.offset)) dom.collapse(at.node, at.offset);
+        },
+      }),
+    })];
   },
   onCreate() {
     const tr = placeClips(this.editor.state);
