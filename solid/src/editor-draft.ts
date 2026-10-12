@@ -41,6 +41,7 @@ export type Draft = {
 } & { [F in RelativeDateField as `${F}Mode`]: "date" | "after" } & { [F in RelativeDateField as `${F}After`]: string };
 
 const HOUR = 60 * 60 * 1000;
+const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
 // An event's or record's times left off: a start at midnight, an end at 11:59 PM (whole days).
 export const dayStart = (date: Date) => !partsOf(date).hour && !partsOf(date).minute;
 export const dayEnd = (date: Date) => partsOf(date).hour === 23 && partsOf(date).minute === 59;
@@ -49,6 +50,16 @@ export const dayEnd = (date: Date) => partsOf(date).hour === 23 && partsOf(date)
 export function defaultReminders(draft: Pick<Draft, "kind" | "start">, notifyBefore: number | null) {
   const start = draft.kind === "event" && notifyBefore != null ? fromInputValue(draft.start) : null;
   return start && !dayStart(start) ? [toInputValue(new Date(start.getTime() - notifyBefore! * 60_000))] : [];
+}
+
+/**
+ * A new item's notifications follow its start while they're the default (as `before` stood):
+ * after an edit here to its start or kind, they're the default for the new one. An edit to the
+ * notifications themselves, or a change from elsewhere (which isn't an edit here), stops that.
+ */
+export function withDefaultReminders(before: Draft, after: Draft, notifyBefore: number | null): Draft {
+  if (notifyBefore == null || after.remindAt !== before.remindAt || !same(before.remindAt, defaultReminders(before, notifyBefore))) return after;
+  return { ...after, remindAt: defaultReminders(after, notifyBefore) };
 }
 
 /** A new item's draft: an event or record at 9:00 on the day it was started from (else now), an event for an hour. */
@@ -113,12 +124,15 @@ export function withEnd(draft: Draft, value: string): Draft {
   return { ...next, start: toInputValue(dayEnd(end) ? startOfDay(end) : new Date(end.getTime() - HOUR)) };
 }
 
-const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
-
 /** The fields where two drafts differ. */
 export function changedFields(a: Draft, b: Draft) {
   return (Object.keys(a) as (keyof Draft)[]).filter(field => !same(a[field], b[field]));
 }
+
+export const differs = (a: Draft, b: Draft) => (Object.keys(a) as (keyof Draft)[]).some(field => !same(a[field], b[field]));
+
+/** A number box's text for the draft: what can't be read as a number (an "e" alone) reads as "NaN", which can't save. */
+export const numberText = (input: HTMLInputElement) => input.validity.badInput ? "NaN" : input.value;
 
 /**
  * The draft on a newer version of its item: each field that changed from `before` to `after`

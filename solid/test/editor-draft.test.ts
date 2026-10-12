@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { blankDraft, changedFields, draftOf, draftProblem, itemFromDraft, rebased, withEnd, withStart, type Draft } from "../src/editor-draft";
+import { blankDraft, changedFields, withDefaultReminders, draftOf, draftProblem, itemFromDraft, rebased, withEnd, withStart, type Draft } from "../src/editor-draft";
 import type { CalendarEvent, Task } from "../src/types";
 import { fromInputValue, toInputValue } from "../src/zone";
 
@@ -72,4 +72,18 @@ test("setting one end of an event keeps the other on the right side of it", () =
   expect(withStart(draft, "2026-09-28T00:00").end).toBe("2026-09-28T23:59");
   expect(withEnd(draft, "2026-09-27T09:00").start).toBe("2026-09-27T08:00");
   expect(withEnd({ ...draft, start: "" }, "2026-09-27T23:59").start).toBe("2026-09-27T00:00");
+});
+
+test("a new event's notification follows its start until it's changed, and a change from elsewhere is kept", () => {
+  const fresh = blankDraft("event", { date: new Date("2026-09-27T00:00:00.000Z"), notifyBefore: 30 }, now);
+  const moved = withDefaultReminders(fresh, withStart(fresh, "2026-09-28T15:00"), 30);
+  expect(moved.remindAt).toEqual(["2026-09-28T14:30"]);
+  // Chosen by hand (or brought from elsewhere): moving the start leaves it.
+  const chosen = { ...moved, remindAt: ["2026-09-28T09:00"] };
+  expect(withDefaultReminders(chosen, withStart(chosen, "2026-09-29T15:00"), 30).remindAt).toEqual(["2026-09-28T09:00"]);
+  // A new task has none; made an event, it gets the default.
+  const task = blankDraft("task", { notifyBefore: 30 }, now);
+  expect(withDefaultReminders(task, { ...task, kind: "event", start: "2026-09-28T15:00" }, 30).remindAt).toEqual(["2026-09-28T14:30"]);
+  // An existing item (no default) is left alone.
+  expect(withDefaultReminders(fresh, withStart(fresh, "2026-09-28T15:00"), null).remindAt).toEqual(fresh.remindAt);
 });

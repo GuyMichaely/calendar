@@ -304,7 +304,8 @@ export function NotesEditor(props: {
         // The caret stays with the text around it: moved by what changed before it, kept after it.
         const after = editor.state.doc, start = before.content.findDiffStart(after.content), end = before.content.findDiffEnd(after.content);
         if (start == null || !end) return;
-        const endA = Math.max(end.a, start), endB = end.b + (endA - end.a);
+        // A change within repeated text can make either end come before the start: move both past it.
+        const overlap = Math.max(0, start - Math.min(end.a, end.b)), endA = end.a + overlap, endB = end.b + overlap;
         const map = (position: number) => position <= start ? position : position >= endA ? position + endB - endA : endB;
         const size = after.content.size;
         editor.commands.setTextSelection({ from: Math.min(map(from), size), to: Math.min(map(to), size) });

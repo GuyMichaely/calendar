@@ -9,7 +9,7 @@ import type { RelativeDateField } from "./dependencies";
 import { attachmentHref } from "./markdown";
 import { DialogShell } from "./DialogShell";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
-import { blankDraft, changedFields, defaultReminders, draftOf, draftProblem, itemFromDraft, rebased, withEnd, withStart, type Draft, type Editable } from "./editor-draft";
+import { blankDraft, changedFields, differs, draftOf, draftProblem, itemFromDraft, numberText, rebased, withDefaultReminders, withEnd, withStart, type Draft, type Editable } from "./editor-draft";
 import type { Attachment, CalendarSettings, Item, Task, TimeWindow } from "./types";
 
 export type { Editable };
@@ -41,9 +41,9 @@ const keepingSelection = (change: () => void) => {
   });
 };
 
-// A text box showing a value it also edits: written only when it differs from what's there, so
-// typing (and a number half typed, which reads as "") is never written over.
-const shows = (value: () => string) => (element: HTMLInputElement) => createRenderEffect(() => { const next = value(); if (element.value !== next) element.value = next; });
+// A text box showing a value it also edits: written only when it differs from what the box reads
+// as (`read`), so typing (and a number half typed) is never written over.
+const shows = (value: () => string, read = (element: HTMLInputElement) => element.value) => (element: HTMLInputElement) => createRenderEffect(() => { const next = value(); if (read(element) !== next) element.value = next; });
 
 export function ItemEditor(props: {
   request: EditorRequest;
@@ -80,7 +80,7 @@ export function ItemEditor(props: {
   const itemId = existing?.id || uuid();
   const now = () => props.now ?? new Date();
   const settings = props.items.find((item): item is CalendarSettings => item.kind === "settings");
-  // A new event notifies as the calendar's settings say, following its start until you change the list yourself.
+  // A new event notifies as the calendar's settings say, following its start until you change the list yourself (withDefaultReminders).
   const notifyBefore = existing ? null : settings?.eventReminderMinutes ?? null;
   const blank = blankDraft(props.request.kind, { date: props.request.date, notifyBefore }, now());
   // The stored version the fields stand on (the baseline a save is merged against), what they
@@ -106,11 +106,10 @@ export function ItemEditor(props: {
   const task = () => { const item = props.items.find(entry => entry.id === itemId) ?? currentItem; return item?.kind === "task" ? item : null; };
   // A dependent task that hasn't started: its dates can be days after starting instead of fixed.
   const dormant = () => !!task()?.dependentOf && props.items.some(item => item.id === task()!.dependentOf && item.kind === "task");
-  const [defaultNotice, setDefaultNotice] = createSignal(notifyBefore != null);
   // The one just added opens its picker straight away.
   const [addedNotice, setAddedNotice] = createSignal<number | null>(null);
   const [draggingAttachments, setDraggingAttachments] = createSignal(false);
-  const dirty = createMemo(() => changedFields(draft(), base()).length > 0 || pendingFiles().length > 0 || removedAttachments().size > 0);
+  const dirty = createMemo(() => differs(draft(), base()) || pendingFiles().length > 0 || removedAttachments().size > 0);
   // Why the draft can't save, if it can't.
   const invalid = createMemo(() => draftProblem(draft(), dormant()));
   // The editor doesn't choose a board (Boards does, by dragging): a task keeps the one it's on
@@ -134,15 +133,10 @@ export function ItemEditor(props: {
     if (dirty() && !closing) saveTimer = setTimeout(() => { void persist(); }, 800);
   };
   const edit = (change: Partial<Draft> | ((draft: Draft) => Draft)) => {
-    setDraft(current => typeof change === "function" ? change(current) : { ...current, ...change });
+    setDraft(current => withDefaultReminders(current, typeof change === "function" ? change(current) : { ...current, ...change }, notifyBefore));
     edited();
   };
-  const editNotices = (change: (list: string[]) => string[]) => { setDefaultNotice(false); edit(current => ({ ...current, remindAt: change(current.remindAt) })); };
-  createEffect(() => {
-    if (!defaultNotice()) return;
-    const current = draft(), reminders = defaultReminders(current, notifyBefore);
-    if (reminders.join() !== current.remindAt.join()) setDraft({ ...current, remindAt: reminders });
-  });
+  const editNotices = (change: (list: string[]) => string[]) => edit(current => ({ ...current, remindAt: change(current.remindAt) }));
 
   // Closing saves first. If the edits can't be saved, say why and offer to revert to the last saved version.
   const [closeBlocked, setCloseBlocked] = createSignal(false);
@@ -212,9 +206,12 @@ export function ItemEditor(props: {
     const stored = props.items.find(item => item.id === itemId);
     if (!stored || !currentItem || stored === currentItem || dirty() || saving()) return;
     if (stored.kind !== "task" && stored.kind !== "event" && stored.kind !== "record") return;
-    const moment = now(), before = draftOf(currentItem, blank, moment);
-    adopt(stored);
-    follow(before, draftOf(stored, blank, moment));
+    // Wakes for the stored items only, not the fields or the clock it reads on the way.
+    untrack(() => {
+      const moment = now(), before = draftOf(currentItem!, blank, moment);
+      adopt(stored);
+      follow(before, draftOf(stored, blank, moment));
+    });
   });
 
   const addFiles = (files: File[]) => {
@@ -358,7 +355,7 @@ export function ItemEditor(props: {
   const dateField = (field: RelativeDateField, label: string, input: JSX.Element) =>
     <div class="field">
       <span>{label}<Show when={dormant()}> <select class="date-mode" name={`${field}Mode`} aria-label={`${label} is set`} value={draft()[`${field}Mode`]} onChange={event => edit({ [`${field}Mode`]: event.currentTarget.value as "date" | "after" })}><option value="date">on a date</option><option value="after">days after starting</option></select></Show></span>
-      <Show when={dormant() && draft()[`${field}Mode`] === "after"} fallback={input}><input name={`${field}After`} aria-label={`${label}: days after starting`} type="number" min="0" step="0.5" ref={shows(() => draft()[`${field}After`])} onInput={event => edit({ [`${field}After`]: event.currentTarget.value })} /></Show>
+      <Show when={dormant() && draft()[`${field}Mode`] === "after"} fallback={input}><input name={`${field}After`} aria-label={`${label}: days after starting`} type="number" min="0" step="0.5" ref={shows(() => draft()[`${field}After`], numberText)} onInput={event => edit({ [`${field}After`]: numberText(event.currentTarget) })} /></Show>
     </div>;
   const dependents = () => props.items.filter((item): item is Task => item.kind === "task" && item.dependentOf === itemId).sort(bySortOrder);
   const parentTask = () => props.items.find((item): item is Task => item.kind === "task" && item.id === task()?.dependentOf);
@@ -482,7 +479,7 @@ export function ItemEditor(props: {
                   <select name="repeatUnit" aria-label="Repeats" value={draft().repeatUnit} onChange={event => edit({ repeatUnit: event.currentTarget.value })}>
                     <option value="">Doesn't repeat</option><option value="day">Daily</option><option value="weekday">Weekdays</option><option value="week">Weekly</option><option value="month">Monthly</option>
                   </select>
-                  <label class="repeat-every">every <input name="repeatEvery" type="number" min="1" step="1" aria-label="Repeat every" ref={shows(() => draft().repeatEvery)} onInput={event => edit({ repeatEvery: event.currentTarget.value })} disabled={!draft().repeatUnit} /></label>
+                  <label class="repeat-every">every <input name="repeatEvery" type="number" min="1" step="1" aria-label="Repeat every" ref={shows(() => draft().repeatEvery, numberText)} onInput={event => edit({ repeatEvery: numberText(event.currentTarget) })} disabled={!draft().repeatUnit} /></label>
                   <select name="repeatMissed" aria-label="If an occurrence is missed" title="What happens when an occurrence passes without being done" value={draft().repeatMissed} onChange={event => edit({ repeatMissed: event.currentTarget.value === "keep" ? "keep" : "skip" })} disabled={!draft().repeatUnit}>
                     <option value="skip">If missed: skip it</option><option value="keep">If missed: keep until done</option>
                   </select>
