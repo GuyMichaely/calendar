@@ -9,7 +9,7 @@ import type { RelativeDateField } from "./dependencies";
 import { attachmentHref } from "./markdown";
 import { DialogShell } from "./DialogShell";
 import { downloadAttachmentOnDemand } from "../../site/attachment-remote.js";
-import { blankDraft, changedFields, differs, draftOf, draftProblem, itemFromDraft, numberText, rebased, withDefaultReminders, withEnd, withStart, type Draft, type Editable } from "./editor-draft";
+import { blankDraft, changedFields, differs, draftOf, draftProblem, itemFromDraft, numberText, rebased, noticeDraft, withEnd, withKind, withStart, NOTICE_UNITS, type Draft, type Editable, type NoticeDraft, type NoticeUnit } from "./editor-draft";
 import type { Attachment, CalendarSettings, Item, Task, TimeWindow } from "./types";
 
 export type { Editable };
@@ -80,7 +80,7 @@ export function ItemEditor(props: {
   const itemId = existing?.id || uuid();
   const now = () => props.now ?? new Date();
   const settings = props.items.find((item): item is CalendarSettings => item.kind === "settings");
-  // A new event notifies as the calendar's settings say, following its start until you change the list yourself (withDefaultReminders).
+  // A new event notifies as long before it starts as the calendar's settings say.
   const notifyBefore = existing ? null : settings?.eventReminderMinutes ?? null;
   const blank = blankDraft(props.request.kind, { date: props.request.date, notifyBefore }, now());
   // The stored version the fields stand on (the baseline a save is merged against), what they
@@ -106,8 +106,6 @@ export function ItemEditor(props: {
   const task = () => { const item = props.items.find(entry => entry.id === itemId) ?? currentItem; return item?.kind === "task" ? item : null; };
   // A dependent task that hasn't started: its dates can be days after starting instead of fixed.
   const dormant = () => !!task()?.dependentOf && props.items.some(item => item.id === task()!.dependentOf && item.kind === "task");
-  // The one just added opens its picker straight away.
-  const [addedNotice, setAddedNotice] = createSignal<number | null>(null);
   const [draggingAttachments, setDraggingAttachments] = createSignal(false);
   const dirty = createMemo(() => differs(draft(), base()) || pendingFiles().length > 0 || removedAttachments().size > 0);
   // Why the draft can't save, if it can't.
@@ -133,10 +131,24 @@ export function ItemEditor(props: {
     if (dirty() && !closing) saveTimer = setTimeout(() => { void persist(); }, 800);
   };
   const edit = (change: Partial<Draft> | ((draft: Draft) => Draft)) => {
-    setDraft(current => withDefaultReminders(current, typeof change === "function" ? change(current) : { ...current, ...change }, notifyBefore));
+    setDraft(current => typeof change === "function" ? change(current) : { ...current, ...change });
     edited();
   };
-  const editNotices = (change: (list: string[]) => string[]) => edit(current => ({ ...current, remindAt: change(current.remindAt) }));
+  const editNotices = (change: (list: NoticeDraft[]) => NoticeDraft[]) => edit(current => ({ ...current, notifications: change(current.notifications) }));
+  const editNotice = (index: number, patch: Partial<NoticeDraft>) => editNotices(list => list.map((notice, at) => at === index ? { ...notice, ...patch } : notice));
+  // A new one is the calendar's usual lead time (else 30 minutes), ready to change.
+  let noticesRef!: HTMLDivElement;
+  const addNotice = () => {
+    editNotices(list => [...list, noticeDraft(settings?.eventReminderMinutes ?? 30)]);
+    queueMicrotask(() => { const added = [...noticesRef.querySelectorAll<HTMLInputElement>(".notice-amount")].pop(); added?.focus(); added?.select(); });
+  };
+  // A task's notifications go off before a time it may not have yet.
+  const unanchored = () => {
+    const current = draft();
+    if (current.kind !== "task") return "";
+    const missing = (of: NoticeDraft["of"]) => current.notifications.some(notice => notice.of === of) && !current[of === "due" ? "deadline" : "availableFrom"] && !(dormant() && current[of === "due" ? "deadlineMode" : "availableFromMode"] === "after");
+    return missing("start") && missing("due") ? "These go off once it has a can-start time and a due time." : missing("start") ? "Set when it can start for these to go off." : missing("due") ? "Set when it's due for these to go off." : "";
+  };
 
   // Closing saves first. If the edits can't be saved, say why and offer to revert to the last saved version.
   const [closeBlocked, setCloseBlocked] = createSignal(false);
@@ -448,9 +460,9 @@ export function ItemEditor(props: {
         <Show when={props.embedded && status()}><p class="detail-status">{status()}</p></Show>
         <Show when={dormant() && props.onStartDependent && task()}>{own => <div class="dependent-start">{startButtons(own(), parentTask())}</div>}</Show>
         <div class="segmented kind-switch">
-          <label><input type="radio" name="kind" value="task" checked={kind() === "task"} onChange={() => edit({ kind: "task" })} /><span>Task</span></label>
-          <label title="A set time to be somewhere: in the Agenda, and in List until it starts"><input type="radio" name="kind" value="event" checked={kind() === "event"} onChange={() => edit({ kind: "event" })} /><span>Event</span></label>
-          <label title="Noted at a time, nothing to do: on the Calendar and in search only"><input type="radio" name="kind" value="record" checked={kind() === "record"} onChange={() => edit({ kind: "record" })} /><span>Record</span></label>
+          <label><input type="radio" name="kind" value="task" checked={kind() === "task"} onChange={() => edit(current => withKind(current, "task", notifyBefore))} /><span>Task</span></label>
+          <label title="A set time to be somewhere: in the Agenda, and in List until it starts"><input type="radio" name="kind" value="event" checked={kind() === "event"} onChange={() => edit(current => withKind(current, "event", notifyBefore))} /><span>Event</span></label>
+          <label title="Noted at a time, nothing to do: on the Calendar and in search only"><input type="radio" name="kind" value="record" checked={kind() === "record"} onChange={() => edit(current => withKind(current, "record", notifyBefore))} /><span>Record</span></label>
         </div>
 
         <Show when={kind() === "task"} fallback={
@@ -503,12 +515,22 @@ export function ItemEditor(props: {
         </Show>
 
         <div class="form-grid reminders-grid">
-          <div class="field full-span remind-at-field"><span>Notify me at</span>
-            <Index each={draft().remindAt}>{(value, index) => <div class="remind-at">
-              <DateTimeField name="remindAt" label={`Notification ${index + 1}`} value={value()} startOpen={index === addedNotice()} onClose={() => { if (!draft().remindAt[index]) editNotices(list => list.filter((_, at) => at !== index)); }} onChange={next => editNotices(list => list.map((entry, at) => at === index ? next : entry))} />
+          <div class="field full-span remind-at-field" ref={noticesRef}><span>Notifications</span>
+            <Index each={draft().notifications}>{(notice, index) => <div class="remind-at">
+              <input class="notice-amount" type="number" min="0" step="any" aria-label={`Notification ${index + 1}: how long before`} ref={shows(() => notice().amount, numberText)} onInput={event => editNotice(index, { amount: numberText(event.currentTarget) })} />
+              <select aria-label={`Notification ${index + 1}: unit`} value={notice().unit} onChange={event => editNotice(index, { unit: event.currentTarget.value as NoticeUnit })}>
+                <For each={NOTICE_UNITS}>{([unit]) => <option value={unit}>{Number(notice().amount) === 1 ? unit.slice(0, -1) : unit}</option>}</For>
+              </select>
+              <span>before</span>
+              <Show when={kind() === "task"} fallback={<span>it starts</span>}>
+                <select aria-label={`Notification ${index + 1}: before what`} value={notice().of} onChange={event => editNotice(index, { of: event.currentTarget.value === "due" ? "due" : "start" })}>
+                  <option value="start">it can start</option><option value="due">it's due</option>
+                </select>
+              </Show>
               <button type="button" class="icon-button" aria-label={`Remove notification ${index + 1}`} onClick={() => editNotices(list => list.filter((_, at) => at !== index))}>×</button>
             </div>}</Index>
-            <button type="button" class="text-button remind-add" onClick={() => { const empty = draft().remindAt.indexOf(""); if (empty >= 0) setAddedNotice(empty); else { setAddedNotice(draft().remindAt.length); editNotices(list => [...list, ""]); } setTimeout(() => setAddedNotice(null)); }}>+ Add a notification</button>
+            <Show when={unanchored()}><small class="field-hint">{unanchored()}</small></Show>
+            <button type="button" class="text-button remind-add" onClick={addNotice}>+ Add a notification</button>
           </div>
         </div>
 

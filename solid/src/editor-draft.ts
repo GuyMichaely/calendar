@@ -1,7 +1,7 @@
 import { RELATIVE_DATE_FIELDS, type RelativeDateField } from "./dependencies";
 import { eventFromDraft, recordFromDraft, taskFromDraft } from "./item-changes";
 import { pushedDownInfo } from "./today";
-import type { Attachment, CalendarEvent, CalendarRecord, Item, Repeat, Task, TaskState } from "./types";
+import type { Attachment, CalendarEvent, CalendarRecord, Item, Notice, Repeat, Task, TaskState } from "./types";
 import { atTime, fromInputValue, inputToIso, partsOf, startOfDay, toInputValue } from "./zone";
 
 /** What the editor edits: a task, an event (a set time to be somewhere), or a record (noted at a time). */
@@ -37,7 +37,7 @@ export type Draft = {
   stopParent: boolean;
   start: string;
   end: string;
-  remindAt: string[];
+  notifications: NoticeDraft[];
 } & { [F in RelativeDateField as `${F}Mode`]: "date" | "after" } & { [F in RelativeDateField as `${F}After`]: string };
 
 const HOUR = 60 * 60 * 1000;
@@ -46,20 +46,24 @@ const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.s
 export const dayStart = (date: Date) => !partsOf(date).hour && !partsOf(date).minute;
 export const dayEnd = (date: Date) => partsOf(date).hour === 23 && partsOf(date).minute === 59;
 
-/** A new event notifies as long before it starts as the calendar's settings say (none for a whole day, a task or a record). */
-export function defaultReminders(draft: Pick<Draft, "kind" | "start">, notifyBefore: number | null) {
-  const start = draft.kind === "event" && notifyBefore != null ? fromInputValue(draft.start) : null;
-  return start && !dayStart(start) ? [toInputValue(new Date(start.getTime() - notifyBefore! * 60_000))] : [];
-}
+/** How a notification's lead time reads: the largest unit it's a whole number of. */
+export const NOTICE_UNITS = [["minutes", 1], ["hours", 60], ["days", 1440], ["weeks", 10_080]] as const;
+export type NoticeUnit = (typeof NOTICE_UNITS)[number][0];
+/** A notification as the editor shows it: an amount (as typed) of a unit, before a task can start or is due (`of`; an event or record's is before it starts). */
+export type NoticeDraft = { amount: string; unit: NoticeUnit; of: "start" | "due" };
 
-/**
- * A new item's notifications follow its start while they're the default (as `before` stood):
- * after an edit here to its start or kind, they're the default for the new one. An edit to the
- * notifications themselves, or a change from elsewhere (which isn't an edit here), stops that.
- */
-export function withDefaultReminders(before: Draft, after: Draft, notifyBefore: number | null): Draft {
-  if (notifyBefore == null || after.remindAt !== before.remindAt || !same(before.remindAt, defaultReminders(before, notifyBefore))) return after;
-  return { ...after, remindAt: defaultReminders(after, notifyBefore) };
+export function noticeDraft(minutes: number, of: NoticeDraft["of"] = "start"): NoticeDraft {
+  const [unit, size] = [...NOTICE_UNITS].reverse().find(([, size]) => minutes >= size && minutes % size === 0) ?? NOTICE_UNITS[0];
+  return { amount: String(minutes / size), unit, of };
+}
+const noticeMinutes = (notice: NoticeDraft) => Math.round(Number(notice.amount) * NOTICE_UNITS.find(([unit]) => unit === notice.unit)![1]);
+
+// A new event notifies as long before it starts as the calendar's settings say; a new task or record doesn't.
+const defaultNotices = (kind: Editable["kind"], notifyBefore: number | null) => kind === "event" && notifyBefore != null ? [noticeDraft(notifyBefore)] : [];
+
+/** The draft switched to another kind. A new item's notifications still its old kind's default become the new kind's. */
+export function withKind(draft: Draft, kind: Editable["kind"], notifyBefore: number | null): Draft {
+  return { ...draft, kind, notifications: same(draft.notifications, defaultNotices(draft.kind, notifyBefore)) ? defaultNotices(kind, notifyBefore) : draft.notifications };
 }
 
 /** A new item's draft: an event or record at 9:00 on the day it was started from (else now), an event for an hour. */
@@ -71,15 +75,15 @@ export function blankDraft(kind: Editable["kind"], { date, notifyBefore }: { dat
     windowId: "", pushed: false, pushUntil: "",
     repeatUnit: "", repeatEvery: "1", repeatMissed: "skip", repeatUntil: "", repeatUntilDone: false,
     startWhen: "", startAfter: "", stopParent: true,
-    start: toInputValue(start), end: kind === "record" ? "" : toInputValue(new Date(start.getTime() + HOUR)), remindAt: [],
+    start: toInputValue(start), end: kind === "record" ? "" : toInputValue(new Date(start.getTime() + HOUR)), notifications: defaultNotices(kind, notifyBefore),
   };
-  return { ...draft, remindAt: defaultReminders(draft, notifyBefore) };
+  return draft;
 }
 
 /** A stored item as the editor shows it; what it doesn't have (an event's times on a task) comes from `blank`. */
 export function draftOf(item: Editable | null, blank: Draft, now: Date): Draft {
   if (!item) return blank;
-  const shared: Draft = { ...blank, kind: item.kind, title: item.title ?? "", notes: item.notes ?? "", tags: (item.tags || []).join(", "), remindAt: (item.remindAt || []).map(time => toInputValue(time)) };
+  const shared: Draft = { ...blank, kind: item.kind, title: item.title ?? "", notes: item.notes ?? "", tags: (item.tags || []).join(", "), notifications: (item.notifications || []).map(notice => noticeDraft(notice.minutes, item.kind === "task" && notice.of === "due" ? "due" : "start")) };
   if (item.kind !== "task") return { ...shared, start: toInputValue(item.start), end: toInputValue(item.end) };
   const push = pushedDownInfo(item, now);
   const relative = Object.fromEntries(RELATIVE_DATE_FIELDS.flatMap(field => [[`${field}Mode`, item.relativeDates?.[field] != null ? "after" : "date"], [`${field}After`, String(item.relativeDates?.[field] ?? 0)]]));
@@ -151,6 +155,7 @@ const fits = (value: string, min: number, step: number) => !value.trim() || (Num
 /** Why the draft can't be saved yet, if it can't. `dormant`: a dependent task that hasn't started (its dates can be days after starting). */
 export function draftProblem(draft: Draft, dormant: boolean) {
   if (!draft.title.trim()) return "Enter a title to save.";
+  if (draft.notifications.some(notice => !notice.amount.trim() || !(Number(notice.amount) >= 0))) return "Complete the required fields to save.";
   if (draft.kind === "task") {
     const counts = [draft.repeatUnit ? fits(draft.repeatEvery, 1, 1) : true, ...RELATIVE_DATE_FIELDS.map(field => !dormant || draft[`${field}Mode`] === "date" || fits(draft[`${field}After`], 0, 0.5))];
     if (counts.includes(false)) return "Complete the required fields to save.";
@@ -162,7 +167,7 @@ export const parseTags = (value: string) => value.split(",").map(tag => tag.trim
 
 /** The item a draft describes, to store. `previous`: the stored item it was edited from (null for a new one). */
 export function itemFromDraft(draft: Draft, { id, previous, now, parentId, dormant, groupId, attachments }: { id: string; previous: Item | null; now: Date; parentId?: string | null; dormant: boolean; groupId: string | null; attachments: Attachment[] }): Editable {
-  const shared = { title: draft.title.trim(), notes: draft.notes, tags: parseTags(draft.tags), attachments, remindAt: draft.remindAt.map(value => inputToIso(value)).filter((time): time is NonNullable<typeof time> => !!time) };
+  const shared = { title: draft.title.trim(), notes: draft.notes, tags: parseTags(draft.tags), attachments, notifications: draft.notifications.map((notice): Notice => notice.of === "due" ? { minutes: noticeMinutes(notice), of: "due" } : { minutes: noticeMinutes(notice) }) };
   const context = { id, previous, now };
   if (draft.kind !== "task") {
     const times = { ...shared, start: inputToIso(draft.start), end: inputToIso(draft.end) };

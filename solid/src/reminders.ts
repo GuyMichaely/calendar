@@ -5,12 +5,12 @@ import type { CalendarEvent, CalendarRecord, Item, Task } from "./types";
 
 /**
  * A notification to go off at `at`: when a task can start ("starts"), or a reminder ("events"):
- * before an event or record starts, or at a moment chosen for any task, event, or record.
+ * some time before an event or record starts, or before a task can start or is due.
  * `kind` says what it's about, so tapping it opens the right place.
  */
 export type Reminder = { id: number; at: Date; title: string; body: string; itemId: string; kind: Item["kind"]; channel: "starts" | "events" };
 
-/** What this device notifies about: tasks reaching their can-start time, and reminders (events' and records' lead times, and chosen moments). */
+/** What this device notifies about: tasks reaching their can-start time, and the notifications set on items. */
 export type ReminderSettings = { taskStarts: boolean; events: boolean };
 
 /** The lead times an event's reminder can have, in minutes, and how they read. */
@@ -30,8 +30,9 @@ function reminderId(key: string) {
  * many alarms; later ones are scheduled as the app runs again). A task's comes when it can start:
  * at its can-start time (in a window, at the window's first opening from then), not when a window
  * it could already be done in merely reopens. Pushed-down tasks and unstarted dependents don't remind.
- * Reminders come before an event or record starts (its own lead time) and at the moments chosen
- * for any task, event, or record (not a finished task's, or an unstarted dependent's).
+ * Notifications come their minutes before an event or record starts, or before a task can start
+ * or is due (its current occurrence's, for a repeating one; not a finished task's, or an unstarted
+ * dependent's).
  */
 export function upcomingReminders(items: Item[], now: Date, settings: ReminderSettings, days = 14, limit = 64): Reminder[] {
   const byId = new Map(items.map(item => [item.id, item]));
@@ -46,21 +47,23 @@ export function upcomingReminders(items: Item[], now: Date, settings: ReminderSe
   }
   if (settings.events) {
     const due = (at: Date) => at > now && at <= until;
-    const startOf = (item: CalendarEvent | CalendarRecord) => { const start = item.start ? new Date(item.start) : null; return start && !Number.isNaN(start.getTime()) ? start : null; };
+    const moment = (value: string | null | undefined) => { const date = value ? new Date(value) : null; return date && !Number.isNaN(date.getTime()) ? date : null; };
     const titleOf = (item: Task | CalendarEvent | CalendarRecord) => item.title || `Untitled ${item.kind}`;
     for (const item of items) {
       if (item.kind !== "task" && item.kind !== "event" && item.kind !== "record") continue;
       // A finished task, or one waiting to be started, has nothing to remind about.
       if (item.kind === "task" && (item.state === "completed" || isDormant(item, byId))) continue;
-      const start = item.kind === "task" ? null : startOf(item);
-      for (const time of item.remindAt || []) {
-        const at = new Date(time);
-        if (Number.isNaN(at.getTime()) || !due(at)) continue;
-        const deadline = item.kind === "task" && item.deadline ? new Date(item.deadline) : null;
-        const allDay = item.kind !== "task" && !!wholeDays(item);
-        const body = start && allDay ? at >= start || sameDay(start, at) ? "Today" : `Starts ${formatIn(start, { weekday: "short", month: "short", day: "numeric" })}`
-          : start ? at >= start ? "Starting now" : sameDay(start, at) ? `Starts at ${clockText(start)}` : `Starts ${dateTimeText(start, at)}`
-          : deadline && !Number.isNaN(deadline.getTime()) ? `Due ${dateTimeText(deadline, at)}` : "";
+      const allDay = item.kind !== "task" && !!wholeDays(item);
+      for (const notice of item.notifications || []) {
+        // What it's before: an event's or record's start, a task's can-start time or (of: "due") its due time.
+        const dueBy = item.kind === "task" && notice.of === "due";
+        const anchor = moment(item.kind === "task" ? dueBy ? item.deadline : item.availableFrom : item.start);
+        if (!anchor) continue;
+        const at = new Date(anchor.getTime() - notice.minutes * 60_000);
+        if (!due(at)) continue;
+        const body = item.kind === "task" ? `${dueBy ? "Due" : "Can start"} ${at >= anchor ? "now" : sameDay(anchor, at) ? `at ${clockText(anchor)}` : dateTimeText(anchor, at)}`
+          : allDay ? at >= anchor || sameDay(anchor, at) ? "Today" : `Starts ${formatIn(anchor, { weekday: "short", month: "short", day: "numeric" })}`
+          : at >= anchor ? "Starting now" : sameDay(anchor, at) ? `Starts at ${clockText(anchor)}` : `Starts ${dateTimeText(anchor, at)}`;
         reminders.push({ id: reminderId(`at:${item.id}:${at.toISOString()}`), at, title: titleOf(item), body, itemId: item.id, kind: item.kind, channel: "events" });
       }
     }

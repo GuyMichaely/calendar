@@ -35,7 +35,7 @@ By hand, `./scripts/worker deploy` does the same after `./scripts/bun run build:
 
 ## Cleaning old data
 
-When a version stops using a field, items synced before keep it, unread. `scripts/clean-live-data.js` syncs like a device (signed in with `cloudflared access login https://calendar.guymichaely.com/sync`), lists the fields this version doesn't use, and with `--apply` saves the calendar as it was under `.local/`, removes them, and syncs; every device gets the change. `scripts/migrate-event-notifications.js` (run once) turned events' and records' minutes-before notifications into Notify me at times the same way. Both use `scripts/live-calendar.js`. Old backups go through `scripts/migrate-backup.js` instead.
+When a version stops using a field, items synced before keep it, unread. `scripts/clean-live-data.js` syncs like a device (signed in with `cloudflared access login https://calendar.guymichaely.com/sync`), lists the fields this version doesn't use, and with `--apply` saves the calendar as it was under `.local/`, removes them, and syncs; every device gets the change. `scripts/migrate-relative-notifications.js` (run once) turns notifications at set moments (and the older minutes-before ones) into lead times the same way; run it before `clean-live-data.js`, which would otherwise drop the moments as unused. Both use `scripts/live-calendar.js`. Old backups go through `scripts/migrate-backup.js` instead.
 
 ## Developing
 

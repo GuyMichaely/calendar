@@ -45,8 +45,8 @@ export type Task = BaseItem & {
   // With a "not-yet" start: whether starting it also finishes the parent (default yes).
   stopParent?: boolean | null;
   completedAt?: string | null;
-  // Notifies at these times (ISO), besides when it can start.
-  remindAt?: string[] | null;
+  // Notifies some minutes before it can start, or before it's due (besides when it can start).
+  notifications?: Notice[] | null;
   history?: HistoryEntry[];
   // Only top-level tasks use this; subtasks appear wherever their parent task is.
   groupId?: string | null;
@@ -55,6 +55,9 @@ export type Task = BaseItem & {
   // A dependent task's dates as days after it is started; they become fixed dates when it starts.
   relativeDates?: RelativeDates | null;
 };
+
+/** A notification `minutes` before an event or record starts, or before a task can start (or with `of: "due"`, before it's due). */
+export type Notice = { minutes: number; of?: "due" };
 
 export type RelativeDates = {
   availableFrom?: number | null;
@@ -65,8 +68,8 @@ export type CalendarEvent = BaseItem & {
   kind: "event";
   start?: string | null;
   end?: string | null;
-  // Notifies at these times (ISO); a new one starts with the calendar's eventReminderMinutes before it starts.
-  remindAt?: string[] | null;
+  // Notifies some minutes before it starts; a new one starts with the calendar's eventReminderMinutes.
+  notifications?: Notice[] | null;
 };
 
 // Something noted at a time, for the record (the bank asked for papers that day): on the
@@ -76,7 +79,7 @@ export type CalendarRecord = BaseItem & {
   kind: "record";
   start?: string | null;
   end?: string | null;
-  remindAt?: string[] | null;
+  notifications?: Notice[] | null;
 };
 
 // A board. Built-in boards (Firm, Available, …) are stored as groups with a `builtin` key only to remember their place.

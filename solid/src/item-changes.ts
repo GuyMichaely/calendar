@@ -1,6 +1,6 @@
 import { toDate } from "../../site/domain.js";
 import type { RelativeDateField } from "./dependencies";
-import type { Attachment, CalendarEvent, CalendarRecord, Group, HistoryEntry, Item, PushedDown, Task, TaskState, TimeWindow } from "./types";
+import type { Attachment, CalendarEvent, CalendarRecord, Group, HistoryEntry, Item, Notice, PushedDown, Task, TaskState, TimeWindow } from "./types";
 import type { RelativeDates } from "../../site/model";
 
 // Pure record changes: each takes the current record and a moment and returns the record to store.
@@ -72,8 +72,7 @@ export type TaskDraft = {
   windowId: string | null;
   // Days after starting, for the fields a dormant dependent task measures that way.
   relativeDates: Partial<Record<RelativeDateField, number>>;
-  // Reminders at moments chosen in the editor (ISO times).
-  remindAt?: string[];
+  notifications?: Notice[];
 };
 
 export type EventDraft = {
@@ -83,7 +82,7 @@ export type EventDraft = {
   attachments: Attachment[];
   start: string | null;
   end: string | null;
-  remindAt?: string[];
+  notifications?: Notice[];
 };
 
 type DraftContext = {
@@ -133,7 +132,7 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
     deadline: draft.deadline,
     pushedDown,
     windowId: draft.windowId,
-    ...(draft.remindAt !== undefined ? { remindAt: remindAtOf(draft.remindAt) } : {}),
+    ...(draft.notifications !== undefined ? { notifications: noticesOf(draft.notifications, true) } : {}),
     createdAt: previous?.createdAt || at,
     updatedAt: at,
     history,
@@ -143,8 +142,11 @@ export function taskFromDraft(draft: TaskDraft, { id, previous, now, parentId, d
 /** The event an editor draft describes. With only one end chosen, the event lasts an hour. */
 export type RecordDraft = EventDraft;
 
-// Chosen reminders, in order and once each; none is null.
-const remindAtOf = (times: string[] | undefined) => times?.length ? [...new Set(times)].sort() : null;
+// Notifications soonest first (furthest before) and once each; none is null. Only a task's can be before its due time.
+function noticesOf(notices: Notice[] | undefined, task = false) {
+  const kept = new Map((notices || []).map(notice => { const kept: Notice = task && notice.of === "due" ? { minutes: notice.minutes, of: "due" } : { minutes: notice.minutes }; return [JSON.stringify(kept), kept] as const; }));
+  return kept.size ? [...kept.values()].sort((a, b) => b.minutes - a.minutes || (a.of ? 1 : 0) - (b.of ? 1 : 0)) : null;
+}
 
 /** A record: when something was (its end is optional). */
 export function recordFromDraft(draft: RecordDraft, { id, previous, now }: DraftContext): CalendarRecord {
@@ -159,7 +161,7 @@ export function recordFromDraft(draft: RecordDraft, { id, previous, now }: Draft
     attachments: draft.attachments,
     start: draft.start,
     end: draft.end,
-    remindAt: remindAtOf(draft.remindAt),
+    notifications: noticesOf(draft.notifications),
     createdAt: previous?.createdAt || at,
     updatedAt: at,
   };
@@ -183,7 +185,7 @@ export function eventFromDraft(draft: EventDraft, { id, previous, now }: DraftCo
     attachments: draft.attachments,
     start,
     end,
-    remindAt: remindAtOf(draft.remindAt),
+    notifications: noticesOf(draft.notifications),
     createdAt: previous?.createdAt || at,
     updatedAt: at,
   };

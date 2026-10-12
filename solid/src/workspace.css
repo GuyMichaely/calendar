@@ -626,8 +626,10 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 .event-mark { display: grid; place-items: center; width: 19px; height: 19px; flex: 0 0 19px; color: var(--event); }
 /* The editor's reminders: before it starts, and a list of chosen moments. */
 .reminders-grid { margin-top: 14px; }
-.remind-at { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.remind-at > :first-child { flex: 1; min-width: 0; }
+.remind-at { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+.remind-at .notice-amount { width: 72px; }
+.remind-at > select { width: auto; }
+@media (max-width: 760px) { .remind-at { gap: 6px; } .remind-at .notice-amount { width: 52px; } }
 .remind-add { justify-self: start; align-self: start; }
 
 /* The Calendar by the hour: one day or three (TimeGrid). */

@@ -163,14 +163,14 @@ test("kind conversion removes obsolete source-kind fields without overwriting un
 
 test("an event made a record keeps its times and its notifications", async () => {
   const id = "event-to-record";
-  const event = { id, kind: "event", title: "Bank asked for statements", notes: "", tags: [], attachments: [], start: "2026-09-21T13:00:00.000Z", end: "2026-09-21T14:00:00.000Z", remindAt: ["2026-09-21T12:30:00.000Z"], createdAt: "2026-09-04T12:00:00.000Z", updatedAt: "2026-09-04T12:00:00.000Z" };
+  const event = { id, kind: "event", title: "Bank asked for statements", notes: "", tags: [], attachments: [], start: "2026-09-21T13:00:00.000Z", end: "2026-09-21T14:00:00.000Z", notifications: [{ minutes: 30 }], createdAt: "2026-09-04T12:00:00.000Z", updatedAt: "2026-09-04T12:00:00.000Z" };
   await storage.putItem(event);
   const baseline = (await storage.listItems()).find((item) => item.id === id);
   await storage.putItem({ ...baseline, kind: "record", updatedAt: "2026-09-04T13:00:00.000Z" }, baseline);
   const current = (await storage.listItems()).find((item) => item.id === id);
   assert.equal(current.kind, "record");
   assert.equal(current.start, "2026-09-21T13:00:00.000Z");
-  assert.deepEqual(current.remindAt, ["2026-09-21T12:30:00.000Z"]);
+  assert.deepEqual(current.notifications, [{ minutes: 30 }]);
 });
 
 test("a different document generation cannot replace current browser data", async () => {

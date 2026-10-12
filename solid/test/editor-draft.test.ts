@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { blankDraft, changedFields, withDefaultReminders, draftOf, draftProblem, itemFromDraft, rebased, withEnd, withStart, type Draft } from "../src/editor-draft";
+import { blankDraft, changedFields, noticeDraft, withKind, draftOf, draftProblem, itemFromDraft, rebased, withEnd, withStart, type Draft } from "../src/editor-draft";
 import type { CalendarEvent, Task } from "../src/types";
 import { fromInputValue, toInputValue } from "../src/zone";
 
@@ -14,7 +14,7 @@ const local = (iso: string) => toInputValue(iso);
 test("a task survives the trip through the editor's fields unchanged", () => {
   const stored = task({
     notes: "**hi**", tags: ["a", "b"], deadline: "2026-10-01T23:59:00.000Z", availableFrom: "2026-09-28T09:00:00.000Z", windowId: "w",
-    repeat: { unit: "week", every: 2, until: "2026-12-01T00:00:00.000Z", untilDone: true, ifMissed: "keep" }, remindAt: ["2026-09-30T08:00:00.000Z"],
+    repeat: { unit: "week", every: 2, until: "2026-12-01T00:00:00.000Z", untilDone: true, ifMissed: "keep" }, notifications: [{ minutes: 1440 }, { minutes: 90, of: "due" }],
     pushedDown: { until: "2026-09-29T00:00:00.000Z", at }, history: [{ at, type: "created" }],
   });
   const draft = draftOf(stored, blank, now);
@@ -24,11 +24,11 @@ test("a task survives the trip through the editor's fields unchanged", () => {
 });
 
 test("an event's times and reminders survive the trip, and a new one notifies before it starts", () => {
-  const stored = event({ remindAt: ["2026-09-27T11:50:00.000Z"] });
+  const stored = event({ notifications: [{ minutes: 10 }] });
   const draft = draftOf(stored, blank, now);
-  expect(itemFromDraft(draft, { ...context, id: "e", previous: stored })).toMatchObject({ kind: "event", start: stored.start, end: stored.end, remindAt: stored.remindAt });
+  expect(itemFromDraft(draft, { ...context, id: "e", previous: stored })).toMatchObject({ kind: "event", start: stored.start, end: stored.end, notifications: [{ minutes: 10 }] });
   const fresh = blankDraft("event", { date: new Date("2026-09-27T00:00:00.000Z"), notifyBefore: 10 }, now);
-  expect(fresh.remindAt).toEqual([toInputValue(new Date(fromInputValue(fresh.start)!.getTime() - 10 * 60_000))]);
+  expect(fresh.notifications).toEqual([{ amount: "10", unit: "minutes", of: "start" }]);
 });
 
 test("what the draft saves: trimmed title, parsed tags, a count left blank as its default", () => {
@@ -74,16 +74,23 @@ test("setting one end of an event keeps the other on the right side of it", () =
   expect(withEnd({ ...draft, start: "" }, "2026-09-27T23:59").start).toBe("2026-09-27T00:00");
 });
 
-test("a new event's notification follows its start until it's changed, and a change from elsewhere is kept", () => {
-  const fresh = blankDraft("event", { date: new Date("2026-09-27T00:00:00.000Z"), notifyBefore: 30 }, now);
-  const moved = withDefaultReminders(fresh, withStart(fresh, "2026-09-28T15:00"), 30);
-  expect(moved.remindAt).toEqual(["2026-09-28T14:30"]);
-  // Chosen by hand (or brought from elsewhere): moving the start leaves it.
-  const chosen = { ...moved, remindAt: ["2026-09-28T09:00"] };
-  expect(withDefaultReminders(chosen, withStart(chosen, "2026-09-29T15:00"), 30).remindAt).toEqual(["2026-09-28T09:00"]);
-  // A new task has none; made an event, it gets the default.
+test("a notification reads in the largest whole unit, and saves as minutes (only a task's can be before it's due)", () => {
+  expect([0, 45, 90, 120, 1440, 2880, 10_080].map(minutes => noticeDraft(minutes)).map(({ amount, unit }) => `${amount} ${unit}`)).toEqual(["0 minutes", "45 minutes", "90 minutes", "2 hours", "1 days", "2 days", "1 weeks"]);
+  const draft: Draft = { ...blank, title: "a", deadline: "2026-10-01T10:00", notifications: [{ amount: "1.5", unit: "hours", of: "due" }, { amount: "2", unit: "days", of: "start" }, { amount: "1.5", unit: "hours", of: "due" }] };
+  expect(itemFromDraft(draft, { ...context, previous: null }).notifications).toEqual([{ minutes: 2880 }, { minutes: 90, of: "due" }]);
+  expect(itemFromDraft({ ...draft, kind: "event" }, { ...context, previous: null }).notifications).toEqual([{ minutes: 2880 }, { minutes: 90 }]);
+  expect(draftProblem({ ...draft, notifications: [{ amount: "", unit: "hours", of: "start" }] }, false)).toBe("Complete the required fields to save.");
+  expect(draftProblem({ ...draft, notifications: [{ amount: "NaN", unit: "hours", of: "start" }] }, false)).toBe("Complete the required fields to save.");
+});
+
+test("a new item switched to an event gets the usual notification, unless its list was changed", () => {
   const task = blankDraft("task", { notifyBefore: 30 }, now);
-  expect(withDefaultReminders(task, { ...task, kind: "event", start: "2026-09-28T15:00" }, 30).remindAt).toEqual(["2026-09-28T14:30"]);
-  // An existing item (no default) is left alone.
-  expect(withDefaultReminders(fresh, withStart(fresh, "2026-09-28T15:00"), null).remindAt).toEqual(fresh.remindAt);
+  expect(task.notifications).toEqual([]);
+  const made = withKind(task, "event", 30);
+  expect(made.notifications).toEqual([{ amount: "30", unit: "minutes", of: "start" }]);
+  expect(withKind(made, "task", 30).notifications).toEqual([]);
+  const chosen = { ...made, notifications: [{ amount: "1", unit: "hours" as const, of: "start" as const }] };
+  expect(withKind(chosen, "task", 30).notifications).toEqual(chosen.notifications);
+  // An existing item (no usual one): kept as it is.
+  expect(withKind(task, "event", null).notifications).toEqual([]);
 });

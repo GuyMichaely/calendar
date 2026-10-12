@@ -5,6 +5,7 @@ export type {
   CalendarSettings,
   Group,
   HistoryEntry,
+  Notice,
   Item,
   PushedDown,
   Repeat,

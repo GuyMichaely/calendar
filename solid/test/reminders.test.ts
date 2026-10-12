@@ -10,7 +10,7 @@ const now = zonedDate(2026, 10, 6, 14, 20);
 const local = (day: number, hours: number, minutes = 0) => zonedDate(2026, 10, day, hours, minutes);
 const task = (id: string, extra: Partial<Task> = {}): Task => ({ id, kind: "task", title: id, state: "open", createdAt: at, updatedAt: at, ...extra });
 // An event notifying some minutes before it starts (null: not at all).
-const event = (id: string, start: Date, minutes: number | null = 30): CalendarEvent => ({ id, kind: "event", title: id, start: start.toISOString(), end: new Date(start.getTime() + 3_600_000).toISOString(), remindAt: minutes == null ? null : [new Date(start.getTime() - minutes * 60_000).toISOString()], createdAt: at, updatedAt: at });
+const event = (id: string, start: Date, minutes: number | null = 30): CalendarEvent => ({ id, kind: "event", title: id, start: start.toISOString(), end: new Date(start.getTime() + 3_600_000).toISOString(), notifications: minutes == null ? null : [{ minutes }], createdAt: at, updatedAt: at });
 const evening: TimeWindow = { id: "evening", kind: "window", title: "Evening", days: [0, 1, 2, 3, 4, 5, 6], start: "18:00", end: "22:00", createdAt: at, updatedAt: at };
 const on = { taskStarts: true, events: true };
 const when = (items: Item[], settings = on) => upcomingReminders(items, now, settings).map(reminder => [reminder.itemId, partsOf(reminder.at).day, partsOf(reminder.at).hour, partsOf(reminder.at).minute]);
@@ -40,21 +40,27 @@ test("reminders are soonest first, within the coming days, and keep their ids", 
   expect(upcomingReminders(items, now, on).map(reminder => reminder.id)).toEqual(upcomingReminders(items, now, on).map(reminder => reminder.id));
 });
 
-test("any task, event, or record notifies at the times chosen for it", () => {
-  const record: Item = { id: "bank", kind: "record", title: "Bank asked for statements", start: local(9, 10).toISOString(), end: null, remindAt: [local(7, 8).toISOString(), local(9, 9).toISOString()], createdAt: at, updatedAt: at };
+test("a notification goes off its time before an event or record starts, or before a task can start or is due", () => {
+  const record: Item = { id: "bank", kind: "record", title: "Bank asked for statements", start: local(9, 10).toISOString(), end: null, notifications: [{ minutes: 2 * 1440 + 120 }, { minutes: 60 }], createdAt: at, updatedAt: at };
   const items: Item[] = [
-    task("call", { remindAt: [local(6, 16).toISOString(), local(5, 9).toISOString()], deadline: local(8, 17).toISOString() }),
-    { ...event("doctor", local(8, 13), null), remindAt: [local(7, 20).toISOString()] },
+    task("call", { availableFrom: local(6, 18).toISOString(), deadline: local(8, 17).toISOString(), notifications: [{ minutes: 120 }, { minutes: 1440 + 120, of: "due" }] }),
+    { ...event("doctor", local(8, 13), null), notifications: [{ minutes: 17 * 60 }] },
     record,
   ];
-  expect(when(items)).toEqual([["call", 6, 16, 0], ["bank", 7, 8, 0], ["doctor", 7, 20, 0], ["bank", 9, 9, 0]]);
+  expect(when(items)).toEqual([["call", 6, 16, 0], ["call", 6, 18, 0], ["bank", 7, 8, 0], ["call", 7, 15, 0], ["doctor", 7, 20, 0], ["bank", 9, 9, 0]]);
   const found = upcomingReminders(items, now, { taskStarts: false, events: true });
-  expect(found.map(reminder => [reminder.kind, reminder.channel])).toEqual([["task", "events"], ["record", "events"], ["event", "events"], ["record", "events"]]);
-  expect(found[0].body).toStartWith("Due ");
-  expect(when(items, { taskStarts: true, events: false })).toEqual([]);
+  expect(found.map(reminder => [reminder.kind, reminder.channel])).toEqual([["task", "events"], ["record", "events"], ["task", "events"], ["event", "events"], ["record", "events"]]);
+  expect(found[0].body).toBe("Can start at 6:00 PM");
+  expect(found[2].body).toStartWith("Due ");
+  expect(when(items, { taskStarts: true, events: false })).toEqual([["call", 6, 18, 0]]);
 });
 
-test("a finished task, or one waiting to be started, doesn't remind at its chosen moments", () => {
-  expect(when([task("done", { state: "completed", remindAt: [local(7, 9).toISOString()] })])).toEqual([]);
-  expect(when([task("parent"), task("next", { dependentOf: "parent", remindAt: [local(7, 9).toISOString()] })])).toEqual([]);
+test("a task's notification waits for the time it's before; a repeating task's follows its current occurrence", () => {
+  expect(when([task("someday", { notifications: [{ minutes: 30 }, { minutes: 30, of: "due" }] })])).toEqual([]);
+  expect(when([task("bill", { availableFrom: local(1, 9).toISOString(), deadline: local(8, 17).toISOString(), repeat: { unit: "week", every: 1, until: null, untilDone: false, ifMissed: "skip" }, notifications: [{ minutes: 60, of: "due" }] })])).toEqual([["bill", 8, 16, 0]]);
+});
+
+test("a finished task, or one waiting to be started, doesn't notify", () => {
+  expect(when([task("done", { state: "completed", deadline: local(8, 9).toISOString(), notifications: [{ minutes: 60, of: "due" }] })])).toEqual([]);
+  expect(when([task("parent"), task("next", { dependentOf: "parent", deadline: local(8, 9).toISOString(), notifications: [{ minutes: 60, of: "due" }] })])).toEqual([]);
 });
