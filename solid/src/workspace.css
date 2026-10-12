@@ -173,7 +173,6 @@ body.task-dragging { overflow-anchor: none; }
 .item-editor-dialog { width: min(610px, 100vw); height: 100dvh; max-height: 100dvh; border-radius: 0; border-width: 0 0 0 1px; }
 .editor-dialog form { padding: 28px; max-height: none; overflow: visible; }
 .item-editor-dialog form { min-height: 100%; display: flex; flex-direction: column; padding: 26px 32px 32px; }
-.editor-eyebrow { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 15px; }
 .dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 20px; }
 .dialog-header h2 { margin: 0; }
 .editor-title-field { display: flex; gap: 8px; flex: 1; min-width: 0; align-items: center; }
@@ -335,8 +334,12 @@ main:has(.calendar-panel) { padding: 14px 20px 20px; }
 .task-detail-empty h2 { margin: 0; color: var(--text); font-size: 22px; letter-spacing: -.5px; max-width: 18em; }
 .task-detail-empty p:last-child { margin: 0; font-size: 12px; max-width: 30em; line-height: 1.6; }
 .item-detail form { display: flex; flex-direction: column; min-height: 100%; padding: 18px 30px 0; }
-.detail-path { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; margin: 0 0 12px -8px; color: var(--muted); font-size: 11px; }
-.detail-path .text-button { padding: 3px 8px; font-size: 11px; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A subtask's or dependent task's parents, in the space above its title: it starts where any other item's does. */
+.detail-path { display: flex; align-items: center; gap: 5px; height: 16px; margin: -16px 44px 0 0; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 16px; white-space: nowrap; }
+.detail-path a { min-width: 0; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; color: inherit; text-decoration: none; }
+.detail-path a:hover, .detail-path a:focus-visible { color: var(--text); text-decoration: underline; }
+.detail-path span { flex: none; }
+.item-detail .detail-path { position: relative; top: 3px; z-index: 1; }
 .item-detail .dialog-header { align-items: center; margin-bottom: 6px; }
 .item-detail .editor-title-input { font-size: 30px; letter-spacing: -.9px; padding-bottom: 4px; }
 .detail-complete { display: grid; place-items: center; width: 26px; height: 26px; flex: 0 0 26px; padding: 0; border: 1.5px solid var(--control-border); border-radius: 50%; background: transparent; color: var(--ready); font-size: 14px; }

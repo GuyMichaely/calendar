@@ -78,6 +78,8 @@ export function ItemEditor(props: {
   onError?: (message: string) => void;
   // Embedded editors sit beside the task list instead of in a modal drawer.
   embedded?: boolean;
+  /** The address that opens an item, for the links to a task's parents. */
+  itemHref?: (id: string) => string;
   registerFlush?: (flush: () => Promise<boolean>) => () => void;
   onStale?: () => void;
   onQuickAddSubtask?: (parent: Task, title: string) => Promise<boolean>;
@@ -440,10 +442,12 @@ export function ItemEditor(props: {
   };
 
   // Options are keyed by id: rebuilding <option> elements would reset the select's choice.
+  // The tasks above this one, outermost first: what it's a subtask or dependent task of (a new
+  // subtask's parent too).
   const ancestors = () => {
     const byId = new Map(props.items.map(item => [item.id, item]));
     const chain: Task[] = [], seen = new Set([itemId]);
-    let child = byId.get(itemId);
+    let child = byId.get(itemId) ?? ({ kind: "task", parentId: props.request.parentId } as Task);
     while (child?.kind === "task") {
       const id = child.parentId || child.dependentOf;
       if (!id || seen.has(id)) break;
@@ -549,8 +553,8 @@ export function ItemEditor(props: {
             <div><button type="button" class="danger-button" onClick={() => void revert()}>Revert</button></div>
           </div>
         </Show>
-        <Show when={(props.embedded && kind() === "task") || ancestors().length > 0} fallback={<Show when={!existing && props.request.parentId}><p class="editor-eyebrow">New subtask</p></Show>}>
-          <nav class="detail-path" aria-label="Task path"><button type="button" class="text-button" onClick={close}>Tasks</button><For each={ancestors()}>{parent => <><span aria-hidden="true">›</span><button type="button" class="text-button" onClick={() => void navigateTask(parent)}>{parent.title || "Untitled task"}</button></>}</For></nav>
+        <Show when={kind() === "task" && ancestors().length > 0}>
+          <nav class="detail-path" aria-label="Part of"><For each={ancestors()}>{parent => <><a href={props.itemHref?.(parent.id)} onClick={event => { if (event.button || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; event.preventDefault(); void navigateTask(parent); }}>{parent.title || "Untitled task"}</a><span aria-hidden="true">&gt;</span></>}</For></nav>
         </Show>
         <div class="dialog-header">
           <Show when={props.embedded && kind() === "task"}>{completionButton(true)}</Show>

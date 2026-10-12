@@ -27,11 +27,13 @@ import { animationsEnabled } from "./settings";
 import type { CalendarEvent, CalendarSettings, Group, Item, Task, View } from "./types";
 import type { SyncMode } from "@guymichaely/app-sync";
 
-function readView(): View { return location.hash === "#calendar" ? "calendar" : /^#boards(\/|$)/.test(location.hash) ? "boards" : /^#list(\/|$)/.test(location.hash) ? "list" : "agenda"; }
-// The Agenda lives at #agenda, the Calendar at #calendar, List at #list and Boards at #boards; in
-// those two a selected task (open in the side pane) follows a slash.
-function readSelectedTask() { const match = /^#(?:list|boards)\/(.+)$/.exec(location.hash); return match ? decodeURIComponent(match[1]) : null; }
-function tasksHash(id: string | null, view: View = readView()) { const base = view === "boards" ? "#boards" : "#list"; return id ? `${base}/${encodeURIComponent(id)}` : base; }
+// The Agenda lives at #agenda, the Calendar at #calendar, List at #list and Boards at #boards; the
+// item open (in List's and Boards' pane, or the editor) follows a slash.
+function readRoute(): { view: View; id: string | null } | null {
+  const match = /^#(agenda|calendar|list|boards)(?:\/(.+))?$/.exec(location.hash);
+  return match ? { view: match[1] as View, id: match[2] ? decodeURIComponent(match[2]) : null } : null;
+}
+const itemHash = (view: View, id: string | null | undefined) => id ? `#${view}/${encodeURIComponent(id)}` : `#${view}`;
 // List and Boards are the task views (TodayView): a task opens in their side pane when there's room.
 const taskView = (view: View) => view === "list" || view === "boards";
 // When tasks join Deadline: on their due day, or some days ahead of it.
@@ -43,7 +45,7 @@ export function App() {
   // Changes sync once saved locally; other devices' changes reload the items once merged.
   const store = createCalendarStore({ onChanged: () => syncChanged() });
   const { controller: sync, snapshot: syncSnapshot, pending: syncPending, changed: syncChanged } = createCloudSync({ onSynced: store.refresh });
-  if (!/^#(agenda|list|boards|calendar)$/.test(location.hash) && !readSelectedTask()) history.replaceState(null, "", "#agenda");
+  if (!readRoute()) history.replaceState(null, "", "#agenda");
   const prefs = createPreferences();
   const items = store.items;
   // The calendar's time zone, synced. A calendar that has none yet gets this device's, once
@@ -58,7 +60,7 @@ export function App() {
     void attempt(() => store.createSettings(deviceZone()), "Could not save the calendar's time zone.").finally(() => { creatingSettings = false; });
   });
   const [loadingError, setLoadingError] = createSignal("");
-  const [view, setView] = createSignal<View>(readView());
+  const [view, setView] = createSignal<View>(readRoute()!.view);
   const [query, setQuery] = createSignal("");
   const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   const [reducedMotion, setReducedMotion] = createSignal(motionQuery.matches);
@@ -108,7 +110,8 @@ export function App() {
     splitQuery.addEventListener("change", update);
     onCleanup(() => splitQuery.removeEventListener("change", update));
   });
-  const [selectedTaskId, setSelectedTaskId] = createSignal<string | null>(readSelectedTask());
+  // Set from the address once the items have loaded (followRoute).
+  const [selectedTaskId, setSelectedTaskId] = createSignal<string | null>(null);
   const [detailVersion, setDetailVersion] = createSignal(0);
   let flushDetail: (() => Promise<boolean>) | null = null;
   let closeDetailEditor: (() => void) | null = null;
@@ -139,7 +142,7 @@ export function App() {
   const signOut = async () => { await sync.turnOff(true); showToast("Signed out; your edits stay in this browser"); };
   const navigate = (next: View) => {
     setView(next);
-    const hash = taskView(next) ? tasksHash(selectedTaskId(), next) : `#${next}`;
+    const hash = itemHash(next, editor()?.item?.id ?? (taskView(next) ? selectedTaskId() : null));
     if (location.hash !== hash) history.pushState(null, "", hash);
   };
   const editorParents: string[] = [];
@@ -205,7 +208,7 @@ export function App() {
     if (id === selectedTaskId()) return;
     if (flushDetail && !(await flushDetail())) return;
     setSelectedTaskId(id);
-    const hash = taskView(view()) ? tasksHash(id, view()) : location.hash;
+    const hash = taskView(view()) ? itemHash(view(), id) : location.hash;
     if (location.hash !== hash) history[replace ? "replaceState" : "pushState"](null, "", hash);
   };
   const closeDetail = async () => {
@@ -237,10 +240,10 @@ export function App() {
     if (sideEditors() && !item) requestAnimationFrame(() => document.querySelector<HTMLElement>(".side-editor-pane [data-dialog-autofocus]")?.focus());
   };
   // The editor for a request; `beside` is the pane's (on a wide screen), the same as List's.
-  const editorFor = (request: EditorRequest, beside: boolean) => <ItemEditor embedded={beside} onQuickAddSubtask={quickAddSubtask}
+  const editorFor = (request: EditorRequest, beside: boolean) => <ItemEditor embedded={beside} itemHref={id => itemHash(view(), id)} onQuickAddSubtask={quickAddSubtask}
     registerFlush={beside ? flush => { flushBeside = flush; return () => { if (flushBeside === flush) flushBeside = null; }; } : undefined}
     registerClose={close => { closeEditorForm = close; return () => { if (closeEditorForm === close) closeEditorForm = null; }; }}
-    items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onClose={() => void closeEditor()} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />;
+    items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onClose={() => { if (editor() === request) void closeEditor(); }} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />;
   // In the Android app: notifications for tasks reaching their can-start time and before events,
   // rescheduled (in real time, not pretend time) whenever the calendar or these settings change
   // and on coming back to the app. While the app's closed, the server tells the phone (FCM) when the
@@ -368,6 +371,40 @@ export function App() {
   // A phone's back closes Settings, and an editor over the page (the editor's own close: it saves first).
   closeOnBack(showSettings, () => closeSettings());
   closeOnBack(() => !!editor() && !sideEditors(), () => closeEditorForm ? closeEditorForm() : void closeEditor());
+  // The editor's item is in the address too, after the view (#calendar/<id>), so reloading or
+  // sharing it opens it again. Beside the page each item is a step back. Over the page, the step
+  // closeOnBack has just added (going back closes the editor) takes its address instead, and
+  // closing goes back to the step before, with the view's.
+  createEffect(on(() => editor()?.item?.id ?? null, id => {
+    const current = untrack(view);
+    const hash = itemHash(current, id ?? (taskView(current) ? untrack(selectedTaskId) : null));
+    if (location.hash === hash) return;
+    if (untrack(sideEditors)) history.pushState(null, "", hash);
+    else if (id) history.replaceState(history.state, "", hash);
+  }, { defer: true }));
+  // Follows the address, on loading and going back or forward: its view, and the item it names
+  // open (a task in List's and Boards' pane on a wide screen, anything else in the editor).
+  const followRoute = async () => {
+    const route = readRoute();
+    if (!route) return;
+    setView(route.view);
+    const found = route.id ? items().find(item => item.id === route.id) : undefined;
+    const item = found?.kind === "task" || found?.kind === "event" || found?.kind === "record" ? found : null;
+    const inPane = item?.kind === "task" && taskView(route.view) && splitView();
+    if (taskView(route.view) && (inPane ? item.id : null) !== selectedTaskId()) {
+      const previous = selectedTaskId();
+      if (flushDetail && !(await flushDetail())) { history.pushState(null, "", itemHash(view(), previous)); return; }
+      setSelectedTaskId(inPane ? item.id : null);
+    }
+    const next = inPane ? null : item;
+    // Over the page, going back closes the editor itself (closeOnBack).
+    if ((next?.id ?? null) === (editor()?.item?.id ?? null) || (!next && !sideEditors())) return;
+    if (besideOpen() && flushBeside && !(await flushBeside())) { history.pushState(null, "", itemHash(view(), editor()?.item?.id)); return; }
+    // There the editor adds a step of its own, with the item's address; going back lands on the view.
+    if (next && !sideEditors()) history.replaceState(history.state, "", itemHash(route.view, null));
+    editorParents.length = 0;
+    setEditor(next ? { item: next, kind: next.kind, nonce: Date.now() } : null);
+  };
   const closeSettings = () => { if (shortcutsDirty() && !window.confirm("Discard your unsaved shortcut changes?")) return; setShowSettings(false); const task = settingsReturnTask; settingsReturnTask = null; if (task?.isConnected) requestAnimationFrame(() => task.focus({ preventScroll: true })); };
 
   onMount(() => {
@@ -377,18 +414,10 @@ export function App() {
       if (import.meta.env.DEV && !syncSnapshot().settings?.enabled && !items().length) await attempt(() => store.importBackup(JSON.stringify({ items: sampleItems() })), "Could not add the sample tasks.");
       sync.start();
       setReady(true);
+      void followRoute();
     })();
     const clockTimer = window.setInterval(() => { if (!document.querySelector(".solid-dialog-backdrop")) setClock(appNow()); }, 30_000);
-    const syncLocation = () => {
-      setView(readView());
-      const id = readSelectedTask();
-      if (!taskView(readView()) || id === selectedTaskId()) return;
-      const previous = selectedTaskId();
-      void (async () => {
-        if (flushDetail && !(await flushDetail())) { history.pushState(null, "", tasksHash(previous, view())); return; }
-        setSelectedTaskId(id);
-      })();
-    };
+    const syncLocation = () => void followRoute();
     const onKeyDown = (event: KeyboardEvent) => {
       // Escape closes the pane beside the page even when focus is elsewhere (the pane handles it when focused inside).
       const closePane = closeEditorForm || closeDetailEditor;
@@ -404,9 +433,9 @@ export function App() {
         }
       }
     };
-    window.addEventListener("hashchange", syncLocation); window.addEventListener("popstate", syncLocation); document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("popstate", syncLocation); document.addEventListener("keydown", onKeyDown);
     onCleanup(() => {
-      sync.stop(); window.clearInterval(clockTimer); window.removeEventListener("hashchange", syncLocation); window.removeEventListener("popstate", syncLocation); document.removeEventListener("keydown", onKeyDown);
+      sync.stop(); window.clearInterval(clockTimer); window.removeEventListener("popstate", syncLocation); document.removeEventListener("keydown", onKeyDown);
     });
   });
 
@@ -438,7 +467,7 @@ export function App() {
             <Show when={paneMounted()}>
               <aside class="task-detail-pane" classList={{ closing: paneClosing() }} aria-label="Task details">
                 <Show when={detailRequest() || lastRequest} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
-                  <ItemEditor embedded request={request} items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} registerClose={close => { closeDetailEditor = close; return () => { if (closeDetailEditor === close) closeDetailEditor = null; }; }} onStale={() => setDetailVersion(version => version + 1)} onRevert={() => setDetailVersion(version => version + 1)}
+                  <ItemEditor embedded itemHref={id => itemHash(view(), id)} request={request} items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} registerClose={close => { closeDetailEditor = close; return () => { if (closeDetailEditor === close) closeDetailEditor = null; }; }} onStale={() => setDetailVersion(version => version + 1)} onRevert={() => setDetailVersion(version => version + 1)}
                     onQuickAddSubtask={quickAddSubtask} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => void selectTask(task.id)} onAddSubtask={() => {}} onClose={() => void closeDetail()}
                     onDelete={async (item) => { await store.deleteItem(item.id); flushDetail = null; await selectTask(null, true); showToast("Deleted"); }}
                     onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />}
