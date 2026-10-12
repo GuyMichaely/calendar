@@ -59,10 +59,11 @@ export function createCloudSync({ onSynced }: { onSynced: () => Promise<void> })
     { endpoint: SYNC, fetch: ((input, init) => syncFetch(input as string, init)) as typeof fetch, credentials: "same-origin" },
   );
   // The calendar's heads as of the last sync. The live connection's heads are news when they
-  // differ (at worst, one sync more than needed: one that finds nothing), and this browser's
-  // are edits not yet sent (`pending`).
+  // differ from those and from this browser's (the server telling of this browser's own edits
+  // just sent); this browser's differing from them are edits not yet sent (`pending`).
   const headsKey = (heads: readonly string[]) => [...heads].sort().join();
-  const currentHeads = async () => headsKey(Automerge.getHeads(await readSyncDocument() as Automerge.Doc<unknown>));
+  let localHeads = "";
+  const currentHeads = async () => (localHeads = headsKey(Automerge.getHeads(await readSyncDocument() as Automerge.Doc<unknown>)));
   let syncedHeads = localStorage.getItem(SYNCED_HEADS_KEY) || "";
   const [pending, setPending] = createSignal(false);
   const check = async () => setPending(await currentHeads() !== syncedHeads);
@@ -71,8 +72,10 @@ export function createCloudSync({ onSynced }: { onSynced: () => Promise<void> })
   const controller = new SyncController({
     engine: {
       async sync({ signal }) {
+        // Reading the calendar again redraws everything: only when the sync brought something.
+        const before = await currentHeads();
         await client.sync(signal);
-        await onSynced();
+        if (await currentHeads() !== before) await onSynced();
         localStorage.setItem(SYNCED_AT_KEY, new Date().toISOString());
         await remember();
       },
@@ -88,7 +91,8 @@ export function createCloudSync({ onSynced }: { onSynced: () => Promise<void> })
       onMessage(message) {
         const heads = (message as { heads?: unknown })?.heads;
         if (!Array.isArray(heads) || !heads.every(head => typeof head === "string")) return false;
-        return headsKey(heads) !== syncedHeads;
+        const key = headsKey(heads);
+        return key !== syncedHeads && key !== localHeads;
       },
     },
     lock: "calendar-sync",
