@@ -34,6 +34,15 @@ function readRoute(): { view: View; id: string | null } | null {
   return match ? { view: match[1] as View, id: match[2] ? decodeURIComponent(match[2]) : null } : null;
 }
 const itemHash = (view: View, id: string | null | undefined) => id ? `#${view}/${encodeURIComponent(id)}` : `#${view}`;
+// Marks a step in the history that opening an item added.
+const OPENED = { opened: true };
+// Deleting the open item takes the step opening it added back off, so going back doesn't land on
+// it: the step before shows again (followRoute), whatever was open then. False if there's none.
+function stepBack(id: string) {
+  if (!(history.state as { opened?: boolean } | null)?.opened || readRoute()?.id !== id) return false;
+  history.back();
+  return true;
+}
 // List and Boards are the task views (TodayView): a task opens in their side pane when there's room.
 const taskView = (view: View) => view === "list" || view === "boards";
 // When tasks join Deadline: on their due day, or some days ahead of it.
@@ -209,7 +218,7 @@ export function App() {
     if (flushDetail && !(await flushDetail())) return;
     setSelectedTaskId(id);
     const hash = taskView(view()) ? itemHash(view(), id) : location.hash;
-    if (location.hash !== hash) history[replace ? "replaceState" : "pushState"](null, "", hash);
+    if (location.hash !== hash) history[replace ? "replaceState" : "pushState"](id ? OPENED : null, "", hash);
   };
   const closeDetail = async () => {
     const id = selectedTaskId();
@@ -243,7 +252,7 @@ export function App() {
   const editorFor = (request: EditorRequest, beside: boolean) => <ItemEditor embedded={beside} itemHref={id => itemHash(view(), id)} onQuickAddSubtask={quickAddSubtask}
     registerFlush={beside ? flush => { flushBeside = flush; return () => { if (flushBeside === flush) flushBeside = null; }; } : undefined}
     registerClose={close => { closeEditorForm = close; return () => { if (closeEditorForm === close) closeEditorForm = null; }; }}
-    items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onClose={() => { if (editor() === request) void closeEditor(); }} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />;
+    items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => { if (request.item) editorParents.push(request.item.id); setEditor({item: task, kind: "task", nonce: Date.now()}); }} onAddSubtask={task => void addEditorSubtask(task)} request={request} onRevert={saved => setEditor({ ...request, item: saved?.kind === "task" || saved?.kind === "event" ? saved : request.item, nonce: Date.now() })} onClose={() => { if (editor() === request) void closeEditor(); }} onDelete={async (item) => { const position = { left: window.scrollX, top: window.scrollY }; await store.deleteItem(item.id); if (beside && stepBack(item.id)) { flushBeside = null; editorParents.pop(); } else await closeEditor(); requestAnimationFrame(() => window.scrollTo({ ...position, behavior: "instant" })); showToast("Deleted"); }} onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />;
   // In the Android app: notifications for tasks reaching their can-start time and before events,
   // rescheduled (in real time, not pretend time) whenever the calendar or these settings change
   // and on coming back to the app. While the app's closed, the server tells the phone (FCM) when the
@@ -379,7 +388,7 @@ export function App() {
     const current = untrack(view);
     const hash = itemHash(current, id ?? (taskView(current) ? untrack(selectedTaskId) : null));
     if (location.hash === hash) return;
-    if (untrack(sideEditors)) history.pushState(null, "", hash);
+    if (untrack(sideEditors)) history.pushState(id ? OPENED : null, "", hash);
     else if (id) history.replaceState(history.state, "", hash);
   }, { defer: true }));
   // Follows the address, on loading and going back or forward: its view, and the item it names
@@ -390,6 +399,8 @@ export function App() {
     setView(route.view);
     const found = route.id ? items().find(item => item.id === route.id) : undefined;
     const item = found?.kind === "task" || found?.kind === "event" || found?.kind === "record" ? found : null;
+    // An item since deleted (or never here): its step becomes the view's, in place, so the steps after it stay.
+    if (route.id && !item) { history.replaceState(null, "", itemHash(route.view, null)); showToast("That item was deleted"); }
     const inPane = item?.kind === "task" && taskView(route.view) && splitView();
     if (taskView(route.view) && (inPane ? item.id : null) !== selectedTaskId()) {
       const previous = selectedTaskId();
@@ -401,7 +412,7 @@ export function App() {
     if ((next?.id ?? null) === (editor()?.item?.id ?? null) || (!next && !sideEditors())) return;
     if (besideOpen() && flushBeside && !(await flushBeside())) { history.pushState(null, "", itemHash(view(), editor()?.item?.id)); return; }
     // There the editor adds a step of its own, with the item's address; going back lands on the view.
-    if (next && !sideEditors()) history.replaceState(history.state, "", itemHash(route.view, null));
+    if (next && !sideEditors()) history.replaceState(null, "", itemHash(route.view, null));
     editorParents.length = 0;
     setEditor(next ? { item: next, kind: next.kind, nonce: Date.now() } : null);
   };
@@ -469,7 +480,7 @@ export function App() {
                 <Show when={detailRequest() || lastRequest} keyed fallback={<div class="task-detail-empty"><p class="page-eyebrow">Task details</p><h2>Pick a task to see everything about it.</h2><p>Notes, dates, subtasks, and attachments open here. The list stays where it is.</p></div>}>{(request) =>
                   <ItemEditor embedded itemHref={id => itemHash(view(), id)} request={request} items={items()} liveEdits={store.liveEdits} onLiveEdit={store.setLiveEdit} onConvertChild={(child, to) => convertChild(child, to, request.item as Task)} onReorderChildren={reorderTasks} registerFlush={flush => { flushDetail = flush; return () => { if (flushDetail === flush) flushDetail = null; }; }} registerClose={close => { closeDetailEditor = close; return () => { if (closeDetailEditor === close) closeDetailEditor = null; }; }} onStale={() => setDetailVersion(version => version + 1)} onRevert={() => setDetailVersion(version => version + 1)}
                     onQuickAddSubtask={quickAddSubtask} onAddDependent={addDependent} onStartDependent={startDependent} onEditItem={task => void selectTask(task.id)} onAddSubtask={() => {}} onClose={() => void closeDetail()}
-                    onDelete={async (item) => { await store.deleteItem(item.id); flushDetail = null; await selectTask(null, true); showToast("Deleted"); }}
+                    onDelete={async (item) => { await store.deleteItem(item.id); flushDetail = null; if (!stepBack(item.id)) await selectTask(null, true); showToast("Deleted"); }}
                     onSave={saveItem} onError={showToast} onManageWindows={() => { setSettingsTab("windows"); openSettings(); }} now={clock()} />}
                 </Show>
               </aside>
