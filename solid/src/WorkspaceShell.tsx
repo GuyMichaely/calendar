@@ -16,7 +16,12 @@ export function WorkspaceShell(props: {
   // Search that finds (Settings → Display): its results under the field, and the field's keys and focus.
   searchResults?: JSX.Element; onSearchKeyDown?: (event: KeyboardEvent) => void; onSearchFocus?: () => void; searchExpanded?: boolean;
 }) {
-  const [searchOpen, setSearchOpen] = createSignal(false);
+  // A phone's narrow search field says just "Search" until it widens.
+  const phoneQuery = window.matchMedia("(max-width: 760px)");
+  const [phone, setPhone] = createSignal(phoneQuery.matches);
+  const onPhoneChange = () => setPhone(phoneQuery.matches);
+  phoneQuery.addEventListener("change", onPhoneChange);
+  onCleanup(() => phoneQuery.removeEventListener("change", onPhoneChange));
   // The top bar's height, for what sticks below it (--topbar-height).
   const watchTopbar = (header: HTMLElement) => {
     const observer = new ResizeObserver(() => document.documentElement.style.setProperty("--topbar-height", `${header.offsetHeight}px`));
@@ -24,8 +29,6 @@ export function WorkspaceShell(props: {
     onCleanup(() => observer.disconnect());
   };
   const searchLabel = () => props.searchResults ? "Search everything" : props.view === "calendar" ? "Search calendar" : props.view === "agenda" ? "Search agenda" : "Search tasks";
-  let searchInput!: HTMLInputElement;
-  const toggleSearch = () => { const open = !searchOpen(); setSearchOpen(open); if (!open) props.onQuery(""); else requestAnimationFrame(() => searchInput.focus()); };
   return <div class="workspace-layout">
     <a class="skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById("workspace-content")?.focus(); }}>Skip to content</a>
     <aside class="workspace-rail">
@@ -42,10 +45,9 @@ export function WorkspaceShell(props: {
     </aside>
     <div class="workspace-body">
       <header class="workspace-topbar" ref={watchTopbar}>
-        <strong class="mobile-word">Calendar<span class="mobile-brand-period">.</span></strong>
         <Show when={props.notice}>{props.notice}</Show>
-        <label class="workspace-search" data-open={searchOpen() || !!props.query}><Icon name="search" size={17} /><input ref={searchInput} type="search" aria-label={searchLabel()} placeholder={searchLabel()} value={props.query} onInput={event => props.onQuery(event.currentTarget.value)} onKeyDown={event => props.onSearchKeyDown?.(event)} onFocus={() => props.onSearchFocus?.()} aria-expanded={props.searchResults ? !!props.searchExpanded : undefined} aria-controls={props.searchResults ? "search-results" : undefined} autocomplete="off" /><Show when={props.query}><button type="button" aria-label="Clear search" onClick={() => props.onQuery("")}>×</button></Show>{props.searchResults}</label>
-        <div class="workspace-utilities"><button class="icon-button mobile-search-toggle" aria-label={searchOpen() ? "Close search" : "Search"} aria-expanded={searchOpen() || !!props.query} onClick={toggleSearch}><Icon name="search" size={17} /></button>
+        <label class="workspace-search"><Icon name="search" size={17} /><input type="search" aria-label={searchLabel()} placeholder={phone() ? "Search" : searchLabel()} value={props.query} onInput={event => props.onQuery(event.currentTarget.value)} onKeyDown={event => props.onSearchKeyDown?.(event)} onFocus={() => props.onSearchFocus?.()} aria-expanded={props.searchResults ? !!props.searchExpanded : undefined} aria-controls={props.searchResults ? "search-results" : undefined} autocomplete="off" /><Show when={props.query}><button type="button" aria-label="Clear search" onClick={() => props.onQuery("")}>×</button></Show>{props.searchResults}</label>
+        <div class="workspace-utilities">
           <button class="sync-indicator" data-state={props.syncState} title={props.syncDetail} aria-label={props.syncState === "pending" ? `${props.syncLabel}. Sync now` : `${props.syncLabel}. Open sync settings`} onClick={() => props.syncState === "pending" ? props.onSyncNow() : props.onSettings()}><Icon name={syncIcons[props.syncState]} size={17} /><span role="status">{props.syncLabel}</span></button>
           <button class="icon-button mobile-settings" aria-label="Settings" onClick={props.onSettings}><Icon name="settings" size={17} /></button>
           <div class="mobile-history" aria-label="History"><button class="icon-button" aria-label="Undo" title={props.undoLabel || "Undo"} disabled={!props.canUndo} onClick={props.onUndo}>↶</button><button class="icon-button" aria-label="Redo" title={props.redoLabel || "Redo"} disabled={!props.canRedo} onClick={props.onRedo}>↷</button></div>
