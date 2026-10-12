@@ -61,7 +61,7 @@ const attachmentIdOf = (href: string) => href.toLowerCase().startsWith(ATTACHMEN
  * A file link starts with a paperclip, a character of its own that carries the link: the caret
  * right of it is in the link (typing there adds to the link's text), left of it is outside. Each
  * file link gets exactly one, kept as links are typed, pasted, undone or unlinked; the notes'
- * markdown never has it. Backspace right of it takes out the whole link; Delete left of it steps over it.
+ * markdown never has it. Backspace right of it unlinks it (its text stays); Delete left of it steps over it.
  */
 const CLIP = "attachmentClip";
 const fileLinkOf = (node: ProseMirrorNode) => node.marks.find(mark => mark.type.name === "link" && attachmentIdOf(String(mark.attrs.href || "")) != null);
@@ -107,7 +107,9 @@ const AttachmentClip = TiptapNode.create({
       Backspace: () => {
         const { selection, doc } = this.editor.state, clip = selection.$from.nodeBefore;
         const link = selection.empty && clip?.type.name === CLIP ? fileLinkOf(clip) : undefined;
-        return !!link && this.editor.commands.deleteRange({ from: selection.from - 1, to: linkEnd(doc, selection.from, link) });
+        if (!link) return false;
+        this.editor.view.dispatch(this.editor.state.tr.removeMark(selection.from, linkEnd(doc, selection.from, link), link).delete(selection.from - 1, selection.from));
+        return true;
       },
       Delete: () => {
         const { selection } = this.editor.state;
@@ -119,12 +121,12 @@ const AttachmentClip = TiptapNode.create({
     return [new Plugin({
       appendTransaction: (transactions, previous, state) => {
         if (!transactions.some(tr => tr.docChanged)) return null;
-        // A phone keyboard's backspace (from right of a paperclip) takes out just the paperclip: the rest of its link goes too.
+        // A phone keyboard's backspace (from right of a paperclip) takes out the paperclip: its link's text is unlinked too.
         const [only] = transactions, step = only.steps[0];
         if (transactions.length === 1 && only.steps.length === 1 && step instanceof ReplaceStep && !step.slice.size && step.to === step.from + 1
           && previous.selection.empty && previous.selection.from === step.to && only.docs[0].nodeAt(step.from)?.type.name === CLIP) {
           const link = fileLinkOf(only.docs[0].nodeAt(step.from)!), after = state.doc.nodeAt(step.from);
-          if (link && after && link.isInSet(after.marks)) return state.tr.delete(step.from, linkEnd(state.doc, step.from, link));
+          if (link && after && link.isInSet(after.marks)) return state.tr.removeMark(step.from, linkEnd(state.doc, step.from, link), link);
         }
         return placeClips(state);
       },
