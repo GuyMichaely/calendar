@@ -106,6 +106,25 @@ export function App() {
     if (settings.mode === "manual" && syncPending()) return { state: "pending", label: "Not synced", detail: "This browser has edits your other devices don't yet. Tap to sync now." };
     return lastSyncedAt ? { state: "synced", label: "Synced", detail: `Synced with your other devices at ${clockText(new Date(lastSyncedAt))}.` } : { state: "busy", label: "Not synced yet", detail: "Signed in; the first sync hasn't finished." };
   });
+  // Opening the app, or coming back to it, syncs; until that sync ends, the page (what this browser
+  // had) sits under a bar saying newer edits may be on their way. A sync that hasn't started
+  // within a second isn't coming (another window's, or one that can't run now).
+  const [catchingUp, setCatchingUp] = createSignal(false);
+  let catchUpStarted = false, catchUpTimer = 0;
+  const catchUp = () => {
+    const { settings, state } = syncSnapshot();
+    if (!settings?.enabled || settings.mode === "manual" || state.kind === "signed-out" || !navigator.onLine) return;
+    catchUpStarted = syncSnapshot().running;
+    setCatchingUp(true);
+    window.clearTimeout(catchUpTimer);
+    catchUpTimer = window.setTimeout(() => { if (!catchUpStarted) setCatchingUp(false); }, 1000);
+  };
+  createEffect(() => {
+    const { running } = syncSnapshot();
+    if (!untrack(catchingUp)) return;
+    if (running) catchUpStarted = true;
+    else if (catchUpStarted) setCatchingUp(false);
+  });
   const openCount = createMemo(() => openWork(items()).length);
   const [calendarMonth, setCalendarMonth] = createSignal(zonedDate(partsOf(nowAtStart).year, partsOf(nowAtStart).month, 1));
   // The first day the Calendar's hour views show.
@@ -424,11 +443,13 @@ export function App() {
       // A fresh local development copy that isn't syncing starts with sample tasks.
       if (import.meta.env.DEV && !syncSnapshot().settings?.enabled && !items().length) await attempt(() => store.importBackup(JSON.stringify({ items: sampleItems() })), "Could not add the sample tasks.");
       sync.start();
+      catchUp();
       setReady(true);
       void followRoute();
     })();
     const clockTimer = window.setInterval(() => { if (!document.querySelector(".solid-dialog-backdrop")) setClock(appNow()); }, 30_000);
     const syncLocation = () => void followRoute();
+    const onVisible = () => { if (document.visibilityState === "visible" && ready()) catchUp(); };
     const onKeyDown = (event: KeyboardEvent) => {
       // Escape closes the pane beside the page even when focus is elsewhere (the pane handles it when focused inside).
       const closePane = closeEditorForm || closeDetailEditor;
@@ -444,9 +465,9 @@ export function App() {
         }
       }
     };
-    window.addEventListener("popstate", syncLocation); document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("popstate", syncLocation); document.addEventListener("keydown", onKeyDown); document.addEventListener("visibilitychange", onVisible);
     onCleanup(() => {
-      sync.stop(); window.clearInterval(clockTimer); window.removeEventListener("popstate", syncLocation); document.removeEventListener("keydown", onKeyDown);
+      sync.stop(); window.clearInterval(clockTimer); window.clearTimeout(catchUpTimer); window.removeEventListener("popstate", syncLocation); document.removeEventListener("keydown", onKeyDown); document.removeEventListener("visibilitychange", onVisible);
     });
   });
 
@@ -459,6 +480,7 @@ export function App() {
       showToast(text ? "Backup imported" : "Started with an empty calendar");
     }} />}>
       <div class="app-shell">
+        <Show when={!ready() || catchingUp()}><div class="loading-bar" role="progressbar" aria-label={ready() ? "Getting your other devices' edits" : "Loading your calendar"} /></Show>
         <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = ""; }} />
         <WorkspaceShell notice={prefs.showTimeControl() || prefs.timeOffset() ? <TimeControl now={clock()} pretending={!!prefs.timeOffset()} onSet={pretend} onStep={ms => pretend(new Date(appNow().getTime() + ms))} onReset={() => pretend(null)} /> : undefined}
           view={view()} openCount={openCount()} query={query()} onQuery={setQuery}
@@ -468,6 +490,7 @@ export function App() {
           onSettings={() => { setSettingsTab("data"); openSettings(); }}
           onSyncNow={() => void syncNow()} syncState={syncStatus().state} syncLabel={syncStatus().label} syncDetail={syncStatus().detail}
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
+          <Show when={ready()} fallback={<p class="app-loading" role="status">Loading your calendar…</p>}>
           <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("agenda")} mode={prefs.calendarMode()} onModeChange={prefs.setCalendarMode} day={calendarDay()} onDayChange={setCalendarDay} hourHeight={prefs.hourHeight()} onHourHeight={prefs.setHourHeight} showTasks={prefs.calendarTasks()} onShowTasksChange={prefs.setCalendarTasks} />}>
             <Show when={view() !== "agenda"} fallback={<AgendaView items={items()} query={query()} now={clock()} days={prefs.agendaDays()} onDaysChange={prefs.setAgendaDays} todosOpen={prefs.todosOpen()} onEdit={item => openEditor(item)} />}>
             <div class="tasks-workspace" classList={{ split: paneOpen() }}>
@@ -487,6 +510,7 @@ export function App() {
             </Show>
             </div>
             </Show>
+          </Show>
           </Show>
         </WorkspaceShell>
         {/* Down the page's right side like List's, or (narrower screens) over the page. */}

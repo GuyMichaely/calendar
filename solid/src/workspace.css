@@ -682,3 +682,13 @@ body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
 [data-side-open] .workspace-body { margin-right: var(--side-width); }
 [data-animations="on"][data-side-editors] .workspace-body { transition: margin-right .24s ease; }
 [data-animations="on"] .side-editor-pane:not(.closing) { animation: pane-in .24s ease; }
+
+/* Loading: the calendar from this browser, then (syncing) other devices' edits since. The bar
+   only shows for loads that take a moment. */
+.loading-bar { position: fixed; inset: env(safe-area-inset-top, 0px) 0 auto; z-index: 60; height: 2px; overflow: hidden; pointer-events: none; animation: loading-in .2s .3s both; }
+.loading-bar::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 35%; background: var(--accent); }
+[data-animations="on"] .loading-bar::before { animation: loading-slide 1.1s ease-in-out infinite; }
+[data-animations="off"] .loading-bar::before { width: 100%; opacity: .6; }
+@keyframes loading-slide { from { translate: -100% 0; } to { translate: 290% 0; } }
+@keyframes loading-in { from { opacity: 0; } }
+.app-loading { margin: 18vh auto 0; color: var(--muted); text-align: center; font-size: 13px; animation: loading-in .2s .3s both; }
