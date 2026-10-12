@@ -1,5 +1,6 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Icon } from "./Icon";
+import { SkeletonRows } from "./Skeleton";
 import { ancestors, buildSections, deadlineDaysOf, pushedDownInfo, SECTION_ORDER, taskGroupId, type Placement, type Section, type SectionId, type SubtaskMode, type TreeNode } from "./today";
 import { boardLayout, placeBoard, placeColumn, sameLayout, userBoards, type BoardLayout, type BoardTarget } from "./board-order";
 import { taskSchedule, windowsById } from "./windows";
@@ -17,6 +18,8 @@ export type TaskView = "today" | "boards";
 
 export type TodayViewProps = {
   items: Item[];
+  // Still reading the calendar: placeholders where its tasks go.
+  loading?: boolean;
   query: string;
   now: Date;
   selectedId: string | null;
@@ -984,7 +987,8 @@ export function TodayView(props: TodayViewProps) {
         onKeyDown={event => { if (event.key === "ArrowDown") { event.preventDefault(); step(null, "ArrowDown"); } else if (event.key === "Escape" && !draft()) event.currentTarget.blur(); }} />
     </form>
     </div>
-    <div class="today-board" ref={boardRef} onKeyDown={onRowKey} classList={{ "boards-layout": props.view === "boards", "drag-active": !!dragKey() }}>
+    <div class="today-board" ref={boardRef} onKeyDown={onRowKey} classList={{ "boards-layout": props.view === "boards" && !props.loading, "drag-active": !!dragKey() }}>
+      <Show when={!props.loading} fallback={<SkeletonRows count={6} />}>
       <Show when={props.view === "boards"} fallback={
         <Show when={sections().length} fallback={<p class="today-empty">{props.query ? "No tasks match your search." : "Nothing needs you right now."}</p>}>
           <For each={sections().map(entry => entry.id)}>{id => <SectionBlock id={id} />}</For>
@@ -1001,6 +1005,7 @@ export function TodayView(props: TodayViewProps) {
           </div>
           {opening(`column:${columnIndex + 1}`, "column")}
         </>}</Index>
+      </Show>
       </Show>
     </div>
   </section>;

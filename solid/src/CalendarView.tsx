@@ -1,4 +1,5 @@
 import { Icon } from "./Icon";
+import { SkeletonRows } from "./Skeleton";
 import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import { textMatches } from "../../site/domain.js";
 import { addDays, clockText, dayKey as dateKey, formatIn, fromInputValue, partsOf, startOfDay, toInputValue, zonedDate } from "./zone";
@@ -40,6 +41,8 @@ function displayTitle(item: Item) {
 
 export function CalendarView(props: {
   items: Item[];
+  // Still reading the calendar: placeholders in the day's list.
+  loading?: boolean;
   query: string;
   // The first of the month shown.
   month: Date;
@@ -214,7 +217,7 @@ export function CalendarView(props: {
           </div>
         </div>
         <div class="agenda-scroll">
-          <Show when={dayList().entries.length || dayList().sections.length} fallback={<div class="agenda-empty"><Icon name="calendar" size={29} /><strong>A little breathing room</strong><p>{props.query ? "No matches on this day." : "Nothing scheduled for this day."}</p></div>}>
+          <Show when={dayList().entries.length || dayList().sections.length} fallback={props.loading ? <SkeletonRows count={3} /> : <div class="agenda-empty"><Icon name="calendar" size={29} /><strong>A little breathing room</strong><p>{props.query ? "No matches on this day." : "Nothing scheduled for this day."}</p></div>}>
             <div class="agenda-entries"><For each={dayList().entries}>{row}</For></div>
             <For each={dayList().sections}>{section =>
               <section class="day-section" data-section={section.id}>

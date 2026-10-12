@@ -483,18 +483,17 @@ export function App() {
         <Show when={!ready() || catchingUp()}><div class="loading-bar" role="progressbar" aria-label={ready() ? "Getting your other devices' edits" : "Loading your calendar"} /></Show>
         <input ref={(element) => { importRef = element; }} type="file" accept="application/json,.json" hidden onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; if (file) { setShowSettings(false); void importBackup(file); } input.value = ""; }} />
         <WorkspaceShell notice={prefs.showTimeControl() || prefs.timeOffset() ? <TimeControl now={clock()} pretending={!!prefs.timeOffset()} onSet={pretend} onStep={ms => pretend(new Date(appNow().getTime() + ms))} onReset={() => pretend(null)} /> : undefined}
-          view={view()} openCount={openCount()} query={query()} onQuery={setQuery}
+          view={view()} openCount={ready() ? openCount() : null} query={query()} onQuery={setQuery}
           searchResults={prefs.findSearch() ? find.view : undefined} onSearchKeyDown={prefs.findSearch() ? find.onKeyDown : undefined} onSearchFocus={find.reopen} searchExpanded={find.open()}
           onNavigate={(next) => { navigate(next); window.scrollTo({top: 0, behavior: "instant"}); }}
           onNew={() => openEditor(null, view() === "calendar" ? "event" : "task")}
           onSettings={() => { setSettingsTab("data"); openSettings(); }}
           onSyncNow={() => void syncNow()} syncState={syncStatus().state} syncLabel={syncStatus().label} syncDetail={syncStatus().detail}
           canUndo={store.history().canUndo} canRedo={store.history().canRedo} undoLabel={store.history().undoLabel} redoLabel={store.history().redoLabel} onUndo={() => void applyUndo()} onRedo={() => void applyRedo()}>
-          <Show when={ready()} fallback={<p class="app-loading" role="status">Loading your calendar…</p>}>
-          <Show when={view() !== "calendar"} fallback={<CalendarView items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("agenda")} mode={prefs.calendarMode()} onModeChange={prefs.setCalendarMode} day={calendarDay()} onDayChange={setCalendarDay} hourHeight={prefs.hourHeight()} onHourHeight={prefs.setHourHeight} showTasks={prefs.calendarTasks()} onShowTasksChange={prefs.setCalendarTasks} />}>
-            <Show when={view() !== "agenda"} fallback={<AgendaView items={items()} query={query()} now={clock()} days={prefs.agendaDays()} onDaysChange={prefs.setAgendaDays} todosOpen={prefs.todosOpen()} onEdit={item => openEditor(item)} />}>
+          <Show when={view() !== "calendar"} fallback={<CalendarView loading={!ready()} items={calendarView().items} ghostIds={calendarView().ghostIds} showDependents={prefs.showDependents()} onShowDependentsChange={prefs.setShowDependents} query={query()} month={calendarMonth()} now={clock()} onMonthChange={setCalendarMonth} onEdit={(item) => openEditor(item)} onCreateForDay={(date) => openEditor(null, "event", date)} onOpenTodayTasks={() => navigate("agenda")} mode={prefs.calendarMode()} onModeChange={prefs.setCalendarMode} day={calendarDay()} onDayChange={setCalendarDay} hourHeight={prefs.hourHeight()} onHourHeight={prefs.setHourHeight} showTasks={prefs.calendarTasks()} onShowTasksChange={prefs.setCalendarTasks} />}>
+            <Show when={view() !== "agenda"} fallback={<AgendaView loading={!ready()} items={items()} query={query()} now={clock()} days={prefs.agendaDays()} onDaysChange={prefs.setAgendaDays} todosOpen={prefs.todosOpen()} onEdit={item => openEditor(item)} />}>
             <div class="tasks-workspace" classList={{ split: paneOpen() }}>
-            <TodayView items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
+            <TodayView loading={!ready()} items={items()} query={query()} now={clock()} selectedId={splitView() ? selectedTaskId() : null}
              
               view={view() === "boards" ? "boards" : "today"} showBoard={prefs.showBoard()} showTags={prefs.showTags()} pullTimed={prefs.pullTimed()} onPullTimedChange={prefs.setPullTimed} onLayoutBoards={layout => groupChange(() => store.layoutBoards(layout))} onCreateBoard={createGroup} onRenameBoard={renameGroup} onDeleteBoard={deleteGroup} compact={prefs.compact()} onCompactChange={prefs.setCompact} subtaskMode={prefs.subtaskMode()} onSubtaskModeChange={prefs.setSubtaskMode}
               liveEdits={store.liveEdits} onEdit={editTask} onEditEvent={item => openEditor(item)} onComplete={completeTask} onFinish={finishTask} onNotYet={notYet} onAddTask={addTask} onPushDown={pushDown} onLift={lift} onReopen={reopenTask} onCompletedSubtasks={setCompletedSubtasks} onDeleteTask={deleteTask} onStartDependent={startDependent} shortcuts={shortcuts()} onMoveTask={(task, to) => attempt(() => store.moveTask(task, to), "Could not move task.")} registerMotion={next => { motion = next; return () => { if (motion === next) motion = null; }; }} />
@@ -510,7 +509,6 @@ export function App() {
             </Show>
             </div>
             </Show>
-          </Show>
           </Show>
         </WorkspaceShell>
         {/* Down the page's right side like List's, or (narrower screens) over the page. */}

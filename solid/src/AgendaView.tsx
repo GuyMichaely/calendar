@@ -1,6 +1,7 @@
 import { For, Show, createMemo, createSignal, on, createEffect } from "solid-js";
 import { textMatches } from "../../site/domain.js";
 import { Icon } from "./Icon";
+import { SkeletonRows } from "./Skeleton";
 import { calendarEntries, leafTasks, todaysWork, wholeDays, type CalendarEntry } from "./calendar-entries";
 import { placementOf, type Placement } from "./today";
 import { when } from "./TodayView";
@@ -41,6 +42,8 @@ const title = (item: Item) => String(item.title || "").trim() || (item.kind === 
  */
 export function AgendaView(props: {
   items: Item[];
+  // Still reading the calendar: placeholders where its days go.
+  loading?: boolean;
   query: string;
   now: Date;
   days: AgendaDays;
@@ -152,7 +155,7 @@ export function AgendaView(props: {
       </div>
     </div>
     {/* Days with nothing in them don't show. */}
-    <For each={agenda().days.filter(day => day.rows.length)} fallback={<p class="agenda-quiet">{props.query ? "No matches." : props.days === 1 ? "Nothing scheduled today." : `Nothing scheduled in the next ${props.days} days.`}</p>}>{day =>
+    <For each={agenda().days.filter(day => day.rows.length)} fallback={props.loading ? <SkeletonRows count={6} /> : <p class="agenda-quiet">{props.query ? "No matches." : props.days === 1 ? "Nothing scheduled today." : `Nothing scheduled in the next ${props.days} days.`}</p>}>{day =>
       <section class="agenda-day" aria-label={dayName(day.date)}>
         <Show when={props.days > 1}><h2 class="agenda-day-heading"><span>{dayName(day.date)}</span><small>{formatIn(day.date, { month: "short", day: "numeric" })}</small></h2></Show>
         <div class="agenda-entries">{dayKey(day.date) === dayKey(props.now) ? todayRows(day.rows) : <For each={day.rows}>{row}</For>}</div>

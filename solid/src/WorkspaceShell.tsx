@@ -5,7 +5,7 @@ import type { View } from "./types";
 export type SyncState = "local" | "busy" | "synced" | "pending" | "offline" | "signed-out" | "error";
 const syncIcons: Record<SyncState, IconName> = { local: "cloud-off", busy: "refresh", synced: "cloud-check", pending: "cloud-up", offline: "wifi-off", "signed-out": "cloud-lock", error: "cloud-x" };
 export function WorkspaceShell(props: {
-  view: View; openCount: number; query: string;
+  view: View; openCount: number | null; query: string;
   onQuery: (value: string) => void; onNavigate: (view: View) => void;
   onNew: () => void; onSettings: () => void; onSyncNow: () => void; children: JSX.Element;
   syncLabel: string; syncDetail: string; syncState: SyncState;
@@ -35,7 +35,7 @@ export function WorkspaceShell(props: {
       <button class="workspace-brand" onClick={() => props.onNavigate("agenda")} aria-label="Calendar home"><span class="brand-mark"><Icon name="calendar" size={23} /></span>Calendar<span class="brand-period">.</span></button>
       <nav class="rail-nav" aria-label="Workspace">
         <button classList={{active: props.view === "agenda"}} aria-current={props.view === "agenda" ? "page" : undefined} onClick={() => props.onNavigate("agenda")}><Icon name="sun" /><span>Agenda</span></button>
-        <button classList={{active: props.view === "list"}} aria-current={props.view === "list" ? "page" : undefined} onClick={() => props.onNavigate("list")}><Icon name="list" /><span>List</span><span class="nav-count">{props.openCount}</span></button>
+        <button classList={{active: props.view === "list"}} aria-current={props.view === "list" ? "page" : undefined} onClick={() => props.onNavigate("list")}><Icon name="list" /><span>List</span><Show when={props.openCount !== null}><span class="nav-count">{props.openCount}</span></Show></button>
         <button classList={{active: props.view === "boards"}} aria-current={props.view === "boards" ? "page" : undefined} onClick={() => props.onNavigate("boards")}><Icon name="compact" /><span>Boards</span></button>
         <button classList={{active: props.view === "calendar"}} aria-current={props.view === "calendar" ? "page" : undefined} onClick={() => props.onNavigate("calendar")}><Icon name="calendar" /><span>Calendar</span></button>
       </nav>
